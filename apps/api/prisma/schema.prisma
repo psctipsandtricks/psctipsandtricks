@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  ADMIN
+  TEACHER
+}
+
+enum OrderStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id           String           @id @default(uuid())
+  email        String           @unique
+  password     String
+  name         String
+  role         UserRole         @default(STUDENT)
+  isPremium    Boolean          @default(false)
+  avatarUrl    String?
+  phoneNumber  String?
+  orders       Order[]
+  submissions  QuizSubmission[]
+  messages     ChatMessage[]
+  notifications Notification[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model Book {
+  id            String   @id @default(uuid())
+  title         String
+  author        String
+  description   String   @db.Text
+  coverUrl      String
+  pdfUrl        String?
+  price         Float    @default(0)
+  category      String
+  isPublished   Boolean  @default(true)
+  downloadCount Int      @default(0)
+  orders        Order[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Quiz {
+  id              String           @id @default(uuid())
+  title           String
+  category        String
+  description     String           @db.Text
+  totalQuestions  Int              @default(0)
+  durationMinutes Int              @default(30)
+  isLiveMock      Boolean          @default(false)
+  passingMarks    Float            @default(40)
+  totalMarks      Float            @default(100)
+  questions       Question[]
+  submissions     QuizSubmission[]
+  orders          Order[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model Question {
+  id                 String   @id @default(uuid())
+  quizId             String
+  quiz               Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  text               String   @db.Text
+  options            Json     // array of { id: string, text: string }
+  correctOptionIndex Int
+  explanation        String?  @db.Text
+  marks              Float    @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model QuizSubmission {
+  id               String   @id @default(uuid())
+  quizId           String
+  quiz             Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score            Float
+  totalMarks       Float
+  passed           Boolean
+  correctAnswers   Int
+  wrongAnswers     Int
+  unattempted      Int
+  timeTakenSeconds Int
+  answers          Json     // Array of submitted answers
+  createdAt        DateTime @default(now())
+}
+
+model Order {
+  id                String      @id @default(uuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId            String?
+  book              Book?       @relation(fields: [bookId], references: [id])
+  quizId            String?
+  quiz              Quiz?       @relation(fields: [quizId], references: [id])
+  amount            Float
+  currency          String      @default("INR")
+  status            OrderStatus @default(PENDING)
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+}
+
+model Coupon {
+  id                String   @id @default(uuid())
+  code              String   @unique
+  discountPercent   Float
+  maxDiscountAmount Float
+  validTill         DateTime
+  isActive          Boolean  @default(true)
+  usageCount        Int      @default(0)
+  createdAt         DateTime @default(now())
+}
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName   String
+  userAvatar String?
+  content    String   @db.Text
+  room       String   @default("general")
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  body      String   @db.Text
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isRead    Boolean  @default(false)
+  type      String?  @default("ANNOUNCEMENT")
+  createdAt DateTime @default(now())
+}
