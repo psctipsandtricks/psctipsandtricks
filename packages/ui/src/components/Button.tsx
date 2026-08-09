@@ -9,15 +9,15 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', isLoading = false, children, disabled, ...props }, ref) => {
-    const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+    const baseStyles = 'inline-flex items-center justify-center font-bold rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer select-none';
     
     const variants = {
-      primary: 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 shadow-md',
-      secondary: 'bg-slate-800 text-slate-100 hover:bg-slate-700 focus:ring-slate-600 border border-slate-700',
-      outline: 'border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-indigo-500',
-      ghost: 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-slate-400',
-      danger: 'bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-500 shadow-md',
-      gold: 'bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400 focus:ring-amber-400 shadow-md',
+      primary: 'btn-shine-effect bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:hover:from-cyan-300 dark:hover:to-blue-400 dark:text-slate-950 font-extrabold shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60',
+      secondary: 'bg-slate-100 dark:bg-[#091124] text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-[#0c152e] border border-slate-200 dark:border-[#1e2e56]',
+      outline: 'border border-cyan-500/40 dark:border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70 bg-transparent',
+      ghost: 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-[#0c152e]/80 hover:text-cyan-400',
+      danger: 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-xs',
+      gold: 'btn-shine-effect bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:hover:from-cyan-300 dark:hover:to-blue-400 dark:text-slate-950 font-extrabold shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60',
     };
 
     const sizes = {

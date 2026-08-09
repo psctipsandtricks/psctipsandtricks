@@ -1,16 +1,36 @@
-export type UserRole = 'STUDENT' | 'ADMIN' | 'TEACHER';
+export type UserRole = 'STUDENT' | 'STAFF' | 'ADMIN';
+export type UserStatus = 'ACTIVE' | 'SUSPENDED';
 
 export interface User {
   id: string;
   email: string;
   name: string;
   role: UserRole;
+  status: UserStatus;
   isPremium: boolean;
   avatarUrl?: string | null;
   phoneNumber?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface StaffPermission {
+  id: string;
+  userId: string;
+  manageBooks: boolean;
+  manageQuizzes: boolean;
+  manageChat: boolean;
+  manageCoupons: boolean;
+  manageNotifications: boolean;
+  viewOrders: boolean;
+  viewAnalytics: boolean;
+  manageUsers: boolean;
+  grantedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ContentStatus = 'DRAFT' | 'PUBLISHED';
 
 export interface Book {
   id: string;
@@ -21,10 +41,44 @@ export interface Book {
   pdfUrl?: string;
   price: number;
   category: string;
+  isPremium: boolean;
   isPublished: boolean;
   downloadCount: number;
+  chapters?: Chapter[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Chapter {
+  id: string;
+  bookId: string;
+  title: string;
+  orderIndex: number;
+  textContent?: string | null;
+  audioUrl?: string | null;
+  audioDurationSeconds?: number | null;
+  status: ContentStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReadingProgress {
+  id: string;
+  userId: string;
+  bookId: string;
+  chapterId?: string | null;
+  progressPercent: number;
+  lastReadAt: string;
+}
+
+export type BookmarkType = 'QUESTION' | 'CHAPTER';
+
+export interface Bookmark {
+  id: string;
+  userId: string;
+  referenceType: BookmarkType;
+  referenceId: string;
+  createdAt: string;
 }
 
 export interface QuestionOption {
@@ -50,6 +104,10 @@ export interface Quiz {
   totalQuestions: number;
   durationMinutes: number;
   isLiveMock: boolean;
+  isPremium: boolean;
+  showCorrectAnswerAfterSelection?: boolean;
+  price: number;
+  negativeMarkingValue: number;
   passingMarks: number;
   totalMarks: number;
   questions?: Question[];
@@ -59,7 +117,7 @@ export interface Quiz {
 
 export interface QuizSubmissionPayload {
   quizId: string;
-  answers: { questionId: string; selectedOptionIndex: number }[];
+  answers: { questionId: string; selectedOptionIndex?: number }[];
   timeTakenSeconds: number;
 }
 
@@ -75,6 +133,68 @@ export interface QuizResult {
   unattempted: number;
   timeTakenSeconds: number;
   rank?: number;
+  createdAt: string;
+}
+
+export type AttemptStatus = 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED';
+
+export interface QuizAttempt {
+  id: string;
+  quizId: string;
+  userId: string;
+  attemptNumber: number;
+  attemptStatus: AttemptStatus;
+  score: number;
+  totalMarks: number;
+  percentage: number;
+  totalQuestions: number;
+  passed: boolean;
+  correctAnswers: number;
+  wrongAnswers: number;
+  unattempted: number;
+  timeTakenSeconds: number;
+  answers: { questionId: string; selectedOptionIndex?: number }[];
+  startedAt: string;
+  submittedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  quiz?: {
+    id: string;
+    title: string;
+    category: string;
+    durationMinutes: number;
+    totalQuestions: number;
+    passingMarks: number;
+    totalMarks: number;
+  };
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export type MockTestStatus = 'UPCOMING' | 'LIVE' | 'COMPLETED';
+
+export interface MockTest {
+  id: string;
+  title: string;
+  quizId: string;
+  quiz?: Quiz;
+  scheduledAt: string;
+  status: MockTestStatus;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MockTestParticipant {
+  id: string;
+  mockTestId: string;
+  userId: string;
+  score?: number | null;
+  rank?: number | null;
+  submittedAt?: string | null;
   createdAt: string;
 }
 
@@ -105,6 +225,45 @@ export interface Coupon {
   createdAt: string;
 }
 
+export interface ChatGroup {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  iconEmoji: string;
+  coverGradient: string;
+  isLocked: boolean;
+  type: string;
+  createdAt: string;
+}
+
+export interface ChatGroupWithUserState extends ChatGroup {
+  memberCount: number;
+  isJoined: boolean;
+  isPinned: boolean;
+  unreadCount: number;
+  lastReadMessageId?: string | null;
+  lastMessage?: ChatMessage | null;
+}
+
+export interface ChatGroupMember {
+  id: string;
+  groupId: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+}
+
+export interface ChatGroupRead {
+  id: string;
+  userId: string;
+  groupId: string;
+  lastReadMessageId?: string | null;
+  lastReadAt: string;
+}
+
+export type ChatMessageType = 'TEXT' | 'POLL' | 'IMAGE' | 'DOCUMENT';
+
 export interface ChatMessage {
   id: string;
   userId: string;
@@ -112,6 +271,10 @@ export interface ChatMessage {
   userAvatar?: string | null;
   content: string;
   room: string;
+  groupId?: string | null;
+  messageType: ChatMessageType;
+  mediaUrl?: string | null;
+  metadata?: Record<string, any> | null;
   createdAt: string;
 }
 
@@ -120,9 +283,23 @@ export interface Notification {
   title: string;
   body: string;
   userId?: string | null;
+  target: string;
+  sentById?: string | null;
   isRead: boolean;
   type?: string;
   createdAt: string;
+}
+
+export interface AnnouncementPopup {
+  id: string;
+  title: string;
+  message: string;
+  imageUrl?: string | null;
+  isActive: boolean;
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LeaderboardEntry {
@@ -131,7 +308,8 @@ export interface LeaderboardEntry {
   userName: string;
   avatarUrl?: string | null;
   score: number;
-  timeTakenSeconds: number;
+  totalMarks?: number;
+  timeTakenSeconds?: number;
 }
 
 export interface AuthPayload {

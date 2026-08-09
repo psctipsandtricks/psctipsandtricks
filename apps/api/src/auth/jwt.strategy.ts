@@ -6,19 +6,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthPayload } from '@psc/shared-types';
 
 @Injectable()
-export class JwtStrategy extends Strategy {
+export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
   ) {
-    super(
-      {
-        jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-        ignoreExpiration: false,
-        secretOrKey: configService.get<string>('JWT_SECRET') || 'super-secret-psc-jwt-key-2026',
-      },
-      (payload: any, done: any) => done(null, payload),
-    );
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('JWT_SECRET') || 'super-secret-psc-jwt-key-2026',
+    });
   }
 
   async validate(payload: AuthPayload) {
@@ -28,6 +25,10 @@ export class JwtStrategy extends Strategy {
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    return user;
+    if (user.status === 'SUSPENDED') {
+      throw new UnauthorizedException('This account has been suspended');
+    }
+    const { password, ...safeUser } = user;
+    return safeUser;
   }
 }

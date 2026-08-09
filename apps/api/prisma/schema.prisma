@@ -9,8 +9,13 @@ datasource db {
 
 enum UserRole {
   STUDENT
+  STAFF
   ADMIN
-  TEACHER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
 }
 
 enum OrderStatus {
@@ -20,54 +25,179 @@ enum OrderStatus {
   REFUNDED
 }
 
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum MockTestStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+}
+
+enum BookmarkType {
+  QUESTION
+  CHAPTER
+}
+
+enum ChatMessageType {
+  TEXT
+  POLL
+  IMAGE
+  DOCUMENT
+}
+
+enum OAuthProvider {
+  GOOGLE
+  APPLE
+}
+
 model User {
-  id           String           @id @default(uuid())
-  email        String           @unique
-  password     String
-  name         String
-  role         UserRole         @default(STUDENT)
-  isPremium    Boolean          @default(false)
-  avatarUrl    String?
-  phoneNumber  String?
-  orders       Order[]
-  submissions  QuizSubmission[]
-  messages     ChatMessage[]
-  notifications Notification[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id                 String            @id @default(uuid())
+  email              String            @unique
+  password           String?
+  name               String
+  role               UserRole          @default(STUDENT)
+  status             UserStatus        @default(ACTIVE)
+  isPremium          Boolean           @default(false)
+  avatarUrl          String?
+  phoneNumber        String?
+  orders             Order[]
+  submissions        QuizSubmission[]
+  messages           ChatMessage[]
+  notifications      Notification[]
+  readingProgress    ReadingProgress[]
+  bookmarks          Bookmark[]
+  staffPermission    StaffPermission?  @relation("OwnPermission")
+  grantedPermissions StaffPermission[] @relation("GrantedByAdmin")
+  mockTestEntries    MockTestParticipant[]
+  createdMockTests   MockTest[]
+  sentNotifications  Notification[]    @relation("NotificationSender")
+  chatGroupMembers   ChatGroupMember[]
+  chatGroupPins      ChatGroupPin[]
+  chatGroupReads     ChatGroupRead[]
+  oauthIdentities    OAuthIdentity[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+}
+
+model OAuthIdentity {
+  id                String        @id @default(uuid())
+  provider          OAuthProvider
+  providerAccountId String
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime      @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+}
+
+model StaffPermission {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation("OwnPermission", fields: [userId], references: [id], onDelete: Cascade)
+  manageBooks           Boolean  @default(false)
+  manageQuizzes         Boolean  @default(false)
+  manageChat            Boolean  @default(false)
+  manageCoupons         Boolean  @default(false)
+  manageNotifications   Boolean  @default(false)
+  viewOrders            Boolean  @default(false)
+  viewAnalytics         Boolean  @default(false)
+  manageUsers           Boolean  @default(false)
+  grantedById           String?
+  grantedBy             User?    @relation("GrantedByAdmin", fields: [grantedById], references: [id])
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model Book {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   title         String
   author        String
-  description   String   @db.Text
+  description   String    @db.Text
   coverUrl      String
   pdfUrl        String?
-  price         Float    @default(0)
+  price         Float     @default(0)
   category      String
-  isPublished   Boolean  @default(true)
-  downloadCount Int      @default(0)
+  isPremium     Boolean   @default(false)
+  isPublished   Boolean   @default(true)
+  downloadCount Int       @default(0)
   orders        Order[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  chapters      Chapter[]
+  readingProgress ReadingProgress[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Chapter {
+  id                    String            @id @default(uuid())
+  bookId                String
+  book                  Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  title                 String
+  orderIndex            Int               @default(0)
+  textContent           String?           @db.Text
+  audioUrl              String?
+  audioDurationSeconds  Int?
+  status                ContentStatus     @default(DRAFT)
+  readingProgress       ReadingProgress[]
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+}
+
+model ReadingProgress {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId           String
+  book             Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chapterId        String?
+  chapter          Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  progressPercent  Float    @default(0)
+  lastReadAt       DateTime @default(now())
+
+  @@unique([userId, bookId])
+}
+
+model Bookmark {
+  id            String       @id @default(uuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceType BookmarkType
+  referenceId   String
+  createdAt     DateTime     @default(now())
+
+  @@unique([userId, referenceType, referenceId])
 }
 
 model Quiz {
-  id              String           @id @default(uuid())
-  title           String
-  category        String
-  description     String           @db.Text
-  totalQuestions  Int              @default(0)
-  durationMinutes Int              @default(30)
-  isLiveMock      Boolean          @default(false)
-  passingMarks    Float            @default(40)
-  totalMarks      Float            @default(100)
-  questions       Question[]
-  submissions     QuizSubmission[]
-  orders          Order[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                              String           @id @default(uuid())
+  title                           String
+  category                        String
+  description                     String           @db.Text
+  folderName                      String?          @default("Root")
+  accessType                      String           @default("FREE")
+  isActive                        Boolean          @default(true)
+  showCorrectAnswerAfterSelection Boolean          @default(true)
+  releaseDate                     String?
+  bookId                          String?
+  chapterId                       String?
+  topic                           String?
+  totalQuestions                  Int              @default(0)
+  durationMinutes                 Int              @default(30)
+  isLiveMock                      Boolean          @default(false)
+  isPremium                       Boolean          @default(false)
+  price                           Float            @default(0)
+  negativeMarkingValue            Float            @default(0.33)
+  passingMarks                    Float            @default(40)
+  totalMarks                      Float            @default(100)
+  questions                       Question[]
+  submissions                     QuizSubmission[]
+  orders                          Order[]
+  mockTests                       MockTest[]
+  createdAt                       DateTime         @default(now())
+  updatedAt                       DateTime         @updatedAt
 }
 
 model Question {
@@ -83,21 +213,62 @@ model Question {
   updatedAt          DateTime @updatedAt
 }
 
+enum AttemptStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
 model QuizSubmission {
-  id               String   @id @default(uuid())
+  id               String        @id @default(uuid())
   quizId           String
-  quiz             Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  quiz             Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
   userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  score            Float
-  totalMarks       Float
-  passed           Boolean
-  correctAnswers   Int
-  wrongAnswers     Int
-  unattempted      Int
-  timeTakenSeconds Int
-  answers          Json     // Array of submitted answers
-  createdAt        DateTime @default(now())
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attemptNumber    Int           @default(1)
+  attemptStatus    AttemptStatus @default(COMPLETED)
+  score            Float         @default(0)
+  totalMarks       Float         @default(0)
+  percentage       Float         @default(0)
+  totalQuestions   Int           @default(0)
+  passed           Boolean       @default(false)
+  correctAnswers   Int           @default(0)
+  wrongAnswers     Int           @default(0)
+  unattempted      Int           @default(0)
+  timeTakenSeconds Int           @default(0)
+  answers          Json          @default("[]")
+  startedAt        DateTime      @default(now())
+  submittedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @default(now()) @updatedAt
+}
+
+model MockTest {
+  id           String                 @id @default(uuid())
+  title        String
+  quizId       String
+  quiz         Quiz                   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  scheduledAt  DateTime
+  status       MockTestStatus         @default(UPCOMING)
+  createdById  String
+  createdBy    User                   @relation(fields: [createdById], references: [id])
+  participants MockTestParticipant[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+}
+
+model MockTestParticipant {
+  id           String    @id @default(uuid())
+  mockTestId   String
+  mockTest     MockTest  @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score        Float?
+  rank         Int?
+  submittedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([mockTestId, userId])
 }
 
 model Order {
@@ -128,24 +299,95 @@ model Coupon {
   createdAt         DateTime @default(now())
 }
 
+model ChatGroup {
+  id            String              @id @default(uuid())
+  name          String
+  description   String              @default("") @db.Text
+  category      String              @default("General")
+  iconEmoji     String              @default("💬")
+  coverGradient String              @default("from-amber-500/20 to-orange-600/20")
+  isLocked      Boolean             @default(false)
+  type          String              @default("community")
+  messages      ChatMessage[]
+  members       ChatGroupMember[]
+  pins          ChatGroupPin[]
+  reads         ChatGroupRead[]
+  createdAt     DateTime            @default(now())
+}
+
+model ChatGroupMember {
+  id        String    @id @default(uuid())
+  groupId   String
+  group     ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String    @default("MEMBER")
+  joinedAt  DateTime  @default(now())
+
+  @@unique([groupId, userId])
+}
+
+model ChatGroupPin {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, groupId])
+}
+
+model ChatGroupRead {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId           String
+  group             ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  lastReadMessageId String?
+  lastReadAt        DateTime  @default(now())
+
+  @@unique([userId, groupId])
+}
+
 model ChatMessage {
-  id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userName   String
-  userAvatar String?
-  content    String   @db.Text
-  room       String   @default("general")
-  createdAt  DateTime @default(now())
+  id          String          @id @default(uuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName    String
+  userAvatar  String?
+  content     String          @db.Text
+  room        String          @default("general")
+  groupId     String?
+  group       ChatGroup?      @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  messageType ChatMessageType @default(TEXT)
+  mediaUrl    String?
+  metadata    Json?
+  createdAt   DateTime        @default(now())
 }
 
 model Notification {
+  id         String   @id @default(uuid())
+  title      String
+  body       String   @db.Text
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target     String   @default("all")
+  sentById   String?
+  sentBy     User?    @relation("NotificationSender", fields: [sentById], references: [id])
+  isRead     Boolean  @default(false)
+  type       String?  @default("ANNOUNCEMENT")
+  createdAt  DateTime @default(now())
+}
+
+model AnnouncementPopup {
   id        String   @id @default(uuid())
   title     String
-  body      String   @db.Text
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isRead    Boolean  @default(false)
-  type      String?  @default("ANNOUNCEMENT")
+  message   String   @db.Text
+  imageUrl  String?
+  isActive  Boolean  @default(true)
+  startDate DateTime @default(now())
+  endDate   DateTime
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

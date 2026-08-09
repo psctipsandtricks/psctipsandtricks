@@ -8,6 +8,10 @@ dist
 out
 build
 *.tsbuildinfo
+.turbo
+
+# AI / IDE tools
+.claude
 
 # env files
 .env

@@ -3,6 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
+import { OAuthProvider, UserRole } from '@prisma/client';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -12,7 +15,7 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async register(dto: any) {
+  async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -26,7 +29,8 @@ export class AuthService {
         email: dto.email,
         name: dto.name,
         password: hashedPassword,
-        role: dto.role || 'STUDENT',
+        phoneNumber: dto.phoneNumber,
+        role: UserRole.STUDENT,
       },
     });
 
@@ -38,17 +42,38 @@ export class AuthService {
     };
   }
 
-  async login(dto: any) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+  async login(dto: LoginDto) {
+    let user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
     });
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const isValid = await bcrypt.compare(dto.password, user.password);
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid credentials');
+    // Auto-promote psctipsandtricksapp@gmail.com to ADMIN if needed
+    if (
+      (user.email.toLowerCase() === 'psctipsandtricksapp@gmail.com' ||
+        user.email.toLowerCase() === 'admin@psctips.com') &&
+      user.role !== UserRole.ADMIN
+    ) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { role: UserRole.ADMIN },
+      });
+    }
+
+    if (!user.password) {
+      // If the account was created via OAuth (password is null), set password now upon login
+      const hashedPassword = await bcrypt.hash(dto.password, 10);
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      });
+    } else {
+      const isValid = await bcrypt.compare(dto.password, user.password);
+      if (!isValid) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -57,6 +82,61 @@ export class AuthService {
       user: result,
       ...tokens,
     };
+  }
+
+  // Finds the user linked to this OAuth identity, links this provider to an
+  // existing account with a matching verified email, or creates a brand-new
+  // account — then issues our own JWT pair exactly like email/password login.
+  async findOrCreateOAuthUser(
+    provider: OAuthProvider,
+    providerAccountId: string,
+    email: string,
+    name: string,
+    avatarUrl?: string,
+  ) {
+    const normEmail = email.toLowerCase();
+    const existingIdentity = await this.prisma.oAuthIdentity.findUnique({
+      where: { provider_providerAccountId: { provider, providerAccountId } },
+      include: { user: true },
+    });
+
+    let user = existingIdentity?.user;
+
+    if (!user) {
+      const existingUser = await this.prisma.user.findUnique({ where: { email: normEmail } });
+      if (existingUser) {
+        await this.prisma.oAuthIdentity.create({
+          data: { provider, providerAccountId, userId: existingUser.id },
+        });
+        user = existingUser;
+      } else {
+        const isAdmin = normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com';
+        user = await this.prisma.user.create({
+          data: {
+            email: normEmail,
+            name,
+            avatarUrl,
+            role: isAdmin ? UserRole.ADMIN : UserRole.STUDENT,
+            oauthIdentities: { create: { provider, providerAccountId } },
+          },
+        });
+      }
+    }
+
+    // Auto-promote admin emails to ADMIN role if needed
+    if (
+      (normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com') &&
+      user.role !== UserRole.ADMIN
+    ) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { role: UserRole.ADMIN },
+      });
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    const { password, ...result } = user;
+    return { user: result, ...tokens };
   }
 
   async refreshToken(refreshToken: string) {

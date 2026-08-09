@@ -1,33 +1,52 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChatGateway } from '../chat/chat.gateway';
+import { QueuePoller } from '../queue/queue-poller';
+import { SupabaseQueueService } from '../queue/queue.service';
 
-@Processor('quiz-submissions')
+interface CalculateRankMessage {
+  submissionId: string;
+  quizId: string;
+  userId: string;
+}
+
 @Injectable()
-export class QuizProcessor extends WorkerHost {
-  private readonly logger = new Logger(QuizProcessor.name);
+export class QuizProcessor extends QueuePoller<CalculateRankMessage> {
+  protected readonly queueName = 'quiz-submissions';
+  protected readonly logger = new Logger(QuizProcessor.name);
 
-  constructor(private prisma: PrismaService) {
-    super();
+  constructor(
+    queueService: SupabaseQueueService,
+    private prisma: PrismaService,
+    private chatGateway: ChatGateway,
+  ) {
+    super(queueService);
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
-    this.logger.log(`Processing quiz submission job ${job.id} for quiz ${job.data.quizId}`);
-    const { submissionId, quizId, userId } = job.data;
+  protected async handle({ submissionId, quizId }: CalculateRankMessage): Promise<void> {
+    this.logger.log(`Processing quiz submission ${submissionId} for quiz ${quizId}`);
 
-    // Simulate background rank calculation & leaderboard update
+    const quiz = await this.prisma.quiz.findUnique({ where: { id: quizId } });
+
     const submissions = await this.prisma.quizSubmission.findMany({
       where: { quizId },
-      orderBy: [
-        { score: 'desc' },
-        { timeTakenSeconds: 'asc' },
-      ],
+      include: { user: { select: { name: true, avatarUrl: true } } },
+      orderBy: [{ score: 'desc' }, { timeTakenSeconds: 'asc' }],
     });
 
     const rank = submissions.findIndex((s) => s.id === submissionId) + 1;
     this.logger.log(`Calculated rank for submission ${submissionId}: #${rank} out of ${submissions.length}`);
 
-    return { submissionId, rank, totalParticipants: submissions.length };
+    if (quiz?.isLiveMock) {
+      const leaderboard = submissions.slice(0, 20).map((sub, idx) => ({
+        rank: idx + 1,
+        userId: sub.userId,
+        userName: sub.user.name,
+        avatarUrl: sub.user.avatarUrl,
+        score: sub.score,
+        timeTakenSeconds: sub.timeTakenSeconds,
+      }));
+      this.chatGateway.broadcastRankUpdate(quizId, leaderboard);
+    }
   }
 }

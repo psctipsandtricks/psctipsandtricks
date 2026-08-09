@@ -25,13 +25,9 @@ Welcome to the **PSC Tips & Tricks** monorepo—a modern ed-tech platform built 
    - **State & Data Fetching**: TanStack React Query v5
    - **Pages**: Home, Book Listing, Book Reader, Quiz Hub, Live Quiz Engine, Study Dashboard, Razorpay Checkout, Login/Signup.
 
-3. **`apps/admin` (Admin Control Panel)**
-   - **Framework**: Next.js 14+ (App Router, TypeScript)
-   - **Styling**: Tailwind CSS + `@psc/ui` shared UI components
-   - **Analytics**: Recharts charts & metrics
-   - **Features**: Content Management (Books, Quizzes, Questions), User Management, Orders & Subscriptions, Coupon Management, Push Notification Composer, Announcement Popups.
+   - **Admin Panel**: Consolidated into `apps/web` under the `/admin` route (auth-gated) — Content Management (Books, Quizzes, Questions), User Management, Orders & Subscriptions, Coupon Management, Push Notification Composer, Announcement Popups, Recharts analytics.
 
-4. **`mobile/` (Flutter App)**
+3. **`mobile/` (Flutter App)**
    - **Framework**: Flutter (Dart) with Clean Architecture layout
    - **Theme**: Deep Navy (`#0F172A`) & Muted Gold (`#D4AF37`)
    - **API Connection**: Configurable HTTP/WebSocket API client connecting to NestJS
@@ -49,7 +45,7 @@ Welcome to the **PSC Tips & Tricks** monorepo—a modern ed-tech platform built 
 
 ### Prerequisites
 - Node.js `>= 18.0.0`
-- Docker & Docker Compose
+- A Supabase project (Postgres database + storage) — no local database or Docker required
 - Flutter SDK (for mobile app development)
 
 ### 1. Clone & Install Dependencies
@@ -57,35 +53,33 @@ Welcome to the **PSC Tips & Tricks** monorepo—a modern ed-tech platform built 
 npm install
 ```
 
-### 2. Start Local PostgreSQL & Redis
-```bash
-docker-compose up -d
-```
-
-### 3. Environment Variables
-Copy `.env.example` to `.env` in `apps/api`, `apps/web`, and `apps/admin`:
+### 2. Environment Variables
+Copy `.env.example` to `.env` in `apps/api` and `apps/web`, and fill in your Supabase project's connection string / keys:
 ```bash
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
-cp apps/admin/.env.example apps/admin/.env
 ```
 
-### 4. Database Setup & Seeding
+### 3. Database Setup & Seeding
 ```bash
 npm run db:migrate
 npm run db:seed
 ```
 
-### 5. Run Local Development Server
+### 4. Run Local Development Server
 ```bash
 npm run dev
 ```
 
 The apps will be available at:
 - 🌐 **Web App**: http://localhost:3000
-- 🛠️ **Admin Panel**: http://localhost:3001
+- 🛠️ **Admin Panel**: http://localhost:3000/admin
 - ⚡ **NestJS API**: http://localhost:4000
 - 📚 **Swagger Docs**: http://localhost:4000/api/docs
+
+### Notes on infrastructure
+- **Database**: PostgreSQL runs on Supabase — nothing to run locally.
+- **Background jobs** (quiz rank calculation, mock-test rank calculation, push notification dispatch): backed by the [`pgmq`](https://github.com/tembo-io/pgmq) extension on the same Supabase Postgres database, not Redis. The API auto-enables the extension and creates its queues on startup — no manual setup.
 
 ---
 
@@ -100,7 +94,7 @@ flutter run
 ---
 
 ## 📜 Scripts Reference
-- `npm run dev`: Runs all apps (`api`, `web`, `admin`) in parallel via Turborepo.
+- `npm run dev`: Runs all apps (`api`, `web`) in parallel via Turborepo.
 - `npm run build`: Builds all packages and apps.
 - `npm run db:generate`: Generates Prisma Client.
 - `npm run db:migrate`: Runs Prisma database migrations.

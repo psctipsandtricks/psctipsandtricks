@@ -1,19 +1,92 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, Input, Badge } from '@psc/ui';
+import { useFormik } from 'formik';
+import * as Yup from 'yup';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
+import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { Edit3, Trash2, BookOpen } from 'lucide-react';
+
+const bookSchema = Yup.object({
+  title: Yup.string().trim().required('Book title is required'),
+  author: Yup.string().trim().required('Author name is required'),
+  category: Yup.string().trim().required('Category is required'),
+  price: Yup.number().typeError('Price must be a number').positive('Price must be greater than 0').required('Price is required'),
+});
+
+interface BookItem {
+  id: string;
+  title: string;
+  author: string;
+  category: string;
+  price: number;
+  downloadCount: number;
+}
 
 export default function AdminBooksPage() {
+  const [mounted, setMounted] = React.useState(false);
+  const [loading, setLoading] = useState(true);
+  const [books, setBooks] = useState<BookItem[]>([
+    { id: 'b-1', title: 'Kerala PSC Master Question Bank 2026', author: 'PSC Tips Expert Team', category: 'Question Bank', price: 299, downloadCount: 1420 },
+    { id: 'b-2', title: 'Indian Constitution & Polity Guide', author: 'Dr. K. R. Nambiar', category: 'Polity', price: 199, downloadCount: 850 },
+    { id: 'b-3', title: 'Kerala Geography & Rivers Handbook', author: 'Prof. V. S. Pillai', category: 'Geography', price: 149, downloadCount: 620 },
+  ]);
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
+  React.useEffect(() => {
+    setMounted(true);
+    setLoading(false);
+  }, []);
+
+  const formik = useFormik({
+    initialValues: { title: '', author: '', category: '', price: '299' },
+    validationSchema: bookSchema,
+    onSubmit: (values, { resetForm }) => {
+      const newBook: BookItem = {
+        id: `b-${Date.now()}`,
+        title: values.title.trim(),
+        author: values.author.trim(),
+        category: values.category.trim(),
+        price: Number(values.price),
+        downloadCount: 0,
+      };
+      setBooks((prev) => [newBook, ...prev]);
+      resetForm();
+      setIsDialogOpen(false);
+    },
+  });
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <AdminSkeletonHeader />
+        <AdminSkeletonTable rowsCount={4} colsCount={6} />
+      </div>
+    );
+  }
+
+  const handleDeleteBook = (id: string) => {
+    if (confirm('Are you sure you want to delete this book?')) {
+      setBooks(books.filter((b) => b.id !== id));
+    }
+  };
+
+  const totalItems = books.length;
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const paginatedBooks = books.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-4 sm:space-y-6 px-1 sm:px-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">E-Book Content Management</h1>
-          <p className="text-slate-400 text-sm mt-1">Upload and manage PSC PDF handbooks and question banks.</p>
+          <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">E-Book Content Management</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 leading-relaxed">Upload and manage PSC PDF handbooks and question banks.</p>
         </div>
-        <Button variant="gold" onClick={() => setIsDialogOpen(true)}>
+        <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 w-full sm:w-auto shrink-0" onClick={() => setIsDialogOpen(true)}>
           + Add New Book
         </Button>
       </div>
@@ -27,44 +100,132 @@ export default function AdminBooksPage() {
               <TableHead>Category</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Downloads</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow>
-              <TableCell className="font-semibold text-white">Kerala PSC Master Question Bank 2026</TableCell>
-              <TableCell>PSC Tips Expert Team</TableCell>
-              <TableCell><Badge variant="gold">Question Bank</Badge></TableCell>
-              <TableCell className="font-mono text-amber-400 font-bold">₹299</TableCell>
-              <TableCell>1,420</TableCell>
-              <TableCell className="space-x-2">
-                <Button size="sm" variant="outline">Edit</Button>
-                <Button size="sm" variant="danger">Delete</Button>
-              </TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-semibold text-white">Indian Constitution & Polity Guide</TableCell>
-              <TableCell>Dr. K. R. Nambiar</TableCell>
-              <TableCell><Badge variant="default">Polity</Badge></TableCell>
-              <TableCell className="font-mono text-amber-400 font-bold">₹199</TableCell>
-              <TableCell>850</TableCell>
-              <TableCell className="space-x-2">
-                <Button size="sm" variant="outline">Edit</Button>
-                <Button size="sm" variant="danger">Delete</Button>
-              </TableCell>
-            </TableRow>
+            {loading ? (
+              Array.from({ length: 5 }).map((_, idx) => (
+                <TableRow key={`skeleton-${idx}`} className="border-b border-slate-200/80 dark:border-slate-800/60">
+                  <TableCell className="py-4"><Skeleton className="h-5 w-48 rounded-lg" /></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-5 w-32 rounded-lg" /></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-5 w-24 rounded-lg" /></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-5 w-20 rounded-lg" /></TableCell>
+                  <TableCell className="py-4 text-right"><Skeleton className="h-8 w-20 rounded-xl ml-auto" /></TableCell>
+                </TableRow>
+              ))
+            ) : books.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-12">
+                  <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
+                      <BookOpen className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-white">No E-Book Match</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                        No e-books available. Upload your first PDF book for students to purchase.
+                      </p>
+                    </div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              paginatedBooks.map((book) => (
+                <TableRow key={book.id}>
+                  <TableCell className="w-12">
+                    <div className="w-9 h-9 bg-slate-100 dark:bg-[#091124] rounded-xl flex items-center justify-center text-cyan-400 border border-slate-200 dark:border-[#1e2e56]">
+                      <BookOpen className="w-4 h-4" />
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-bold text-slate-900 dark:text-white">{book.title}</TableCell>
+                  <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{book.author}</TableCell>
+                  <TableCell><Badge variant="gold">{book.category}</Badge></TableCell>
+                  <TableCell className="font-mono text-cyan-400 font-extrabold">₹{book.price}</TableCell>
+                  <TableCell className="font-mono text-slate-700 dark:text-slate-300">{book.downloadCount.toLocaleString()}</TableCell>
+                  <TableCell className="text-right space-x-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="p-2 rounded-xl text-cyan-700 dark:text-cyan-300 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all shadow-xs" 
+                      title="Edit Book" 
+                      onClick={() => alert(`Editing book "${book.title}"`)}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="danger" 
+                      className="p-2 rounded-xl transition-all shadow-xs" 
+                      title="Delete Book" 
+                      onClick={() => handleDeleteBook(book.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
+
+        <div className="px-4 pb-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setCurrentPage(1);
+            }}
+          />
+        </div>
       </Card>
 
       <Dialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title="Upload New E-Book">
-        <form className="space-y-4 pt-2" onSubmit={(e) => { e.preventDefault(); setIsDialogOpen(false); }}>
-          <Input label="Book Title" placeholder="e.g. Kerala Geography Handbook 2026" required />
-          <Input label="Author Name" placeholder="e.g. Dr. S. K. Nair" required />
-          <Input label="Price (INR)" type="number" placeholder="299" required />
-          <Input label="PDF Download URL" placeholder="https://..." required />
-          <Button type="submit" variant="gold" className="w-full font-bold">
-            Publish Book 📚
+        <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
+          <Input
+            label="Book Title"
+            name="title"
+            placeholder="e.g. Kerala Geography Handbook 2026"
+            value={formik.values.title}
+            onChange={formik.handleChange}
+            onBlur={formik.handleBlur}
+            error={formik.touched.title && formik.errors.title ? formik.errors.title : undefined}
+          />
+          <Input
+            label="Author Name"
+            name="author"
+            placeholder="e.g. Dr. S. K. Nair"
+            value={formik.values.author}
+            onChange={formik.handleChange}
+            onBlur={formik.handleBlur}
+            error={formik.touched.author && formik.errors.author ? formik.errors.author : undefined}
+          />
+          <Input
+            label="Category"
+            name="category"
+            placeholder="e.g. Question Bank / Polity / Geography"
+            value={formik.values.category}
+            onChange={formik.handleChange}
+            onBlur={formik.handleBlur}
+            error={formik.touched.category && formik.errors.category ? formik.errors.category : undefined}
+          />
+          <Input
+            label="Price (INR)"
+            name="price"
+            type="number"
+            placeholder="299"
+            value={formik.values.price}
+            onChange={formik.handleChange}
+            onBlur={formik.handleBlur}
+            error={formik.touched.price && formik.errors.price ? formik.errors.price : undefined}
+          />
+          <Button type="submit" variant="gold" className="w-full font-bold shadow-md shadow-cyan-500/20">
+            Publish Book
           </Button>
         </form>
       </Dialog>

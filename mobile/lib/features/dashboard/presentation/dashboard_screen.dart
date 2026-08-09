@@ -50,7 +50,7 @@ class DashboardScreen extends StatelessWidget {
                 subtitle: const Text('Score: 82.5 / 100 • Rank #42', style: TextStyle(color: AppTheme.textMuted)),
                 trailing: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: AppTheme.emeraldAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(color: AppTheme.emeraldAccent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
                   child: const Text('PASSED', style: TextStyle(color: AppTheme.emeraldAccent, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
               ),

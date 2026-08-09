@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateCouponDto } from './dto/create-coupon.dto';
 
 @Injectable()
 export class CouponsService {
@@ -26,7 +27,7 @@ export class CouponsService {
     return coupon;
   }
 
-  async create(data: any) {
+  async create(data: CreateCouponDto) {
     return this.prisma.coupon.create({
       data: {
         code: data.code.toUpperCase(),

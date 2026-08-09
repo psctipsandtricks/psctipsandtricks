@@ -9,8 +9,8 @@ export const Card: React.FC<CardProps> = ({ className, hoverEffect = false, chil
   return (
     <div
       className={cn(
-        'rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm p-6',
-        hoverEffect && 'transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-700',
+        'glass-card p-6',
+        hoverEffect && 'hover:-translate-y-1 hover:shadow-lg hover:shadow-amber-500/10 hover:border-amber-500/30',
         className
       )}
       {...props}
@@ -27,7 +27,7 @@ export const CardHeader: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ cla
 );
 
 export const CardTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({ className, children, ...props }) => (
-  <h3 className={cn('text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100', className)} {...props}>
+  <h3 className={cn('text-xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100', className)} {...props}>
     {children}
   </h3>
 );
@@ -45,7 +45,7 @@ export const CardContent: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ cl
 );
 
 export const CardFooter: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className, children, ...props }) => (
-  <div className={cn('flex items-center pt-4 border-t border-slate-100 dark:border-slate-800', className)} {...props}>
+  <div className={cn('flex items-center pt-4 border-t border-slate-200/60 dark:border-slate-800/60', className)} {...props}>
     {children}
   </div>
 );

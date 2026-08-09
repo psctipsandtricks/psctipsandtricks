@@ -32,8 +32,13 @@ async function bootstrap() {
     .addTag('Quizzes', 'Interactive quizzes, live mock tests, & leaderboards')
     .addTag('Orders', 'Checkout, Razorpay payment processing, and subscriptions')
     .addTag('Admin', 'Administrative metrics and management')
-    .addTag('Notifications', 'Push notification dispatch')
+    .addTag('Notifications', 'Push notification dispatch and announcement popups')
     .addTag('Coupons', 'Discount codes and promotional offers')
+    .addTag('Chat', 'Community chat groups, messages, and moderation')
+    .addTag('Library', 'Reading progress and bookmarks')
+    .addTag('Staff', 'Staff invitations and permission management (Super Admin only)')
+    .addTag('Mock Tests', 'Scheduled live mock tests and rank lists')
+    .addTag('Analytics', 'Usage stats and subject-wise performance')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

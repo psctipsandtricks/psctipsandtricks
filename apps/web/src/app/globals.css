@@ -3,7 +3,138 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white;
+  :root {
+    --bg-main: #f0f4f9;
+    --text-main: #0f172a;
   }
+  
+  html.dark {
+    --bg-main: #060b18;
+    --text-main: #f8fafc;
+  }
+
+  body {
+    @apply bg-[#f0f4f9] text-slate-900 dark:bg-[#060b18] dark:text-slate-100 antialiased selection:bg-cyan-500 selection:text-slate-950 min-h-screen transition-colors duration-300;
+    background-image: 
+      radial-gradient(at 10% 0%, rgba(56, 189, 248, 0.22) 0px, transparent 50%),
+      radial-gradient(at 90% 0%, rgba(6, 182, 212, 0.20) 0px, transparent 50%),
+      radial-gradient(at 50% 45%, rgba(14, 165, 233, 0.12) 0px, transparent 65%),
+      radial-gradient(at 85% 90%, rgba(99, 102, 241, 0.10) 0px, transparent 50%),
+      radial-gradient(at 15% 95%, rgba(56, 189, 248, 0.15) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  html.dark body {
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(99, 102, 241, 0.10) 0px, transparent 60%);
+  }
+}
+
+/* TwinVerse Cyber Glass Utilities */
+.glass-panel {
+  @apply bg-white/90 dark:bg-[#0c152e]/90 backdrop-blur-xl border border-sky-200/80 dark:border-[#1e2e56] shadow-xl shadow-sky-900/5 dark:shadow-[0_4px_25px_rgba(0,0,0,0.6)] transition-all duration-300 rounded-2xl;
+}
+
+.glass-card {
+  @apply bg-white/95 dark:bg-[#0c152e]/80 backdrop-blur-md border border-sky-200/70 dark:border-[#1e2e56] hover:border-cyan-400 dark:hover:border-cyan-500/40 shadow-sm hover:shadow-[0_4px_25px_rgba(6,182,212,0.18)] transition-all duration-300 rounded-2xl;
+}
+
+.glass-header {
+  @apply bg-white/90 dark:bg-[#060b18]/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-[#1e2e56] shadow-sm transition-all duration-300;
+}
+
+.glass-sidebar {
+  @apply bg-white dark:bg-[#060b18]/95 backdrop-blur-xl border-r border-slate-200/80 dark:border-[#1e2e56] transition-all duration-300;
+}
+
+.glass-input {
+  @apply bg-slate-100/70 dark:bg-[#091124]/90 border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 transition-all duration-200 rounded-xl;
+}
+
+/* Cyber Glow Accents */
+.twin-active-pill {
+  @apply bg-gradient-to-r from-cyan-500/20 via-blue-600/15 to-purple-600/15 border border-cyan-400/40 text-cyan-300 font-bold shadow-[0_0_15px_rgba(6,182,212,0.25)];
+}
+
+/* Custom Ambient Mesh Background Glows */
+.ambient-glow-cyan {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.12) 0%, rgba(6, 182, 212, 0) 70%);
+}
+
+.ambient-glow-indigo {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.10) 0%, rgba(99, 102, 241, 0) 70%);
+}
+
+/* Smooth Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300/60 dark:bg-[#1e2e56] rounded-full hover:bg-cyan-500/80 transition-colors;
+}
+
+/* Skeleton Shimmer */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+.skeleton-base {
+  border-radius: 0.75rem;
+  animation: shimmer 1.6s ease-in-out infinite;
+  background-size: 800px 100%;
+  background-image: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f1f5f9 40%,
+    #e2e8f0 80%
+  );
+}
+
+html.dark .skeleton-base {
+  background-image: linear-gradient(
+    90deg,
+    #0c152e 0%,
+    #1e2e56 40%,
+    #0c152e 80%
+  );
+}
+
+/* Button Shine / Shimmer Light Beam Effect */
+@keyframes btn-shine-sweep {
+  0% {
+    transform: translateX(-150%) skewX(-25deg);
+  }
+  30%, 100% {
+    transform: translateX(280%) skewX(-25deg);
+  }
+}
+
+.btn-shine-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-shine-effect::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 50%;
+  height: 200%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: translateX(-150%) skewX(-25deg);
+  animation: btn-shine-sweep 3s infinite ease-in-out;
+  pointer-events: none;
 }

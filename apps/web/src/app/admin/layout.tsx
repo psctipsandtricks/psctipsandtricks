@@ -1,161 +1,177 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Sidebar, Card, Input, Button } from '@psc/ui';
-import { ShieldCheck, LogOut } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Sidebar } from '@psc/ui';
+import {
+  LogOut,
+  Sun,
+  Moon,
+  LayoutDashboard,
+  HelpCircle,
+  BookOpen,
+  Users,
+  ShoppingCart,
+  Tag,
+  Bell,
+  Megaphone,
+  MessageSquare,
+  Menu,
+  X,
+  Search,
+  Compass,
+  Calendar,
+  Clock,
+} from 'lucide-react';
+import { useTheme } from '../theme-provider';
+import { useAuth } from '../auth-provider';
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
+  const { user, isLoading: authLoading, logout } = useAuth();
+  const [mounted, setMounted] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [currentTime, setCurrentTime] = useState('');
 
   useEffect(() => {
-    const authStatus = localStorage.getItem('admin_authenticated');
-    if (authStatus === 'true') {
-      setIsAuthenticated(true);
-    } else {
-      setIsAuthenticated(false);
-    }
+    setMounted(true);
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
+  const isStaffOrAdmin = user && (user.role === 'ADMIN' || user.role === 'STAFF');
 
-    setTimeout(() => {
-      if (email.trim() === 'psctipsandtricksapp@gmail.com' && password === 'admin') {
-        localStorage.setItem('admin_authenticated', 'true');
-        localStorage.setItem('admin_email', email.trim());
-        setIsAuthenticated(true);
-      } else {
-        setError('Invalid admin credentials. Please check your email and password.');
-      }
-      setIsLoading(false);
-    }, 500);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('admin_authenticated');
-    localStorage.removeItem('admin_email');
-    setIsAuthenticated(false);
-    setEmail('');
-    setPassword('');
-  };
+  useEffect(() => {
+    if (mounted && !authLoading && !isStaffOrAdmin) {
+      router.replace(`/login?redirect=${encodeURIComponent(pathname || '/admin')}`);
+    }
+  }, [mounted, authLoading, isStaffOrAdmin, pathname, router]);
 
   const sidebarItems = [
-    { id: 'dashboard', label: 'Analytics Dashboard', href: '/admin' },
-    { id: 'quizzes', label: 'Manage Quizzes', href: '/admin/quizzes' },
-    { id: 'books', label: 'Manage E-Books', href: '/admin/books' },
-    { id: 'users', label: 'User Management', href: '/admin/users' },
-    { id: 'orders', label: 'Orders & Payments', href: '/admin/orders' },
-    { id: 'coupons', label: 'Coupon Codes', href: '/admin/coupons' },
-    { id: 'notifications', label: 'Push Notifications', href: '/admin/notifications' },
-    { id: 'announcements', label: 'Announcements', href: '/admin/announcements' },
+    { id: 'dashboard', label: 'Analytics Dashboard', href: '/admin', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { id: 'quizzes', label: 'Manage Quizzes', href: '/admin/quizzes', icon: <HelpCircle className="w-4 h-4" /> },
+    { id: 'books', label: 'Manage E-Books', href: '/admin/books', icon: <BookOpen className="w-4 h-4" /> },
+    { id: 'users', label: 'User Management', href: '/admin/users', icon: <Users className="w-4 h-4" /> },
+    { id: 'community', label: 'Community Groups', href: '/admin/community', icon: <MessageSquare className="w-4 h-4" /> },
+    { id: 'orders', label: 'Orders & Payments', href: '/admin/orders', icon: <ShoppingCart className="w-4 h-4" /> },
+    { id: 'coupons', label: 'Coupon Codes', href: '/admin/coupons', icon: <Tag className="w-4 h-4" /> },
+    { id: 'notifications', label: 'Push Notifications', href: '/admin/notifications', icon: <Bell className="w-4 h-4" /> },
+    { id: 'announcements', label: 'Announcements', href: '/admin/announcements', icon: <Megaphone className="w-4 h-4" /> },
   ];
 
-  if (isAuthenticated === null) {
+  if (!mounted || authLoading || !isStaffOrAdmin) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-100">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-400"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 text-slate-100">
-        <div className="w-full max-w-md space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
-              <ShieldCheck className="w-8 h-8" />
-            </div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white">PSC Admin Control Panel</h1>
-            <p className="text-sm text-slate-400">Restricted Access. Please enter admin credentials to proceed.</p>
-          </div>
-
-          <Card className="p-6 space-y-4 border-slate-800 bg-slate-900/90 shadow-2xl">
-            <form onSubmit={handleLogin} className="space-y-4">
-              {error && (
-                <div className="p-3 text-xs rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 font-medium text-center">
-                  {error}
-                </div>
-              )}
-
-              <Input
-                label="Admin Email"
-                type="email"
-                placeholder="psctipsandtricksapp@gmail.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-
-              <Input
-                label="Admin Password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-
-              <Button
-                type="submit"
-                variant="gold"
-                size="lg"
-                className="w-full font-bold flex items-center justify-center space-x-2"
-                isLoading={isLoading}
-              >
-                <span>Authenticate & Access Panel</span>
-              </Button>
-            </form>
-          </Card>
-
-          <p className="text-center text-xs text-slate-500">
-            PSC Tips & Tricks &copy; 2026 Admin Authorization System
-          </p>
-        </div>
+      <div className="min-h-screen bg-[#060b18] flex items-center justify-center text-slate-100">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-950 text-slate-100">
-      <Sidebar brandName="PSC Control Panel" items={sidebarItems} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-8 flex items-center justify-between">
+    <div className="min-h-screen flex bg-slate-50 dark:bg-[#060b18] text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-x-hidden">
+      {/* Desktop Sidebar */}
+      <Sidebar 
+        brandName="PSC Control Panel" 
+        items={sidebarItems} 
+        pathname={pathname} 
+        onNavigate={(href, e) => {
+          e.preventDefault();
+          router.push(href);
+        }}
+      />
+
+      <div className="flex-1 flex flex-col min-w-0 w-full">
+        {/* Responsive Header */}
+        <header className="h-16 glass-header px-4 sm:px-6 flex items-center justify-between shrink-0 border-b border-slate-200/90 dark:border-[#1e2e56] sticky top-0 z-30">
           <div className="flex items-center space-x-3">
-            <span className="text-xs font-mono text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded-full">
-              Authenticated Admin
+            {/* Mobile Nav Trigger */}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              className="md:hidden p-2 rounded-xl border border-slate-200 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#0c152e] shrink-0 cursor-pointer"
+              aria-label="Toggle admin menu"
+            >
+              {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+
+            {/* Session Indicator Pill */}
+            <span className="text-[11px] font-mono font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-3 py-1 rounded-full shadow-xs flex items-center space-x-1.5 truncate">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+              <span>{user!.role === 'ADMIN' ? 'Admin' : 'Staff'} Session</span>
             </span>
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3 text-sm">
-              <span className="font-medium text-slate-300 text-xs font-mono">
-                psctipsandtricksapp@gmail.com
-              </span>
-              <div className="w-8 h-8 rounded-full bg-amber-500 text-slate-950 font-bold flex items-center justify-center text-sm shadow-md">
-                A
+
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Theme Toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="p-2 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:text-cyan-400 transition-all shadow-xs cursor-pointer shrink-0"
+              title={mounted && theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-800" />}
+            </button>
+
+            {/* User Profile Pill */}
+            <div className="flex items-center space-x-2 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56]">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-400 to-blue-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-xs shrink-0">
+                {user!.name.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="flex flex-col hidden md:flex text-left">
+                <span className="font-bold text-slate-900 dark:text-white text-xs leading-none truncate max-w-[100px]">
+                  {user!.name}
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 leading-none mt-0.5">
+                  {user!.role === 'ADMIN' ? 'Project Admin' : 'Staff Member'}
+                </span>
               </div>
             </div>
+
+            {/* Logout Pill */}
             <button
-              onClick={handleLogout}
-              className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-rose-400 transition-colors bg-slate-800/80 hover:bg-rose-500/10 border border-slate-700 hover:border-rose-500/30 px-3 py-1.5 rounded-lg"
+              type="button"
+              onClick={logout}
+              className="flex items-center space-x-1 text-xs text-rose-500 hover:bg-rose-500/10 border border-rose-500/20 px-2.5 py-1.5 rounded-xl font-bold cursor-pointer transition-all shrink-0"
               title="Logout from Admin Panel"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Logout</span>
             </button>
           </div>
         </header>
-        <main className="flex-1 p-8 overflow-y-auto">{children}</main>
+
+        {/* Mobile Navigation Drawer Sheet */}
+        {mobileNavOpen && (
+          <div className="md:hidden border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl px-3 py-3 space-y-1 z-30 shadow-xl animate-in slide-in-from-top-2">
+            {sidebarItems.map((item) => {
+              const isActive = pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href));
+              return (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setMobileNavOpen(false);
+                    router.push(item.href);
+                  }}
+                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                    isActive
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
+                  }`}
+                >
+                  <span className={isActive ? 'text-amber-500' : 'text-slate-400'}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
+
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
       </div>
     </div>
   );
