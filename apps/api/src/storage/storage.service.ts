@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 
+if (typeof (globalThis as any).WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = WebSocket;
+}
+
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
