@@ -37,7 +37,8 @@
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.7.4"
+    "socket.io": "^4.7.4",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.2",
@@ -49,6 +50,7 @@
     "@types/passport-apple": "^2.0.3",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
+    "@types/ws": "^8.18.1",
     "prisma": "^5.10.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.0"

@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 @Injectable()
 export class StorageService {
@@ -11,7 +12,12 @@ export class StorageService {
     const url = this.configService.get<string>('SUPABASE_URL');
     const serviceKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
     if (url && serviceKey) {
-      this.client = createClient(url, serviceKey);
+      this.client = createClient(url, serviceKey, {
+        auth: { persistSession: false },
+        realtime: {
+          transport: WebSocket as any,
+        },
+      });
     } else {
       this.logger.warn('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not configured — file uploads are disabled.');
     }
