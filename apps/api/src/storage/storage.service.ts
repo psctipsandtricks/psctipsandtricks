@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import WebSocket from 'ws';
+import * as WebSocket from 'ws';
 
 if (typeof (globalThis as any).WebSocket === 'undefined') {
   (globalThis as any).WebSocket = WebSocket;
