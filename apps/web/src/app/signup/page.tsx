@@ -16,7 +16,7 @@ const signupSchema = Yup.object({
   password: passwordSchema,
 });
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   oauth_not_configured: 'That sign-in method isn’t set up yet. Please use email & password, or try another option.',
