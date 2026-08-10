@@ -24,7 +24,11 @@ export abstract class QueuePoller<T = unknown> implements OnModuleInit, OnModule
   protected abstract handle(message: T): Promise<void>;
 
   async onModuleInit() {
-    await this.queueService.ensureQueue(this.queueName);
+    try {
+      await this.queueService.ensureQueue(this.queueName);
+    } catch (err) {
+      this.logger.error(`Failed to ensure queue "${this.queueName}" on startup — will retry on next poll: ${err}`);
+    }
     this.scheduleNext(0);
   }
 
