@@ -9,6 +9,13 @@ export const metadata: Metadata = {
   title: 'PSC Tips & Tricks — Ed-Tech Platform for Kerala PSC & SSC',
   description:
     'Crack Kerala PSC, SSC, and UPSC exams with interactive mock tests, question banks, e-books, and real-time rank tracking.',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png' }],
+  },
 };
 
 export default function RootLayout({
