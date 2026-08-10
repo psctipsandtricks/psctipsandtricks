@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Body, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Param, Patch, Body, UseGuards, Request, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -8,6 +8,8 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { UserRole } from '@prisma/client';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { AdminCreateUserDto } from './dto/admin-create-user.dto';
+import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -22,6 +24,16 @@ export class UsersController {
   @Get()
   async findAll() {
     return this.usersService.findAll();
+  }
+
+  @ApiOperation({ summary: 'Create a student account (Admin / Staff with manage_users)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageUsers')
+  @Post()
+  async create(@Body() dto: AdminCreateUserDto) {
+    return this.usersService.createStudent(dto);
   }
 
   @ApiOperation({ summary: 'Get user profile by ID' })
@@ -41,5 +53,15 @@ export class UsersController {
       throw new ForbiddenException('You can only update your own profile');
     }
     return this.usersService.updateProfile(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Update a user account as an admin/staff (Admin / Staff with manage_users)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageUsers')
+  @Patch(':id/admin')
+  async adminUpdate(@Param('id') id: string, @Body() dto: AdminUpdateUserDto) {
+    return this.usersService.adminUpdate(id, dto);
   }
 }

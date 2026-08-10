@@ -7,6 +7,7 @@ export * from './components/Badge';
 export * from './components/Tabs';
 export * from './components/Table';
 export * from './components/Dialog';
+export * from './components/ConfirmDialog';
 export * from './components/StatsCard';
 export * from './components/Navbar';
 export * from './components/Sidebar';

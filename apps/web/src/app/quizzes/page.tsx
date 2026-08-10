@@ -458,23 +458,30 @@ function MockTestCard({
               ? `${mockTest._count.participants} joined`
               : ''}
         </span>
-        <Button
-          variant={mockTest.status === 'UPCOMING' ? 'outline' : 'gold'}
-          size="sm"
-          className="font-bold cursor-pointer"
-          onClick={handleClick}
-        >
-          <span>
-            {mockTest.status === 'LIVE'
-              ? hasSubmitted
-                ? 'View Live Rank List'
-                : 'Join & Start'
-              : mockTest.status === 'COMPLETED'
-                ? 'View Final Rank List'
-                : 'View Details'}
+        {mockTest.status === 'COMPLETED' && !myAttempt ? (
+          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+            <Trophy className="w-3.5 h-3.5" />
+            Test Completed
           </span>
-          <ArrowRight className="w-3.5 h-3.5 ml-1" />
-        </Button>
+        ) : (
+          <Button
+            variant={mockTest.status === 'UPCOMING' ? 'outline' : 'gold'}
+            size="sm"
+            className="font-bold cursor-pointer"
+            onClick={handleClick}
+          >
+            <span>
+              {mockTest.status === 'LIVE'
+                ? hasSubmitted
+                  ? 'View Live Rank List'
+                  : 'Join & Start'
+                : mockTest.status === 'COMPLETED'
+                  ? 'View Final Rank List'
+                  : 'View Details'}
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 ml-1" />
+          </Button>
+        )}
       </div>
     </Card>
   );

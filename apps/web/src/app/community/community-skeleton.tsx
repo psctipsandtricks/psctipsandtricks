@@ -14,7 +14,7 @@ function Sk({
 }
 
 /* ── Single Group Row ────────────────────────────────────────── */
-function GroupRowSkeleton({ wide = false }: { wide?: boolean }) {
+export function GroupRowSkeleton({ wide = false }: { wide?: boolean }) {
   return (
     <div className="p-3 flex items-center space-x-3">
       <Sk className="w-11 h-11 rounded-2xl shrink-0" />
@@ -31,7 +31,7 @@ function GroupRowSkeleton({ wide = false }: { wide?: boolean }) {
 }
 
 /* ── Single Message Bubble ───────────────────────────────────── */
-function BubbleSkeleton({
+export function BubbleSkeleton({
   isMe = false,
   bubbleWidth,
   hasSecondLine = false,

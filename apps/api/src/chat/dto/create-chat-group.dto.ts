@@ -22,6 +22,10 @@ export class CreateChatGroupDto {
 
   @IsOptional()
   @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
   coverGradient?: string;
 
   @IsOptional()

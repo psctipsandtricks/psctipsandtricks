@@ -20,10 +20,15 @@ import {
   X,
   Reply,
   UserPlus,
+  LogOut,
+  Check,
+  Clock,
 } from 'lucide-react';
 import {
   useChatGroups,
   useGroupMessages,
+  useGroupRealtime,
+  usePrefetchGroupMessages,
   useJoinGroup,
   useLeaveGroup,
   usePinGroup,
@@ -35,7 +40,8 @@ import {
   MAX_PINS,
 } from './community-data';
 import { useAuth } from '../auth-provider';
-import { CommunitySkeleton } from './community-skeleton';
+import { CommunitySkeleton, GroupRowSkeleton, BubbleSkeleton } from './community-skeleton';
+import { GroupAvatar } from './group-avatar';
 
 export default function CommunityPage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -43,20 +49,35 @@ export default function CommunityPage() {
 
   const { data: groups = [], isLoading: groupsLoading } = useChatGroups();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const { data: messages = [] } = useGroupMessages(selectedGroupId);
+  const {
+    messages,
+    isLoading: messagesLoading,
+    hasOlder,
+    isLoadingOlder,
+    loadOlder,
+  } = useGroupMessages(selectedGroupId);
+
+  // Live updates for the open group, so we don't poll.
+  useGroupRealtime(selectedGroupId);
+  const prefetchMessages = usePrefetchGroupMessages();
 
   const joinMutation = useJoinGroup();
   const leaveMutation = useLeaveGroup();
   const pinMutation = usePinGroup();
   const unpinMutation = useUnpinGroup();
-  const sendMutation = useSendMessage(selectedGroupId || '');
+  const sendMutation = useSendMessage(
+    selectedGroupId || '',
+    user ? { id: user.id, name: user.name, avatarUrl: user.avatarUrl } : undefined,
+  );
   const markReadMutation = useMarkRead(selectedGroupId || '');
   const metadataMutation = useUpdateMessageMetadata(selectedGroupId || '');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [newMessage, setNewMessage] = useState('');
-  const [selectedFileType, setSelectedFileType] = useState<'none' | 'pdf' | 'image' | 'audio'>('none');
+  const [showPollComposer, setShowPollComposer] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -84,6 +105,17 @@ export default function CommunityPage() {
       setSelectedGroupId(groups[0].id);
     }
   }, [groups, selectedGroupId]);
+
+  /* ── Warm the cache for the groups most likely to be opened ── */
+  useEffect(() => {
+    if (groups.length === 0) return;
+    // Pinned and unread groups first, then the rest of the top of the list.
+    const priority = [...groups]
+      .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.unreadCount - a.unreadCount)
+      .slice(0, 5);
+    priority.forEach((g) => prefetchMessages(g.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups]);
 
   /* ── Auto mark-as-read after 1.5s of viewing ────────────── */
   useEffect(() => {
@@ -114,11 +146,23 @@ export default function CommunityPage() {
     return () => clearTimeout(t);
   }, [pinToast]);
 
-  /* ── Early returns ──────────────────────────────────────── */
-  if (!mounted || authLoading || !user || groupsLoading) return <CommunitySkeleton />;
+  /* ── Early returns ──────────────────────────────────────────
+     Only auth blocks the whole page. Group and message loading render
+     region-level skeletons inside the shell, so navigating here (or between
+     groups) paints instantly from cache instead of waiting on the network. */
+  if (!mounted || authLoading || !user) return <CommunitySkeleton />;
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
   const isUserMember = selectedGroup?.isJoined ?? false;
+
+  /* Admin-controlled feature switches. Moderators keep access so they can still
+     run a group whose student-facing features are turned off. */
+  const isModerator = user.role === 'ADMIN' || user.role === 'STAFF';
+  const canSendText = !!selectedGroup && (selectedGroup.allowTextMessages || isModerator);
+  const canPostPolls = !!selectedGroup && (selectedGroup.allowPolls || isModerator);
+  const isSending = sendMutation.isPending;
+  const isJoinBusy = joinMutation.isPending || leaveMutation.isPending;
+  const isPinBusy = pinMutation.isPending || unpinMutation.isPending;
 
   const categories = ['All', 'Joined', 'Kerala PSC', 'SSC & UPSC', 'Subject Wise'];
 
@@ -128,7 +172,7 @@ export default function CommunityPage() {
     setSelectedGroupId(groupId);
     setMobileShowChat(true);
     setReplyingTo(null);
-    setSelectedFileType('none');
+    setShowPollComposer(false);
   };
 
   const handleTogglePin = async (groupId: string, e: React.MouseEvent) => {
@@ -161,30 +205,41 @@ export default function CommunityPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() && selectedFileType === 'none') return;
+    if (!newMessage.trim()) return;
     if (!selectedGroup || !isUserMember || selectedGroup.isLocked || !selectedGroupId) return;
-
-    let attachments: any = undefined;
-    if (selectedFileType === 'pdf') {
-      attachments = [{ type: 'pdf', name: 'Study_Notes_Chapter_Summary.pdf', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', size: '1.2 MB' }];
-    } else if (selectedFileType === 'image') {
-      attachments = [{ type: 'image', name: 'Question_Diagram_Notes.png', url: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=800&auto=format&fit=crop&q=80', size: '450 KB' }];
-    } else if (selectedFileType === 'audio') {
-      attachments = [{ type: 'audio', name: 'Voice_Note_Explanation.mp3', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', size: '2.8 MB' }];
-    }
 
     const msgContent = newMessage.trim();
     await sendMutation.mutateAsync({
       content: msgContent,
-      metadata: {
-        attachments,
-        replyTo: replyingTo || undefined,
-      },
+      metadata: { replyTo: replyingTo || undefined },
     });
 
     setNewMessage('');
-    setSelectedFileType('none');
     setReplyingTo(null);
+  };
+
+  /* ── Poll composer (students, when the admin allows polls) ─── */
+  const handleSubmitPoll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupId || !isUserMember || sendMutation.isPending) return;
+    const question = pollQuestion.trim();
+    const options = pollOptions.map((o) => o.trim()).filter(Boolean);
+    if (!question || options.length < 2) return;
+
+    await sendMutation.mutateAsync({
+      content: question,
+      metadata: {
+        poll: {
+          question,
+          options: options.map((text, idx) => ({ id: `opt-${idx + 1}`, text, votes: 0, votedUserIds: [] })),
+          totalVotes: 0,
+        },
+      },
+    });
+
+    setPollQuestion('');
+    setPollOptions(['', '']);
+    setShowPollComposer(false);
   };
 
   const handleToggleReaction = async (messageId: string, emoji: string) => {
@@ -252,8 +307,9 @@ export default function CommunityPage() {
     if (!lastReadMsgId) return -1;
     const idx = messages.findIndex((m) => m.id === lastReadMsgId);
     if (idx === -1) return -1;
-    const next = idx + 1;
-    return next < messages.length ? next : -1;
+    // Your own messages are never "new" to you, so the divider marks the first
+    // unread message from someone else rather than sitting above one you just sent.
+    return messages.findIndex((m, i) => i > idx && m.senderId !== user.id);
   })();
 
   /* ── Group row renderer ─────────────────────────────────── */
@@ -268,7 +324,12 @@ export default function CommunityPage() {
       <div
         key={group.id}
         onClick={() => handleSelectGroup(group.id)}
-        onMouseEnter={() => setHoveredGroupId(group.id)}
+        onMouseEnter={() => {
+          setHoveredGroupId(group.id);
+          prefetchMessages(group.id); // warm the thread before the click lands
+        }}
+        onFocus={() => prefetchMessages(group.id)}
+        onTouchStart={() => prefetchMessages(group.id)}
         onMouseLeave={() => setHoveredGroupId(null)}
         className={`p-3 flex items-start space-x-3 transition-all cursor-pointer relative ${
           isSelected
@@ -277,8 +338,13 @@ export default function CommunityPage() {
         }`}
       >
         {/* Avatar with online dot for joined */}
-        <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${group.coverGradient} border border-amber-500/30 flex items-center justify-center text-lg shadow-sm shrink-0 relative`}>
-          {group.iconEmoji}
+        <div className="relative shrink-0">
+          <GroupAvatar
+            name={group.name}
+            imageUrl={group.imageUrl}
+            coverGradient={group.coverGradient}
+            className="w-11 h-11 rounded-2xl"
+          />
           {joined && (
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-950 absolute -bottom-0.5 -right-0.5" />
           )}
@@ -315,11 +381,12 @@ export default function CommunityPage() {
               {!joined && (
                 <button
                   type="button"
+                  disabled={isJoinBusy}
                   onClick={(e) => handleToggleJoin(group.id, e)}
-                  className="flex items-center space-x-0.5 px-2 py-0.5 rounded-lg bg-amber-500 text-slate-950 text-[9px] font-black hover:bg-amber-400 active:scale-95 transition-all shrink-0 shadow-sm"
+                  className="flex items-center space-x-0.5 px-2 py-0.5 rounded-lg bg-amber-500 text-slate-950 text-[9px] font-black hover:bg-amber-400 active:scale-95 transition-all shrink-0 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <UserPlus className="w-2.5 h-2.5" />
-                  <span>Join</span>
+                  <span>{isJoinBusy ? '…' : 'Join'}</span>
                 </button>
               )}
 
@@ -337,6 +404,7 @@ export default function CommunityPage() {
         {isHovered && (
           <button
             type="button"
+            disabled={isPinBusy}
             onClick={(e) => handleTogglePin(group.id, e)}
             title={isPinned ? 'Unpin' : `Pin (${pinnedCount}/${MAX_PINS})`}
             className={`absolute top-2 right-2 p-1 rounded-lg transition-all shadow-sm ${
@@ -439,7 +507,17 @@ export default function CommunityPage() {
 
             {unpinnedFiltered.map((g) => renderGroupRow(g))}
 
-            {sortedFilteredGroups.length === 0 && (
+            {groupsLoading && groups.length === 0 && (
+              <>
+                <GroupRowSkeleton wide />
+                <GroupRowSkeleton />
+                <GroupRowSkeleton wide />
+                <GroupRowSkeleton />
+                <GroupRowSkeleton wide />
+              </>
+            )}
+
+            {!groupsLoading && sortedFilteredGroups.length === 0 && (
               <div className="p-6 text-center text-xs text-slate-400 dark:text-slate-600">
                 No study circles found.
               </div>
@@ -466,9 +544,13 @@ export default function CommunityPage() {
                     <ArrowLeft className="w-4 h-4" />
                   </button>
 
-                  <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${selectedGroup.coverGradient} border border-amber-500/30 flex items-center justify-center text-base shadow-sm shrink-0`}>
-                    {selectedGroup.iconEmoji}
-                  </div>
+                  <GroupAvatar
+                    name={selectedGroup.name}
+                    imageUrl={selectedGroup.imageUrl}
+                    coverGradient={selectedGroup.coverGradient}
+                    className="w-9 h-9 rounded-xl"
+                    textClassName="text-xs"
+                  />
 
                   <div className="min-w-0">
                     <h2 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate flex items-center space-x-1.5">
@@ -487,9 +569,10 @@ export default function CommunityPage() {
                   {/* Pin button in header */}
                   <button
                     type="button"
+                    disabled={isPinBusy}
                     onClick={(e) => handleTogglePin(selectedGroup.id, e)}
                     title={selectedGroup.isPinned ? 'Unpin this group' : `Pin this group (${pinnedCount}/${MAX_PINS})`}
-                    className={`p-1.5 rounded-xl transition-all border ${
+                    className={`p-1.5 rounded-xl transition-all border disabled:opacity-60 disabled:cursor-not-allowed ${
                       selectedGroup.isPinned
                         ? 'bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400'
                         : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-amber-500 hover:bg-amber-500/10 hover:border-amber-500/30'
@@ -498,21 +581,33 @@ export default function CommunityPage() {
                     {selectedGroup.isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                   </button>
 
-                  <Button
-                    type="button"
-                    variant={isUserMember ? 'outline' : 'gold'}
-                    onClick={(e) => handleToggleJoin(selectedGroup.id, e)}
-                    className="text-xs font-bold px-3 py-1.5 h-auto"
-                  >
-                    {isUserMember ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 inline mr-1" />
-                        <span>Joined</span>
-                      </>
-                    ) : (
+                  {isUserMember ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        isLoading={isJoinBusy}
+                        disabled={isJoinBusy}
+                        onClick={(e) => handleToggleJoin(selectedGroup.id, e)}
+                        className="text-xs font-bold px-3 py-1.5 h-auto flex items-center gap-1"
+                        title="Leave this study circle"
+                      >
+                        {!isJoinBusy && <LogOut className="w-3.5 h-3.5" />}
+                        <span>{isJoinBusy ? 'Leaving…' : 'Leave Group'}</span>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="gold"
+                      isLoading={isJoinBusy}
+                      disabled={isJoinBusy}
+                      onClick={(e) => handleToggleJoin(selectedGroup.id, e)}
+                      className="text-xs font-bold px-3 py-1.5 h-auto"
+                    >
                       <span>Join Group</span>
-                    )}
-                  </Button>
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -527,11 +622,34 @@ export default function CommunityPage() {
 
               {/* Chat stream */}
               <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                {/* Older-history pagination */}
+                {hasOlder && (
+                  <div className="flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => loadOlder()}
+                      disabled={isLoadingOlder}
+                      className="px-3 py-1 rounded-full bg-slate-200 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-mono font-bold uppercase tracking-wider disabled:opacity-60 cursor-pointer"
+                    >
+                      {isLoadingOlder ? 'Loading…' : 'Load older messages'}
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-center">
                   <span className="px-3 py-0.5 rounded-full bg-slate-200 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider">
                     Today
                   </span>
                 </div>
+
+                {messagesLoading && messages.length === 0 && (
+                  <>
+                    <BubbleSkeleton bubbleWidth="60%" hasSecondLine />
+                    <BubbleSkeleton isMe bubbleWidth="45%" />
+                    <BubbleSkeleton bubbleWidth="70%" hasSecondLine />
+                    <BubbleSkeleton isMe bubbleWidth="38%" />
+                  </>
+                )}
 
                 {messages.map((msg, msgIndex) => {
                   const isMe = msg.senderId === user.id;
@@ -572,6 +690,14 @@ export default function CommunityPage() {
                             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                               {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
+                            {/* Delivery status on your own messages: a clock while the
+                                server round trip is in flight, then a single tick. */}
+                            {isMe &&
+                              (msg.id.startsWith('optimistic-') ? (
+                                <Clock className="w-3 h-3 text-slate-400 shrink-0" aria-label="Sending" />
+                              ) : (
+                                <Check className="w-3 h-3 text-emerald-500 shrink-0" aria-label="Sent" />
+                              ))}
                           </div>
 
                           {/* Bubble body */}
@@ -706,27 +832,94 @@ export default function CommunityPage() {
                   </div>
                 )}
 
-                {selectedFileType !== 'none' && (
-                  <div className="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs font-semibold text-amber-600 dark:text-amber-400">
-                    <span className="flex items-center space-x-1.5 text-[11px]">
-                      <Paperclip className="w-3.5 h-3.5" />
-                      <span>Attachment: {selectedFileType.toUpperCase()}</span>
-                    </span>
-                    <button type="button" onClick={() => setSelectedFileType('none')} className="text-xs font-bold hover:underline">Remove</button>
-                  </div>
+
+                {/* Poll composer — only when the admin allows polls here */}
+                {canPostPolls && showPollComposer && isUserMember && !selectedGroup.isLocked && (
+                  <form
+                    onSubmit={handleSubmitPoll}
+                    className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                        <BarChart2 className="w-3.5 h-3.5" /> New Poll
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPollComposer(false)}
+                        className="p-1 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                        title="Cancel poll"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={pollQuestion}
+                      onChange={(e) => setPollQuestion(e.target.value)}
+                      placeholder="Ask a question..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/40 placeholder:text-slate-500 dark:placeholder:text-slate-400"
+                    />
+
+                    {pollOptions.map((opt, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={opt}
+                          onChange={(e) =>
+                            setPollOptions((prev) => prev.map((o, i) => (i === idx ? e.target.value : o)))
+                          }
+                          placeholder={`Option ${idx + 1}`}
+                          className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/40 placeholder:text-slate-500 dark:placeholder:text-slate-400"
+                        />
+                        {pollOptions.length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => setPollOptions((prev) => prev.filter((_, i) => i !== idx))}
+                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer shrink-0"
+                            title="Remove option"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      {pollOptions.length < 4 ? (
+                        <button
+                          type="button"
+                          onClick={() => setPollOptions((prev) => [...prev, ''])}
+                          className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                        >
+                          + Add option
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <Button
+                        type="submit"
+                        variant="gold"
+                        isLoading={isSending}
+                        disabled={
+                          isSending ||
+                          !pollQuestion.trim() ||
+                          pollOptions.filter((o) => o.trim()).length < 2
+                        }
+                        className="font-extrabold px-3 py-1.5 h-auto text-xs"
+                      >
+                        {isSending ? 'Posting…' : 'Post Poll'}
+                      </Button>
+                    </div>
+                  </form>
                 )}
 
+                {!canSendText ? (
+                  <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900/60 border border-slate-300 dark:border-slate-800 text-[11px] font-semibold text-slate-500 dark:text-slate-400 text-center">
+                    Messaging is turned off for this study circle by the admin.
+                  </div>
+                ) : (
                 <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    disabled={!isUserMember || selectedGroup.isLocked}
-                    onClick={() => setSelectedFileType(selectedFileType === 'none' ? 'pdf' : selectedFileType === 'pdf' ? 'image' : selectedFileType === 'image' ? 'audio' : 'none')}
-                    className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-amber-500 disabled:opacity-50 cursor-pointer shrink-0"
-                    title="Attach (PDF / Image / Audio)"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
-
                   <input
                     type="text"
                     disabled={!isUserMember || selectedGroup.isLocked}
@@ -742,6 +935,18 @@ export default function CommunityPage() {
                     className="flex-1 min-w-0 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/40 disabled:opacity-50 placeholder:text-slate-500 dark:placeholder:text-slate-400"
                   />
 
+                  {canPostPolls && (
+                    <button
+                      type="button"
+                      disabled={!isUserMember || selectedGroup.isLocked}
+                      onClick={() => setShowPollComposer((v) => !v)}
+                      className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-amber-500 disabled:opacity-50 cursor-pointer shrink-0"
+                      title="Create a poll"
+                    >
+                      <BarChart2 className="w-4 h-4" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     disabled={!isUserMember || selectedGroup.isLocked}
@@ -755,13 +960,14 @@ export default function CommunityPage() {
                   <Button
                     type="submit"
                     variant="gold"
-                    disabled={!isUserMember || selectedGroup.isLocked || (!newMessage.trim() && selectedFileType === 'none')}
+                    disabled={!isUserMember || selectedGroup.isLocked || !newMessage.trim()}
                     className="font-extrabold flex items-center space-x-1 px-3.5 py-2 h-auto text-xs shrink-0"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>Send</span>
                   </Button>
                 </form>
+                )}
               </div>
             </>
           ) : (

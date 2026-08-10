@@ -20,10 +20,15 @@ import {
   X,
   Reply,
   UserPlus,
+  Check,
+  Clock,
+  LogOut,
 } from 'lucide-react';
 import {
   useChatGroups,
   useGroupMessages,
+  useGroupRealtime,
+  usePrefetchGroupMessages,
   useJoinGroup,
   useLeaveGroup,
   usePinGroup,
@@ -35,7 +40,8 @@ import {
   MAX_PINS,
 } from '../community-data';
 import { useAuth } from '../../auth-provider';
-import { CommunitySkeleton } from '../community-skeleton';
+import { CommunitySkeleton, GroupRowSkeleton, BubbleSkeleton } from '../community-skeleton';
+import { GroupAvatar } from '../group-avatar';
 
 export default function GroupDiscussionPage() {
   const params = useParams();
@@ -45,20 +51,32 @@ export default function GroupDiscussionPage() {
 
   const { data: groups = [], isLoading: groupsLoading } = useChatGroups();
   const [selectedGroupId, setSelectedGroupId] = useState<string>(groupIdFromUrl);
-  const { data: messages = [] } = useGroupMessages(selectedGroupId || null);
+  const {
+    messages,
+    isLoading: messagesLoading,
+    hasOlder,
+    isLoadingOlder,
+    loadOlder,
+  } = useGroupMessages(selectedGroupId || null);
+
+  // Live updates for the open group, so we don't poll.
+  useGroupRealtime(selectedGroupId || null);
+  const prefetchMessages = usePrefetchGroupMessages();
 
   const joinMutation = useJoinGroup();
   const leaveMutation = useLeaveGroup();
   const pinMutation = usePinGroup();
   const unpinMutation = useUnpinGroup();
-  const sendMutation = useSendMessage(selectedGroupId || '');
+  const sendMutation = useSendMessage(
+    selectedGroupId || '',
+    user ? { id: user.id, name: user.name, avatarUrl: user.avatarUrl } : undefined,
+  );
   const markReadMutation = useMarkRead(selectedGroupId || '');
   const metadataMutation = useUpdateMessageMetadata(selectedGroupId || '');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [newMessage, setNewMessage] = useState('');
-  const [selectedFileType, setSelectedFileType] = useState<'none' | 'pdf' | 'image' | 'audio'>('none');
   const [replyingTo, setReplyingTo] = useState<ReplyPreview | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(true);
   const [mounted, setMounted] = useState(false);
@@ -109,11 +127,19 @@ export default function GroupDiscussionPage() {
     return () => clearTimeout(t);
   }, [pinToast]);
 
-  /* ── Early returns ──────────────────────────────────────── */
-  if (!mounted || authLoading || !user || groupsLoading) return <CommunitySkeleton />;
+  /* ── Early returns ──────────────────────────────────────────
+     Only auth blocks the page; group/message loading render inline skeletons so
+     arriving here from the community list paints instantly from cache. */
+  if (!mounted || authLoading || !user) return <CommunitySkeleton />;
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
   const isUserMember = selectedGroup?.isJoined ?? false;
+
+  /* Admin-controlled feature switches; moderators keep access. */
+  const isModerator = user.role === 'ADMIN' || user.role === 'STAFF';
+  const canSendText = !!selectedGroup && (selectedGroup.allowTextMessages || isModerator);
+  const isSending = sendMutation.isPending;
+  const isJoinBusy = joinMutation.isPending || leaveMutation.isPending;
 
   const categories = ['All', 'Joined', 'Kerala PSC', 'SSC & UPSC', 'Subject Wise'];
 
@@ -123,7 +149,6 @@ export default function GroupDiscussionPage() {
     setSelectedGroupId(groupId);
     setMobileShowChat(true);
     setReplyingTo(null);
-    setSelectedFileType('none');
     router.replace(`/community/${groupId}`);
   };
 
@@ -157,29 +182,16 @@ export default function GroupDiscussionPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() && selectedFileType === 'none') return;
+    if (!newMessage.trim()) return;
     if (!selectedGroup || !isUserMember || selectedGroup.isLocked || !selectedGroupId) return;
-
-    let attachments: any = undefined;
-    if (selectedFileType === 'pdf') {
-      attachments = [{ type: 'pdf', name: 'Study_Notes_Chapter_Summary.pdf', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', size: '1.2 MB' }];
-    } else if (selectedFileType === 'image') {
-      attachments = [{ type: 'image', name: 'Question_Diagram_Notes.png', url: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=800&auto=format&fit=crop&q=80', size: '450 KB' }];
-    } else if (selectedFileType === 'audio') {
-      attachments = [{ type: 'audio', name: 'Voice_Note_Explanation.mp3', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', size: '2.8 MB' }];
-    }
 
     const msgContent = newMessage.trim();
     await sendMutation.mutateAsync({
       content: msgContent,
-      metadata: {
-        attachments,
-        replyTo: replyingTo || undefined,
-      },
+      metadata: { replyTo: replyingTo || undefined },
     });
 
     setNewMessage('');
-    setSelectedFileType('none');
     setReplyingTo(null);
   };
 
@@ -247,8 +259,9 @@ export default function GroupDiscussionPage() {
     if (!lastReadMsgId) return -1;
     const idx = messages.findIndex((m) => m.id === lastReadMsgId);
     if (idx === -1) return -1;
-    const next = idx + 1;
-    return next < messages.length ? next : -1;
+    // Your own messages are never "new" to you, so the divider marks the first
+    // unread message from someone else rather than sitting above one you just sent.
+    return messages.findIndex((m, i) => i > idx && m.senderId !== user.id);
   })();
 
   /* ── Group row renderer ─────────────────────────────────── */
@@ -263,7 +276,12 @@ export default function GroupDiscussionPage() {
       <div
         key={group.id}
         onClick={() => handleSelectGroup(group.id)}
-        onMouseEnter={() => setHoveredGroupId(group.id)}
+        onMouseEnter={() => {
+          setHoveredGroupId(group.id);
+          prefetchMessages(group.id);
+        }}
+        onFocus={() => prefetchMessages(group.id)}
+        onTouchStart={() => prefetchMessages(group.id)}
         onMouseLeave={() => setHoveredGroupId(null)}
         className={`p-3 flex items-start space-x-3 transition-all cursor-pointer relative ${
           isSelected
@@ -271,8 +289,13 @@ export default function GroupDiscussionPage() {
             : 'hover:bg-slate-100 dark:hover:bg-slate-900/40 border-l-4 border-transparent'
         }`}
       >
-        <div className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${group.coverGradient} border border-amber-500/30 flex items-center justify-center text-lg shadow-sm shrink-0 relative`}>
-          {group.iconEmoji}
+        <div className="relative shrink-0">
+          <GroupAvatar
+            name={group.name}
+            imageUrl={group.imageUrl}
+            coverGradient={group.coverGradient}
+            className="w-11 h-11 rounded-2xl"
+          />
           {joined && (
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-950 absolute -bottom-0.5 -right-0.5" />
           )}
@@ -420,7 +443,16 @@ export default function GroupDiscussionPage() {
 
             {unpinnedFiltered.map((g) => renderGroupRow(g))}
 
-            {sortedFilteredGroups.length === 0 && (
+            {groupsLoading && groups.length === 0 && (
+              <>
+                <GroupRowSkeleton wide />
+                <GroupRowSkeleton />
+                <GroupRowSkeleton wide />
+                <GroupRowSkeleton />
+              </>
+            )}
+
+            {!groupsLoading && sortedFilteredGroups.length === 0 && (
               <div className="p-6 text-center text-xs text-slate-400 dark:text-slate-600">No study circles found.</div>
             )}
           </div>
@@ -444,9 +476,13 @@ export default function GroupDiscussionPage() {
                   >
                     <ArrowLeft className="w-4 h-4" />
                   </button>
-                  <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${selectedGroup.coverGradient} border border-amber-500/30 flex items-center justify-center text-base shadow-sm shrink-0`}>
-                    {selectedGroup.iconEmoji}
-                  </div>
+                  <GroupAvatar
+                    name={selectedGroup.name}
+                    imageUrl={selectedGroup.imageUrl}
+                    coverGradient={selectedGroup.coverGradient}
+                    className="w-9 h-9 rounded-xl"
+                    textClassName="text-xs"
+                  />
                   <div className="min-w-0">
                     <h2 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate flex items-center space-x-1.5">
                       <span className="truncate">{selectedGroup.name}</span>
@@ -476,12 +512,18 @@ export default function GroupDiscussionPage() {
 
                   <Button
                     type="button"
-                    variant={isUserMember ? 'outline' : 'gold'}
+                    variant={isUserMember ? 'danger' : 'gold'}
+                    isLoading={isJoinBusy}
+                    disabled={isJoinBusy}
                     onClick={(e) => handleToggleJoin(selectedGroup.id, e)}
-                    className="text-xs font-bold px-3 py-1.5 h-auto"
+                    className="text-xs font-bold px-3 py-1.5 h-auto flex items-center gap-1"
+                    title={isUserMember ? 'Leave this study circle' : 'Join this study circle'}
                   >
                     {isUserMember ? (
-                      <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 inline mr-1" /><span>Joined</span></>
+                      <>
+                        {!isJoinBusy && <LogOut className="w-3.5 h-3.5" />}
+                        <span>{isJoinBusy ? 'Leaving…' : 'Leave Group'}</span>
+                      </>
                     ) : (
                       <span>Join Group</span>
                     )}
@@ -500,11 +542,33 @@ export default function GroupDiscussionPage() {
 
               {/* Chat stream */}
               <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                {hasOlder && (
+                  <div className="flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => loadOlder()}
+                      disabled={isLoadingOlder}
+                      className="px-3 py-1 rounded-full bg-slate-200 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-mono font-bold uppercase tracking-wider disabled:opacity-60 cursor-pointer"
+                    >
+                      {isLoadingOlder ? 'Loading…' : 'Load older messages'}
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-center">
                   <span className="px-3 py-0.5 rounded-full bg-slate-200 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider">
                     Today
                   </span>
                 </div>
+
+                {messagesLoading && messages.length === 0 && (
+                  <>
+                    <BubbleSkeleton bubbleWidth="60%" hasSecondLine />
+                    <BubbleSkeleton isMe bubbleWidth="45%" />
+                    <BubbleSkeleton bubbleWidth="70%" hasSecondLine />
+                    <BubbleSkeleton isMe bubbleWidth="38%" />
+                  </>
+                )}
 
                 {messages.map((msg, msgIndex) => {
                   const isMe = msg.senderId === user.id;
@@ -540,6 +604,14 @@ export default function GroupDiscussionPage() {
                             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                               {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
+                            {/* Delivery status on your own messages: a clock while the
+                                server round trip is in flight, then a single tick. */}
+                            {isMe &&
+                              (msg.id.startsWith('optimistic-') ? (
+                                <Clock className="w-3 h-3 text-slate-400 shrink-0" aria-label="Sending" />
+                              ) : (
+                                <Check className="w-3 h-3 text-emerald-500 shrink-0" aria-label="Sent" />
+                              ))}
                           </div>
 
                           <div className={`p-3 rounded-2xl text-xs leading-relaxed shadow-sm relative ${
@@ -668,27 +740,13 @@ export default function GroupDiscussionPage() {
                   </div>
                 )}
 
-                {selectedFileType !== 'none' && (
-                  <div className="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs font-semibold text-amber-600 dark:text-amber-400">
-                    <span className="flex items-center space-x-1.5 text-[11px]">
-                      <Paperclip className="w-3.5 h-3.5" />
-                      <span>Attachment: {selectedFileType.toUpperCase()}</span>
-                    </span>
-                    <button type="button" onClick={() => setSelectedFileType('none')} className="text-xs font-bold hover:underline">Remove</button>
+
+                {!canSendText ? (
+                  <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-900/60 border border-slate-300 dark:border-slate-800 text-[11px] font-semibold text-slate-500 dark:text-slate-400 text-center">
+                    Messaging is turned off for this study circle by the admin.
                   </div>
-                )}
-
+                ) : (
                 <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    disabled={!isUserMember || selectedGroup.isLocked}
-                    onClick={() => setSelectedFileType(selectedFileType === 'none' ? 'pdf' : selectedFileType === 'pdf' ? 'image' : selectedFileType === 'image' ? 'audio' : 'none')}
-                    className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-amber-500 disabled:opacity-50 cursor-pointer shrink-0"
-                    title="Attach (PDF / Image / Audio)"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
-
                   <input
                     type="text"
                     disabled={!isUserMember || selectedGroup.isLocked}
@@ -717,13 +775,14 @@ export default function GroupDiscussionPage() {
                   <Button
                     type="submit"
                     variant="gold"
-                    disabled={!isUserMember || selectedGroup.isLocked || (!newMessage.trim() && selectedFileType === 'none')}
+                    disabled={!isUserMember || selectedGroup.isLocked || !newMessage.trim()}
                     className="font-extrabold flex items-center space-x-1 px-3.5 py-2 h-auto text-xs shrink-0"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>Send</span>
                   </Button>
                 </form>
+                )}
               </div>
             </>
           ) : null}

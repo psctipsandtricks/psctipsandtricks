@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, CardTitle, Button, Input, Pagination, Skeleton } from '@psc/ui';
+import { Card, CardTitle, Button, Input, Pagination, Skeleton, ConfirmDialog } from '@psc/ui';
 import {
   Users,
   Plus,
@@ -14,14 +14,18 @@ import {
   Pin,
   Megaphone,
   BarChart2,
+  MessageSquare,
   Paperclip,
   CheckCircle2,
   UserX,
   X,
   Search,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   useAdminGroups,
+  useToggleGroupFeature,
+  useUploadGroupImage,
   useCreateGroup,
   useUpdateGroup,
   useToggleGroupLock,
@@ -32,13 +36,13 @@ import {
   AdminGroup,
 } from '../../community/community-data';
 
+import { GroupAvatar } from '../../community/group-avatar';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 
 const groupSchema = Yup.object({
   groupName: Yup.string().trim().required('Group name is required'),
   groupDesc: Yup.string().trim().required('Description is required'),
   groupCategory: Yup.string().required('Category is required'),
-  groupEmoji: Yup.string().trim().required('Icon emoji is required'),
 });
 
 const postAnnouncementSchema = Yup.object({
@@ -79,6 +83,8 @@ export default function AdminCommunityPage() {
   const updateGroupMutation = useUpdateGroup();
   const toggleLockMutation = useToggleGroupLock();
   const deleteGroupMutation = useDeleteGroup();
+  const toggleFeatureMutation = useToggleGroupFeature();
+  const uploadImageMutation = useUploadGroupImage();
   const postAnnouncementMutation = usePostAnnouncement();
 
   React.useEffect(() => {
@@ -88,10 +94,12 @@ export default function AdminCommunityPage() {
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<AdminGroup | null>(null);
   const [groupFormError, setGroupFormError] = useState('');
+  const [groupImageFile, setGroupImageFile] = useState<File | null>(null);
+  const [groupImagePreview, setGroupImagePreview] = useState<string | null>(null);
   const [announcementFormError, setAnnouncementFormError] = useState('');
 
   const groupFormik = useFormik({
-    initialValues: { groupName: '', groupDesc: '', groupCategory: 'Kerala PSC', groupEmoji: '🏆' },
+    initialValues: { groupName: '', groupDesc: '', groupCategory: 'Kerala PSC' },
     validationSchema: groupSchema,
     onSubmit: async (values, { setSubmitting }) => {
       setGroupFormError('');
@@ -99,15 +107,25 @@ export default function AdminCommunityPage() {
         if (editingGroup) {
           await updateGroupMutation.mutateAsync({
             groupId: editingGroup.id,
-            payload: { name: values.groupName.trim(), description: values.groupDesc.trim(), category: values.groupCategory, iconEmoji: values.groupEmoji },
+            payload: {
+              name: values.groupName.trim(),
+              description: values.groupDesc.trim(),
+              category: values.groupCategory,
+            },
           });
+          if (groupImageFile) {
+            await uploadImageMutation.mutateAsync({ groupId: editingGroup.id, file: groupImageFile });
+          }
         } else {
-          await createGroupMutation.mutateAsync({
+          const created: any = await createGroupMutation.mutateAsync({
             name: values.groupName.trim(),
             description: values.groupDesc.trim(),
             category: values.groupCategory,
-            iconEmoji: values.groupEmoji || '📚',
           });
+          // The group must exist before its picture can be attached to it.
+          if (groupImageFile && created?.id) {
+            await uploadImageMutation.mutateAsync({ groupId: created.id, file: groupImageFile });
+          }
         }
         setIsGroupModalOpen(false);
       } catch (err: any) {
@@ -186,6 +204,13 @@ export default function AdminCommunityPage() {
   });
 
   // Member Modal state
+  const [confirmAction, setConfirmAction] = useState<
+    | { type: 'lock'; group: AdminGroup }
+    | { type: 'delete-group'; group: AdminGroup }
+    | { type: 'remove-member'; userId: string; name: string }
+    | null
+  >(null);
+
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<{ id: string; name: string } | null>(null);
   const { data: activeGroupMembers = [] } = useGroupMembers(activeGroup?.id ?? null);
@@ -198,7 +223,7 @@ export default function AdminCommunityPage() {
     return (
       <div className="space-y-8">
         <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={5} colsCount={5} />
+        <AdminSkeletonTable rowsCount={5} colsCount={6} />
       </div>
     );
   }
@@ -206,18 +231,24 @@ export default function AdminCommunityPage() {
   const handleOpenCreateModal = () => {
     setEditingGroup(null);
     groupFormik.resetForm({
-      values: { groupName: '', groupDesc: '', groupCategory: 'Kerala PSC', groupEmoji: '🏆' },
+      values: { groupName: '', groupDesc: '', groupCategory: 'Kerala PSC' },
     });
     setGroupFormError('');
+    setGroupImageFile(null);
+    setGroupImagePreview(null);
     setIsGroupModalOpen(true);
   };
 
   const handleOpenEditModal = (group: AdminGroup) => {
     setEditingGroup(group);
     groupFormik.resetForm({
-      values: { groupName: group.name, groupDesc: group.description, groupCategory: group.category, groupEmoji: group.iconEmoji },
+      values: { groupName: group.name, groupDesc: group.description, groupCategory: group.category },
     });
     setGroupFormError('');
+    // Clear any file picked in a previous session so it can't be uploaded to
+    // this group, and show the picture this group already has.
+    setGroupImageFile(null);
+    setGroupImagePreview(group.imageUrl || null);
     setIsGroupModalOpen(true);
   };
 
@@ -226,7 +257,6 @@ export default function AdminCommunityPage() {
   };
 
   const handleDeleteGroup = (groupId: string) => {
-    if (!confirm('Are you sure you want to delete this study group?')) return;
     deleteGroupMutation.mutate(groupId);
   };
 
@@ -237,6 +267,14 @@ export default function AdminCommunityPage() {
 
   const handleRemoveMember = (userId: string) => {
     removeMemberMutation.mutate(userId);
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmAction) return;
+    if (confirmAction.type === 'lock') handleToggleLockGroup(confirmAction.group.id);
+    else if (confirmAction.type === 'delete-group') handleDeleteGroup(confirmAction.group.id);
+    else handleRemoveMember(confirmAction.userId);
+    setConfirmAction(null);
   };
 
   const totalItems = groups.length;
@@ -292,6 +330,7 @@ export default function AdminCommunityPage() {
                 <th className="p-3.5">Category</th>
                 <th className="p-3.5">Members</th>
                 <th className="p-3.5">Status</th>
+                <th className="p-3.5">Student Access</th>
                 <th className="p-3.5 text-right">Actions</th>
               </tr>
             </thead>
@@ -308,7 +347,7 @@ export default function AdminCommunityPage() {
                 ))
               ) : paginatedGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-12">
+                  <td colSpan={6} className="text-center py-12">
                     <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                       <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
                         <Users className="w-6 h-6" />
@@ -326,9 +365,18 @@ export default function AdminCommunityPage() {
                 paginatedGroups.map((group) => (
                 <tr key={group.id} className="hover:bg-slate-50/50 dark:hover:bg-[#0c152e]/40 transition-colors">
                   <td className="p-3.5 font-bold text-slate-900 dark:text-white">
-                    <div>
+                    <div className="flex items-center gap-3">
+                      <GroupAvatar
+                        name={group.name}
+                        imageUrl={group.imageUrl}
+                        coverGradient={group.coverGradient}
+                        className="w-9 h-9 rounded-xl"
+                        textClassName="text-xs"
+                      />
+                      <div className="min-w-0">
                       <div className="text-sm">{group.name}</div>
                       <div className="text-xs font-normal text-slate-400 mt-0.5 line-clamp-1">{group.description}</div>
+                      </div>
                     </div>
                   </td>
                   <td className="p-3.5">
@@ -361,11 +409,60 @@ export default function AdminCommunityPage() {
                     )}
                   </td>
 
+                  {/* Per-group student feature switches */}
+                  <td className="p-3.5">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleFeatureMutation.mutate({
+                            groupId: group.id,
+                            feature: 'allowTextMessages',
+                            enabled: !group.allowTextMessages,
+                          })
+                        }
+                        disabled={toggleFeatureMutation.isPending}
+                        aria-pressed={group.allowTextMessages}
+                        title={group.allowTextMessages ? 'Text messages enabled — click to disable' : 'Text messages disabled — click to enable'}
+                        className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer ${
+                          group.allowTextMessages
+                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 line-through'
+                        }`}
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                        <span>Text</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleFeatureMutation.mutate({
+                            groupId: group.id,
+                            feature: 'allowPolls',
+                            enabled: !group.allowPolls,
+                          })
+                        }
+                        disabled={toggleFeatureMutation.isPending}
+                        aria-pressed={group.allowPolls}
+                        title={group.allowPolls ? 'Polls enabled — click to disable' : 'Polls disabled — click to enable'}
+                        className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer ${
+                          group.allowPolls
+                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 line-through'
+                        }`}
+                      >
+                        <BarChart2 className="w-3 h-3" />
+                        <span>Polls</span>
+                      </button>
+                    </div>
+                  </td>
+
                   <td className="p-3.5 text-right">
                     <div className="flex items-center justify-end space-x-2">
                       <button
                         type="button"
-                        onClick={() => handleToggleLockGroup(group.id)}
+                        onClick={() => setConfirmAction({ type: 'lock', group })}
                         className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-amber-500 transition-colors"
                         title={group.isLocked ? 'Unlock Group' : 'Lock Group'}
                       >
@@ -383,7 +480,7 @@ export default function AdminCommunityPage() {
 
                       <button
                         type="button"
-                        onClick={() => handleDeleteGroup(group.id)}
+                        onClick={() => setConfirmAction({ type: 'delete-group', group })}
                         className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-rose-500 transition-colors"
                         title="Delete Group"
                       >
@@ -477,15 +574,34 @@ export default function AdminCommunityPage() {
                   </select>
                 </div>
 
-                <Input
-                  label="Icon Emoji"
-                  name="groupEmoji"
-                  value={groupFormik.values.groupEmoji}
-                  onChange={groupFormik.handleChange}
-                  onBlur={groupFormik.handleBlur}
-                  error={groupFormik.touched.groupEmoji && groupFormik.errors.groupEmoji ? groupFormik.errors.groupEmoji : undefined}
-                  placeholder="🏆"
-                />
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    Group Profile Picture
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {groupImagePreview ? (
+                      <img
+                        src={groupImagePreview}
+                        alt="Group preview"
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-300 dark:border-slate-700 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl border border-dashed border-slate-400 dark:border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                        <ImageIcon className="w-5 h-5" />
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setGroupImageFile(file);
+                        setGroupImagePreview(file ? URL.createObjectURL(file) : null);
+                      }}
+                      className="flex-1 min-w-0 text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-cyan-500/10 file:text-cyan-700 dark:file:text-cyan-300 file:font-bold file:cursor-pointer cursor-pointer"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="pt-2 flex items-center justify-end space-x-3">
@@ -756,7 +872,7 @@ export default function AdminCommunityPage() {
                   {m.user.role !== 'ADMIN' && (
                     <button
                       type="button"
-                      onClick={() => handleRemoveMember(m.userId)}
+                      onClick={() => setConfirmAction({ type: 'remove-member', userId: m.userId, name: m.user.name })}
                       className="px-2.5 py-1 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all font-bold text-[11px] flex items-center space-x-1"
                     >
                       <UserX className="w-3.5 h-3.5" />
@@ -779,6 +895,40 @@ export default function AdminCommunityPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmAction !== null}
+        title={
+          confirmAction?.type === 'lock'
+            ? confirmAction.group.isLocked
+              ? 'Unlock Group'
+              : 'Lock Group'
+            : confirmAction?.type === 'delete-group'
+            ? 'Delete Study Group'
+            : 'Remove Member'
+        }
+        description={
+          confirmAction?.type === 'lock'
+            ? `${confirmAction.group.isLocked ? 'Unlock' : 'Lock'} "${confirmAction.group.name}"?`
+            : confirmAction?.type === 'delete-group'
+            ? `This will permanently delete "${confirmAction.group.name}" and all its messages. This action cannot be undone.`
+            : confirmAction?.type === 'remove-member'
+            ? `Remove ${confirmAction.name} from this group?`
+            : undefined
+        }
+        confirmLabel={
+          confirmAction?.type === 'lock'
+            ? confirmAction.group.isLocked
+              ? 'Unlock'
+              : 'Lock'
+            : confirmAction?.type === 'delete-group'
+            ? 'Delete'
+            : 'Remove'
+        }
+        variant={confirmAction?.type === 'delete-group' || confirmAction?.type === 'remove-member' ? 'danger' : 'default'}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   );
 }

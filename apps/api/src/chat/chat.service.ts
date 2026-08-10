@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { ChatMessageType, UserRole } from '@prisma/client';
 import { CreateChatGroupDto } from './dto/create-chat-group.dto';
 import { UpdateChatGroupDto } from './dto/update-chat-group.dto';
@@ -9,7 +10,10 @@ const MAX_PINS = 3;
 
 @Injectable()
 export class ChatService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private storageService: StorageService,
+  ) {}
 
   async saveMessage(data: {
     userId: string;
@@ -67,6 +71,21 @@ export class ChatService {
     return this.prisma.chatGroup.create({ data: dto });
   }
 
+  /** Stores a group's profile picture and points the group at it. */
+  async uploadGroupImage(id: string, file: Express.Multer.File) {
+    const group = await this.prisma.chatGroup.findUnique({ where: { id } });
+    if (!group) throw new NotFoundException('Chat group not found');
+    if (!file) throw new BadRequestException('No image file provided');
+
+    const url = await this.storageService.upload(
+      'group-images',
+      `${id}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+    return this.prisma.chatGroup.update({ where: { id }, data: { imageUrl: url } });
+  }
+
   async updateGroup(id: string, dto: UpdateChatGroupDto) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id } });
     if (!group) throw new NotFoundException('Chat group not found');
@@ -92,8 +111,11 @@ export class ChatService {
     return !!membership;
   }
 
-  async listGroupsForUser(userId: string) {
+  async listGroupsForUser(userId: string, userRole?: UserRole) {
+    // Locked groups are admin-only workspaces — students shouldn't see them at all.
+    const isModerator = userRole ? await this.canModerate(userId, userRole) : false;
     const groups = await this.prisma.chatGroup.findMany({
+      where: isModerator ? undefined : { isLocked: false },
       include: {
         _count: { select: { members: true } },
         members: { where: { userId }, select: { id: true } },
@@ -104,29 +126,59 @@ export class ChatService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return Promise.all(
-      groups.map(async (g) => {
-        const isJoined = g.members.length > 0;
-        const isPinned = g.pins.length > 0;
-        const readRecord = g.reads[0];
-        const unreadCount = await this.prisma.chatMessage.count({
-          where: {
-            groupId: g.id,
-            createdAt: readRecord ? { gt: readRecord.lastReadAt } : undefined,
-          },
-        });
-        const { members, pins, reads, messages, ...groupFields } = g;
-        return {
-          ...groupFields,
-          memberCount: g._count.members,
-          isJoined,
-          isPinned,
-          unreadCount,
-          lastReadMessageId: readRecord?.lastReadMessageId || null,
-          lastMessage: messages[0] || null,
-        };
-      }),
+    // Unread counts for every group in a single grouped query, rather than one
+    // COUNT per group (which made this endpoint scale linearly with group count).
+    const readAtByGroup = new Map<string, Date | undefined>(
+      groups.map((g) => [g.id, g.reads[0]?.lastReadAt]),
     );
+    const unreadRows = await this.prisma.chatMessage.groupBy({
+      by: ['groupId'],
+      where: {
+        OR: groups.map((g) => ({
+          groupId: g.id,
+          ...(readAtByGroup.get(g.id) ? { createdAt: { gt: readAtByGroup.get(g.id) } } : {}),
+        })),
+      },
+      _count: { _all: true },
+    });
+    const unreadByGroup = new Map(unreadRows.map((r) => [r.groupId, r._count._all]));
+
+    return groups.map((g) => {
+      const readRecord = g.reads[0];
+      const { members, pins, reads, messages, ...groupFields } = g;
+      return {
+        ...groupFields,
+        memberCount: g._count.members,
+        isJoined: members.length > 0,
+        isPinned: pins.length > 0,
+        unreadCount: unreadByGroup.get(g.id) ?? 0,
+        lastReadMessageId: readRecord?.lastReadMessageId || null,
+        lastMessage: messages[0] || null,
+      };
+    });
+  }
+
+  /**
+   * Throws when a non-moderator tries to use a feature the admin has disabled
+   * for this group. Moderators are always allowed so they can still run the group.
+   */
+  async assertGroupFeatureAllowed(
+    groupId: string,
+    isModerator: boolean,
+    kind: 'text' | 'poll',
+  ) {
+    if (isModerator) return;
+    const group = await this.prisma.chatGroup.findUnique({
+      where: { id: groupId },
+      select: { allowTextMessages: true, allowPolls: true },
+    });
+    if (!group) throw new NotFoundException('Chat group not found');
+    if (kind === 'text' && !group.allowTextMessages) {
+      throw new BadRequestException('Text messages are disabled for this group');
+    }
+    if (kind === 'poll' && !group.allowPolls) {
+      throw new BadRequestException('Polls are disabled for this group');
+    }
   }
 
   async joinGroup(groupId: string, userId: string) {
@@ -199,13 +251,26 @@ export class ChatService {
     });
   }
 
-  async sendGroupMessage(groupId: string, userId: string, userName: string, dto: SendMessageDto) {
+  async sendGroupMessage(
+    groupId: string,
+    userId: string,
+    userName: string,
+    dto: SendMessageDto,
+    userRole?: UserRole,
+  ) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Chat group not found');
     if (group.isLocked) throw new BadRequestException('This group is locked by an admin');
 
     const member = await this.isMember(groupId, userId);
     if (!member) throw new BadRequestException('You must join this group before sending messages');
+
+    const isModerator = userRole ? await this.canModerate(userId, userRole) : false;
+    await this.assertGroupFeatureAllowed(
+      groupId,
+      isModerator,
+      dto.metadata?.poll ? 'poll' : 'text',
+    );
 
     return this.saveMessage({
       userId,

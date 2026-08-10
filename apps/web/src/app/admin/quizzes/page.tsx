@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { ApiClient } from '@/lib/api-client';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
 import {
   Folder,
   Lock,
@@ -287,6 +287,7 @@ export default function AdminQuizzesPage() {
 
   // Inspector Modal State
   const [inspectQuiz, setInspectQuiz] = useState<QuizItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<QuizItem | null>(null);
 
   // Helper to map API response to local QuizItem format
   const mapApiQuizToLocal = useCallback((apiQuiz: any): QuizItem => {
@@ -582,13 +583,11 @@ export default function AdminQuizzesPage() {
   };
 
   const handleDeleteQuiz = async (id: string) => {
-    if (confirm('Are you sure you want to delete this quiz?')) {
-      try {
-        await ApiClient.deleteQuiz(id);
-        await fetchQuizzes();
-      } catch (err: any) {
-        alert(err.message || 'Failed to delete quiz.');
-      }
+    try {
+      await ApiClient.deleteQuiz(id);
+      await fetchQuizzes();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete quiz.');
     }
   };
 
@@ -662,14 +661,14 @@ export default function AdminQuizzesPage() {
             <select
               value={selectedFolderFilter}
               onChange={(e) => setSelectedFolderFilter(e.target.value)}
-              className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
+              className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">All Folders & Root</option>
-              <option value="ROOT" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">Root Level Only (No Folder)</option>
+              <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Folders & Root</option>
+              <option value="ROOT" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Root Level Only (No Folder)</option>
               {folders
                 .filter((f) => f !== 'Root / No Folder')
                 .map((folder) => (
-                  <option key={folder} value={folder} className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">
+                  <option key={folder} value={folder} className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">
                     {folder}
                   </option>
                 ))}
@@ -682,11 +681,11 @@ export default function AdminQuizzesPage() {
             <select
               value={selectedAccessFilter}
               onChange={(e) => setSelectedAccessFilter(e.target.value)}
-              className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
+              className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">All Access Types (Free & Paid)</option>
-              <option value="FREE" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">Free Quizzes Only</option>
-              <option value="PAID" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">Paid / Premium Quizzes Only</option>
+              <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Access Types (Free & Paid)</option>
+              <option value="FREE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Free Quizzes Only</option>
+              <option value="PAID" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Paid / Premium Quizzes Only</option>
             </select>
           </div>
 
@@ -696,11 +695,11 @@ export default function AdminQuizzesPage() {
             <select
               value={selectedStatusFilter}
               onChange={(e) => setSelectedStatusFilter(e.target.value)}
-              className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
+              className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
             >
-              <option value="ALL" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">All Statuses (Active & Draft)</option>
-              <option value="ACTIVE" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">🟢 Active Only (Visible to Students)</option>
-              <option value="INACTIVE" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">⚪ Draft / Hidden Only</option>
+              <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Statuses (Active & Draft)</option>
+              <option value="ACTIVE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">🟢 Active Only (Visible to Students)</option>
+              <option value="INACTIVE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">⚪ Draft / Hidden Only</option>
             </select>
           </div>
         </div>
@@ -848,7 +847,7 @@ export default function AdminQuizzesPage() {
                         variant="danger"
                         className="p-2 rounded-xl transition-all shadow-sm"
                         title="Delete Quiz"
-                        onClick={() => handleDeleteQuiz(quiz.id)}
+                        onClick={() => setDeleteTarget(quiz)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -944,7 +943,7 @@ export default function AdminQuizzesPage() {
                   name="releaseDate"
                   value={formik.values.releaseDate}
                   onChange={formik.handleChange}
-                  className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50"
+                  className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50"
                 />
               </div>
 
@@ -959,7 +958,7 @@ export default function AdminQuizzesPage() {
                   placeholder="Enter detailed quiz description..."
                   value={formik.values.description}
                   onChange={formik.handleChange}
-                  className="w-full bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-cyan-500/50 resize-y"
+                  className="w-full bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl p-3 text-sm font-medium focus:ring-2 focus:ring-cyan-500/50 resize-y"
                 />
               </div>
 
@@ -1005,13 +1004,13 @@ export default function AdminQuizzesPage() {
                   name="selectedBook"
                   value={formik.values.selectedBook}
                   onChange={formik.handleChange}
-                  className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
+                  className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
                 >
-                  <option value="" className="bg-slate-900 text-slate-400 dark:bg-[#091124] dark:text-slate-400">Select Book (Optional)...</option>
-                  <option value="PSC HOT TOPICS." className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">PSC HOT TOPICS.</option>
-                  <option value="Kerala History Special Guide" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">Kerala History Special Guide</option>
-                  <option value="Indian Constitution & Polity Guide" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">Indian Constitution & Polity Guide</option>
-                  <option value="General Science Masterclass" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">General Science Masterclass</option>
+                  <option value="" className="bg-white text-slate-500 dark:bg-[#091124] dark:text-slate-400">Select Book (Optional)...</option>
+                  <option value="PSC HOT TOPICS." className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">PSC HOT TOPICS.</option>
+                  <option value="Kerala History Special Guide" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Kerala History Special Guide</option>
+                  <option value="Indian Constitution & Polity Guide" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Indian Constitution & Polity Guide</option>
+                  <option value="General Science Masterclass" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">General Science Masterclass</option>
                 </select>
               </div>
 
@@ -1025,13 +1024,13 @@ export default function AdminQuizzesPage() {
                   name="selectedChapter"
                   value={formik.values.selectedChapter}
                   onChange={formik.handleChange}
-                  className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
+                  className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
                 >
-                  <option value="" className="bg-slate-900 text-slate-400 dark:bg-[#091124] dark:text-slate-400">Select Chapter (Optional)...</option>
-                  <option value="കേരള ചരിത്രം" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">കേരള ചരിത്രം (Kerala History)</option>
-                  <option value="ഭരണഘടന ആമുഖം" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">ഭരണഘടന ആമുഖം (Preamble & Polity)</option>
-                  <option value="നവോത്ഥാന പ്രസ്ഥാനങ്ങൾ" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">നവോത്ഥാന പ്രസ്ഥാനങ്ങൾ (Renaissance)</option>
-                  <option value="ഭൂമിശാസ്ത്രം" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">ഭൂമിശാസ്ത്രം (Geography)</option>
+                  <option value="" className="bg-white text-slate-500 dark:bg-[#091124] dark:text-slate-400">Select Chapter (Optional)...</option>
+                  <option value="കേരള ചരിത്രം" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">കേരള ചരിത്രം (Kerala History)</option>
+                  <option value="ഭരണഘടന ആമുഖം" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">ഭരണഘടന ആമുഖം (Preamble & Polity)</option>
+                  <option value="നവോത്ഥാന പ്രസ്ഥാനങ്ങൾ" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">നവോത്ഥാന പ്രസ്ഥാനങ്ങൾ (Renaissance)</option>
+                  <option value="ഭൂമിശാസ്ത്രം" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">ഭൂമിശാസ്ത്രം (Geography)</option>
                 </select>
               </div>
 
@@ -1045,13 +1044,13 @@ export default function AdminQuizzesPage() {
                   name="selectedTopic"
                   value={formik.values.selectedTopic}
                   onChange={formik.handleChange}
-                  className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
+                  className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
                 >
-                  <option value="" className="bg-slate-900 text-slate-400 dark:bg-[#091124] dark:text-slate-400">Select Topic (Optional)...</option>
-                  <option value="പോർച്ചുഗീസുകാർ" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">പോർച്ചുഗീസുകാർ (Portuguese Arrival)</option>
-                  <option value="ഡച്ചുകാർ" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">ഡച്ചുകാർ (Dutch Rule)</option>
-                  <option value="മൗലിക അവകാശങ്ങൾ" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">മൗലിക അവകാശങ്ങൾ (Fundamental Rights)</option>
-                  <option value="നദികളും കായലുകളും" className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">നദികളും കായലുകളും (Rivers & Lakes)</option>
+                  <option value="" className="bg-white text-slate-500 dark:bg-[#091124] dark:text-slate-400">Select Topic (Optional)...</option>
+                  <option value="പോർച്ചുഗീസുകാർ" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">പോർച്ചുഗീസുകാർ (Portuguese Arrival)</option>
+                  <option value="ഡച്ചുകാർ" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">ഡച്ചുകാർ (Dutch Rule)</option>
+                  <option value="മൗലിക അവകാശങ്ങൾ" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">മൗലിക അവകാശങ്ങൾ (Fundamental Rights)</option>
+                  <option value="നദികളും കായലുകളും" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">നദികളും കായലുകളും (Rivers & Lakes)</option>
                 </select>
               </div>
 
@@ -1067,10 +1066,10 @@ export default function AdminQuizzesPage() {
                       name="selectedFolder"
                       value={formik.values.selectedFolder}
                       onChange={formik.handleChange}
-                      className="w-full h-11 bg-slate-100/80 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50"
+                      className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50"
                     >
                       {folders.map((f) => (
-                        <option key={f} value={f} className="bg-slate-900 text-slate-100 dark:bg-[#091124] dark:text-slate-100">
+                        <option key={f} value={f} className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">
                           {f === 'Root / No Folder' ? 'Root Level (No Folder)' : f}
                         </option>
                       ))}
@@ -1566,6 +1565,19 @@ export default function AdminQuizzesPage() {
           </div>
         </Dialog>
       )}
+
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        title="Delete Quiz"
+        description={deleteTarget ? `This will permanently delete "${deleteTarget.title}" and all its questions and attempts. This action cannot be undone.` : undefined}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) handleDeleteQuiz(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

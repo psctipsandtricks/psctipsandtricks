@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 import { Edit3, Trash2, BookOpen } from 'lucide-react';
 
@@ -33,6 +33,7 @@ export default function AdminBooksPage() {
   ]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<BookItem | null>(null);
 
   React.useEffect(() => {
     setMounted(true);
@@ -64,15 +65,13 @@ export default function AdminBooksPage() {
     return (
       <div className="space-y-6">
         <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={4} colsCount={6} />
+        <AdminSkeletonTable rowsCount={4} colsCount={7} />
       </div>
     );
   }
 
   const handleDeleteBook = (id: string) => {
-    if (confirm('Are you sure you want to delete this book?')) {
-      setBooks(books.filter((b) => b.id !== id));
-    }
+    setBooks(books.filter((b) => b.id !== id));
   };
 
   const totalItems = books.length;
@@ -95,6 +94,7 @@ export default function AdminBooksPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12"><span className="sr-only">Cover</span></TableHead>
               <TableHead>Book Title</TableHead>
               <TableHead>Author</TableHead>
               <TableHead>Category</TableHead>
@@ -107,6 +107,7 @@ export default function AdminBooksPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, idx) => (
                 <TableRow key={`skeleton-${idx}`} className="border-b border-slate-200/80 dark:border-slate-800/60">
+                  <TableCell className="py-4 w-12"><Skeleton className="h-9 w-9 rounded-xl" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-48 rounded-lg" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-32 rounded-lg" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-24 rounded-lg" /></TableCell>
@@ -117,7 +118,7 @@ export default function AdminBooksPage() {
               ))
             ) : books.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                     <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
                       <BookOpen className="w-6 h-6" />
@@ -144,25 +145,27 @@ export default function AdminBooksPage() {
                   <TableCell><Badge variant="gold">{book.category}</Badge></TableCell>
                   <TableCell className="font-mono text-cyan-400 font-extrabold">₹{book.price}</TableCell>
                   <TableCell className="font-mono text-slate-700 dark:text-slate-300">{book.downloadCount.toLocaleString()}</TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="p-2 rounded-xl text-cyan-700 dark:text-cyan-300 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all shadow-xs" 
-                      title="Edit Book" 
-                      onClick={() => alert(`Editing book "${book.title}"`)}
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="danger" 
-                      className="p-2 rounded-xl transition-all shadow-xs" 
-                      title="Delete Book" 
-                      onClick={() => handleDeleteBook(book.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                  <TableCell className="text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="p-2 rounded-xl text-cyan-700 dark:text-cyan-300 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all shadow-xs"
+                        title="Edit Book"
+                        onClick={() => alert(`Editing book "${book.title}"`)}
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        className="p-2 rounded-xl transition-all shadow-xs"
+                        title="Delete Book"
+                        onClick={() => setDeleteTarget(book)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -229,6 +232,19 @@ export default function AdminBooksPage() {
           </Button>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        title="Delete Book"
+        description={deleteTarget ? `This will permanently remove "${deleteTarget.title}" by ${deleteTarget.author}. This action cannot be undone.` : undefined}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) handleDeleteBook(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

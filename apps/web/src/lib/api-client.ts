@@ -38,12 +38,33 @@ async function fetcher<T>(endpoint: string, options: RequestInit = {}): Promise<
   return res.json();
 }
 
+async function uploadFetcher<T>(endpoint: string, file: File): Promise<T> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const body = new FormData();
+  body.append('file', file);
+
+  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body,
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.message || `Upload failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export const ApiClient = {
   // Auth & Users
   login: (data: any) => fetcher<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   register: (data: any) => fetcher<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   getMe: () => fetcher<User>('/auth/me'),
   getUsers: () => fetcher<User[]>('/users'),
+  createUser: (payload: any) => fetcher<User>('/users', { method: 'POST', body: JSON.stringify(payload) }),
+  adminUpdateUser: (id: string, payload: any) =>
+    fetcher<User>(`/users/${id}/admin`, { method: 'PATCH', body: JSON.stringify(payload) }),
 
   // Books
   getBooks: () => fetcher<Book[]>('/books'),
@@ -100,7 +121,13 @@ export const ApiClient = {
   leaveGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/leave`, { method: 'POST' }),
   pinGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/pin`, { method: 'POST' }),
   unpinGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/pin`, { method: 'DELETE' }),
-  getGroupMessages: (groupId: string) => fetcher<ChatMessage[]>(`/chat/groups/${groupId}/messages`),
+  getGroupMessages: (groupId: string, opts?: { before?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts?.before) qs.set('before', opts.before);
+    if (opts?.limit) qs.set('limit', String(opts.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return fetcher<ChatMessage[]>(`/chat/groups/${groupId}/messages${suffix}`);
+  },
   sendGroupMessage: (
     groupId: string,
     payload: { content: string; messageType?: ChatMessageType; mediaUrl?: string; metadata?: Record<string, any> },
@@ -112,9 +139,22 @@ export const ApiClient = {
 
   // Community Chat — Admin
   getAllChatGroups: () => fetcher<any[]>('/chat/groups'),
-  createChatGroup: (payload: { name: string; description: string; category: string; iconEmoji: string; coverGradient?: string }) =>
+  uploadGroupImage: (groupId: string, file: File) =>
+    uploadFetcher<any>(`/chat/groups/${groupId}/image`, file),
+  createChatGroup: (payload: { name: string; description: string; category: string; iconEmoji?: string; imageUrl?: string; coverGradient?: string }) =>
     fetcher('/chat/groups', { method: 'POST', body: JSON.stringify(payload) }),
-  updateChatGroup: (groupId: string, payload: Partial<{ name: string; description: string; category: string; iconEmoji: string }>) =>
+  updateChatGroup: (
+    groupId: string,
+    payload: Partial<{
+      name: string;
+      description: string;
+      category: string;
+      iconEmoji: string;
+      imageUrl: string;
+      allowTextMessages: boolean;
+      allowPolls: boolean;
+    }>,
+  ) =>
     fetcher(`/chat/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   toggleGroupLock: (groupId: string) => fetcher(`/chat/groups/${groupId}/lock`, { method: 'PATCH' }),
   deleteChatGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}`, { method: 'DELETE' }),

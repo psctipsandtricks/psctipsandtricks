@@ -1,10 +1,42 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from '@tanstack/react-query';
+import { io, type Socket } from 'socket.io-client';
 import { ApiClient } from '../../lib/api-client';
 import type { ChatGroupWithUserState, ChatMessageType } from '@psc/shared-types';
 
 export const MAX_PINS = 3;
+
+/** How many messages we pull per request instead of the whole history. */
+export const MESSAGE_PAGE_SIZE = 30;
+
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+
+/* ── Realtime socket (single shared connection) ───────────────── */
+
+let socket: Socket | null = null;
+
+function getSocket(): Socket | null {
+  if (typeof window === 'undefined') return null;
+  const token = localStorage.getItem('accessToken');
+  if (!token) return null;
+  if (!socket) {
+    socket = io(API_BASE_URL, {
+      auth: { token },
+      transports: ['websocket'],
+      autoConnect: true,
+    });
+  }
+  return socket;
+}
 
 export interface PollOption {
   id: string;
@@ -55,12 +87,16 @@ export interface CommunityGroup {
   description: string;
   category: string;
   iconEmoji: string;
+  imageUrl?: string | null;
   coverGradient: string;
   memberCount: number;
   unreadCount: number;
   isLocked: boolean;
   isJoined: boolean;
   isPinned: boolean;
+  /** Admin switches — students only see features that are enabled. */
+  allowTextMessages: boolean;
+  allowPolls: boolean;
   lastReadMessageId?: string | null;
   lastMessageSnippet?: string;
   lastMessageTime?: string;
@@ -99,70 +135,241 @@ function mapGroup(g: ChatGroupWithUserState): CommunityGroup {
     description: g.description,
     category: g.category,
     iconEmoji: g.iconEmoji,
+    imageUrl: g.imageUrl ?? null,
     coverGradient: g.coverGradient,
     memberCount: g.memberCount,
     unreadCount: g.unreadCount,
     isLocked: g.isLocked,
     isJoined: g.isJoined,
     isPinned: g.isPinned,
+    allowTextMessages: g.allowTextMessages ?? true,
+    allowPolls: g.allowPolls ?? true,
     lastReadMessageId: g.lastReadMessageId,
     lastMessageSnippet: g.lastMessage?.content,
     lastMessageTime: g.lastMessage?.createdAt,
   };
 }
 
+export const chatGroupsKey = ['chat-groups'] as const;
+export const chatMessagesKey = (groupId: string) => ['chat-messages', groupId] as const;
+
 export function useChatGroups() {
   return useQuery({
-    queryKey: ['chat-groups'],
+    queryKey: chatGroupsKey,
     queryFn: async () => (await ApiClient.getChatGroups()).map(mapGroup),
+    // Served from cache instantly on revisit; realtime + mutations keep it fresh,
+    // so we no longer poll every 15s.
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: true,
-    refetchInterval: 15000,
   });
 }
 
+type MessagePage = DiscussionMessage[];
+
+const OPTIMISTIC_PREFIX = 'optimistic-';
+
+/**
+ * Folds a server message into the cached pages exactly once, regardless of
+ * whether it arrives first via the realtime socket or via the POST response.
+ *
+ * Without this the sender saw their own message twice: the optimistic copy is
+ * keyed by a temporary id, so an id-only check treats the socket echo as new.
+ */
+function mergeIncomingMessage(
+  old: InfiniteData<MessagePage> | undefined,
+  msg: DiscussionMessage,
+): InfiniteData<MessagePage> | undefined {
+  if (!old) return old;
+
+  const alreadyStored = old.pages.some((p) => p.some((m) => m.id === msg.id));
+  const matchesOptimistic = (m: DiscussionMessage) =>
+    m.id.startsWith(OPTIMISTIC_PREFIX) &&
+    m.senderId === msg.senderId &&
+    m.content === msg.content;
+
+  // The real message is already here — just drop the placeholder it replaced.
+  if (alreadyStored) {
+    if (!old.pages.some((p) => p.some(matchesOptimistic))) return old;
+    return { ...old, pages: old.pages.map((p) => p.filter((m) => !matchesOptimistic(m))) };
+  }
+
+  // Swap our placeholder for the server's copy in place, keeping its position.
+  if (old.pages.some((p) => p.some(matchesOptimistic))) {
+    return { ...old, pages: old.pages.map((p) => p.map((m) => (matchesOptimistic(m) ? msg : m))) };
+  }
+
+  const pages = [...old.pages];
+  pages[0] = [...pages[0], msg];
+  return { ...old, pages };
+}
+
+/** Oldest → newest across every loaded page. */
+export function flattenMessages(data?: InfiniteData<MessagePage>): DiscussionMessage[] {
+  if (!data) return [];
+  return [...data.pages].reverse().flat();
+}
+
+/**
+ * Loads the most recent page of messages and pages backwards through history on
+ * demand, rather than pulling an entire group's history up front.
+ */
 export function useGroupMessages(groupId: string | null) {
-  return useQuery({
-    queryKey: ['chat-messages', groupId],
-    queryFn: async () => (await ApiClient.getGroupMessages(groupId as string)).map(mapMessage),
+  const query = useInfiniteQuery({
+    queryKey: chatMessagesKey(groupId as string),
     enabled: !!groupId,
-    refetchInterval: groupId ? 8000 : false,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      (
+        await ApiClient.getGroupMessages(groupId as string, {
+          before: pageParam,
+          limit: MESSAGE_PAGE_SIZE,
+        })
+      ).map(mapMessage),
+    // A short page means we've reached the beginning of the group's history.
+    getNextPageParam: (lastPage) =>
+      lastPage.length < MESSAGE_PAGE_SIZE ? undefined : lastPage[0]?.createdAt,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+
+  return {
+    ...query,
+    messages: flattenMessages(query.data),
+    /** Older messages exist further back in history. */
+    hasOlder: query.hasNextPage,
+    isLoadingOlder: query.isFetchingNextPage,
+    loadOlder: query.fetchNextPage,
+  };
+}
+
+/**
+ * Subscribes to the group's realtime feed and merges new messages straight into
+ * the cache, so an open chat updates without polling.
+ */
+export function useGroupRealtime(groupId: string | null) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!groupId) return;
+    const s = getSocket();
+    if (!s) return;
+
+    const room = `group:${groupId}`;
+    const join = () => s.emit('joinRoom', { room });
+    join();
+    s.on('connect', join);
+
+    const onNewMessage = (raw: any) => {
+      if (raw?.groupId && raw.groupId !== groupId) return;
+      const msg = mapMessage(raw);
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) =>
+        mergeIncomingMessage(old, msg),
+      );
+      // Refresh unread badges / last-message snippets in the sidebar.
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+    };
+
+    s.on('newChatMessage', onNewMessage);
+    return () => {
+      s.off('newChatMessage', onNewMessage);
+      s.off('connect', join);
+    };
+  }, [groupId, qc]);
+}
+
+/**
+ * Warms the cache for groups the user is most likely to open next, so selecting
+ * one renders from cache instead of waiting on a request.
+ */
+export function prefetchGroupMessages(qc: QueryClient, groupId: string) {
+  return qc.prefetchInfiniteQuery({
+    queryKey: chatMessagesKey(groupId),
+    initialPageParam: undefined as string | undefined,
+    queryFn: async () =>
+      (await ApiClient.getGroupMessages(groupId, { limit: MESSAGE_PAGE_SIZE })).map(mapMessage),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function usePrefetchGroupMessages() {
+  const qc = useQueryClient();
+  return (groupId: string) => {
+    if (!groupId) return;
+    if (qc.getQueryData(chatMessagesKey(groupId))) return; // already cached
+    void prefetchGroupMessages(qc, groupId);
+  };
+}
+
+/**
+ * Shared optimistic patcher for the cached group list, so membership/pin
+ * buttons flip on click instead of after a POST + refetch round trip.
+ */
+function useOptimisticGroupMutation<TVars extends string>(
+  mutationFn: (groupId: TVars) => Promise<unknown>,
+  patch: (group: CommunityGroup) => CommunityGroup,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onMutate: async (groupId: TVars) => {
+      await qc.cancelQueries({ queryKey: chatGroupsKey });
+      const previous = qc.getQueryData<CommunityGroup[]>(chatGroupsKey);
+      qc.setQueryData<CommunityGroup[]>(chatGroupsKey, (old) =>
+        old?.map((g) => (g.id === groupId ? patch(g) : g)),
+      );
+      return { previous };
+    },
+    onError: (_e, _v, ctx: any) => {
+      if (ctx?.previous) qc.setQueryData(chatGroupsKey, ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: chatGroupsKey }),
   });
 }
 
 export function useJoinGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (groupId: string) => ApiClient.joinGroup(groupId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-groups'] }),
-  });
+  return useOptimisticGroupMutation(
+    (groupId: string) => ApiClient.joinGroup(groupId),
+    (g) => ({ ...g, isJoined: true, memberCount: g.memberCount + 1 }),
+  );
 }
 
 export function useLeaveGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (groupId: string) => ApiClient.leaveGroup(groupId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-groups'] }),
-  });
+  return useOptimisticGroupMutation(
+    (groupId: string) => ApiClient.leaveGroup(groupId),
+    (g) => ({ ...g, isJoined: false, memberCount: Math.max(0, g.memberCount - 1) }),
+  );
 }
 
 export function usePinGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (groupId: string) => ApiClient.pinGroup(groupId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-groups'] }),
-  });
+  return useOptimisticGroupMutation(
+    (groupId: string) => ApiClient.pinGroup(groupId),
+    (g) => ({ ...g, isPinned: true }),
+  );
 }
 
 export function useUnpinGroup() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (groupId: string) => ApiClient.unpinGroup(groupId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-groups'] }),
-  });
+  return useOptimisticGroupMutation(
+    (groupId: string) => ApiClient.unpinGroup(groupId),
+    (g) => ({ ...g, isPinned: false }),
+  );
 }
 
-export function useSendMessage(groupId: string) {
+export interface OptimisticSender {
+  id: string;
+  name: string;
+  avatarUrl?: string | null;
+  role?: 'Admin' | 'Moderator' | 'Student';
+}
+
+/**
+ * Sends a message and paints it in the thread immediately, reconciling with the
+ * server's copy once the request lands (and rolling back if it fails).
+ */
+export function useSendMessage(groupId: string, sender?: OptimisticSender) {
   const qc = useQueryClient();
+  const key = chatMessagesKey(groupId);
+
   return useMutation({
     mutationFn: (payload: {
       content: string;
@@ -170,9 +377,48 @@ export function useSendMessage(groupId: string) {
       mediaUrl?: string;
       metadata?: Record<string, any>;
     }) => ApiClient.sendGroupMessage(groupId, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['chat-messages', groupId] });
-      qc.invalidateQueries({ queryKey: ['chat-groups'] });
+
+    onMutate: async (payload) => {
+      if (!groupId || !sender) return {};
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<InfiniteData<MessagePage>>(key);
+      const tempId = `optimistic-${Date.now()}`;
+      const metadata = payload.metadata || {};
+      const optimistic: DiscussionMessage = {
+        id: tempId,
+        groupId,
+        senderId: sender.id,
+        senderName: sender.name,
+        senderAvatar: sender.avatarUrl,
+        senderRole: sender.role || 'Student',
+        content: payload.content,
+        createdAt: new Date().toISOString(),
+        isPinned: metadata.isPinned,
+        isAnnouncement: metadata.isAnnouncement,
+        attachments: metadata.attachments,
+        poll: metadata.poll,
+        reactions: metadata.reactions || [],
+        replyTo: metadata.replyTo,
+      };
+      qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+        if (!old) return old;
+        const pages = [...old.pages];
+        pages[0] = [...pages[0], optimistic];
+        return { ...old, pages };
+      });
+      return { previous, tempId };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
+
+    onSuccess: (saved) => {
+      // Same reconciliation the socket uses, so whichever arrives first wins and
+      // the other becomes a no-op instead of a duplicate bubble.
+      const real = mapMessage(saved);
+      qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => mergeIncomingMessage(old, real));
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
     },
   });
 }
@@ -185,12 +431,44 @@ export function useMarkRead(groupId: string) {
   });
 }
 
+/**
+ * Reactions and poll votes. Applied to the cache immediately so a vote fills in
+ * on click instead of after the round trip plus a refetch.
+ */
 export function useUpdateMessageMetadata(groupId: string) {
   const qc = useQueryClient();
+  const key = chatMessagesKey(groupId);
+
   return useMutation({
     mutationFn: ({ messageId, metadata }: { messageId: string; metadata: Record<string, any> }) =>
       ApiClient.updateMessageMetadata(messageId, metadata),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat-messages', groupId] }),
+
+    onMutate: async ({ messageId, metadata }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<InfiniteData<MessagePage>>(key);
+      qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) =>
+            p.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    ...(metadata.poll ? { poll: metadata.poll } : {}),
+                    ...(metadata.reactions ? { reactions: metadata.reactions } : {}),
+                  }
+                : m,
+            ),
+          ),
+        };
+      });
+      return { previous };
+    },
+
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
   });
 }
 
@@ -202,8 +480,11 @@ export interface AdminGroup {
   description: string;
   category: string;
   iconEmoji: string;
+  imageUrl?: string | null;
   coverGradient: string;
   isLocked: boolean;
+  allowTextMessages: boolean;
+  allowPolls: boolean;
   memberCount: number;
 }
 
@@ -223,8 +504,11 @@ function mapAdminGroup(g: any): AdminGroup {
     description: g.description,
     category: g.category,
     iconEmoji: g.iconEmoji,
+    imageUrl: g.imageUrl ?? null,
     coverGradient: g.coverGradient,
     isLocked: g.isLocked,
+    allowTextMessages: g.allowTextMessages ?? true,
+    allowPolls: g.allowPolls ?? true,
     memberCount: g._count?.members ?? 0,
   };
 }
@@ -239,7 +523,7 @@ export function useAdminGroups() {
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; description: string; category: string; iconEmoji: string }) =>
+    mutationFn: (payload: { name: string; description: string; category: string; iconEmoji?: string }) =>
       ApiClient.createChatGroup(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
@@ -251,7 +535,7 @@ export function useCreateGroup() {
 export function useUpdateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ groupId, payload }: { groupId: string; payload: Partial<{ name: string; description: string; category: string; iconEmoji: string }> }) =>
+    mutationFn: ({ groupId, payload }: { groupId: string; payload: Partial<{ name: string; description: string; category: string; iconEmoji: string; imageUrl: string }> }) =>
       ApiClient.updateChatGroup(groupId, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
@@ -278,6 +562,52 @@ export function useDeleteGroup() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
       qc.invalidateQueries({ queryKey: ['chat-groups'] });
+    },
+  });
+}
+
+/**
+ * Flips one of the per-group student permissions. Applied optimistically so the
+ * admin toggle responds on click instead of after the round trip.
+ */
+export function useUploadGroupImage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, file }: { groupId: string; file: File }) =>
+      ApiClient.uploadGroupImage(groupId, file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+    },
+  });
+}
+
+export function useToggleGroupFeature() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      groupId,
+      feature,
+      enabled,
+    }: {
+      groupId: string;
+      feature: 'allowTextMessages' | 'allowPolls';
+      enabled: boolean;
+    }) => ApiClient.updateChatGroup(groupId, { [feature]: enabled }),
+    onMutate: async ({ groupId, feature, enabled }) => {
+      await qc.cancelQueries({ queryKey: ['chat-groups-admin'] });
+      const previous = qc.getQueryData<AdminGroup[]>(['chat-groups-admin']);
+      qc.setQueryData<AdminGroup[]>(['chat-groups-admin'], (old) =>
+        old?.map((g) => (g.id === groupId ? { ...g, [feature]: enabled } : g)),
+      );
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['chat-groups-admin'], ctx.previous);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
     },
   });
 }

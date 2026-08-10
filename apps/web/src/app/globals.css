@@ -50,7 +50,7 @@
 }
 
 .glass-input {
-  @apply bg-slate-100/70 dark:bg-[#091124]/90 border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 transition-all duration-200 rounded-xl;
+  @apply bg-slate-100 dark:bg-[#091124]/90 border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 transition-all duration-200 rounded-xl;
 }
 
 /* Cyber Glow Accents */

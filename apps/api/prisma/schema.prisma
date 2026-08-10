@@ -306,8 +306,12 @@ model ChatGroup {
   description   String              @default("") @db.Text
   category      String              @default("General")
   iconEmoji     String              @default("💬")
+  /// Group profile picture; falls back to an initial avatar when empty.
+  imageUrl      String?
   coverGradient String              @default("from-amber-500/20 to-orange-600/20")
   isLocked      Boolean             @default(false)
+  allowTextMessages Boolean         @default(true)
+  allowPolls        Boolean         @default(true)
   type          String              @default("community")
   messages      ChatMessage[]
   members       ChatGroupMember[]

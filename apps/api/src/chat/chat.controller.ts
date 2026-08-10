@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ChatService } from './chat.service';
+import { ChatGateway } from './chat.gateway';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -18,7 +20,10 @@ const MANAGE_CHAT_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
 @ApiTags('Chat')
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   @ApiOperation({ summary: 'List community chat groups (admin view, no per-user state)' })
   @Get('groups')
@@ -31,7 +36,7 @@ export class ChatController {
   @UseGuards(JwtAuthGuard)
   @Get('groups/mine')
   async listGroupsForUser(@Request() req: any) {
-    return this.chatService.listGroupsForUser(req.user.id);
+    return this.chatService.listGroupsForUser(req.user.id, req.user.role);
   }
 
   @ApiOperation({ summary: 'Create a chat group (Admin / Staff with manage_chat)' })
@@ -42,6 +47,18 @@ export class ChatController {
   @Post('groups')
   async createGroup(@Body() dto: CreateChatGroupDto) {
     return this.chatService.createGroup(dto);
+  }
+
+  @ApiOperation({ summary: 'Upload/replace a group profile picture (Admin / Staff with manage_chat)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(...MANAGE_CHAT_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageChat')
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('groups/:id/image')
+  async uploadGroupImage(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.chatService.uploadGroupImage(id, file);
   }
 
   @ApiOperation({ summary: 'Update a chat group (Admin / Staff with manage_chat)' })
@@ -123,7 +140,15 @@ export class ChatController {
   @UseGuards(JwtAuthGuard)
   @Post('groups/:id/messages')
   async sendGroupMessage(@Request() req: any, @Param('id') id: string, @Body() dto: SendMessageDto) {
-    return this.chatService.sendGroupMessage(id, req.user.id, req.user.name, dto);
+    const message = await this.chatService.sendGroupMessage(
+      id,
+      req.user.id,
+      req.user.name,
+      dto,
+      req.user.role,
+    );
+    this.chatGateway.broadcastGroupMessage(id, message);
+    return message;
   }
 
   @ApiOperation({ summary: 'Mark a group as read up to a given message' })
@@ -169,7 +194,9 @@ export class ChatController {
   @RequirePermissions('manageChat')
   @Post('groups/:id/announce')
   async postAnnouncement(@Request() req: any, @Param('id') id: string, @Body() dto: SendMessageDto) {
-    return this.chatService.postAnnouncement(id, req.user.id, req.user.name, dto);
+    const message = await this.chatService.postAnnouncement(id, req.user.id, req.user.name, dto);
+    this.chatGateway.broadcastGroupMessage(id, message);
+    return message;
   }
 
   @ApiOperation({ summary: 'Get recent messages in a legacy room' })

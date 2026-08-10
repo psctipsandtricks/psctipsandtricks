@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
 import { Trash2, Ticket, Tag } from 'lucide-react';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 
@@ -34,6 +34,7 @@ export default function AdminCouponsPage() {
   ]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<{ type: 'toggle' | 'delete'; coupon: CouponItem } | null>(null);
 
   React.useEffect(() => {
     setMounted(true);
@@ -77,9 +78,17 @@ export default function AdminCouponsPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this coupon?')) {
-      setCoupons(coupons.filter((c) => c.id !== id));
+    setCoupons(coupons.filter((c) => c.id !== id));
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmTarget) return;
+    if (confirmTarget.type === 'toggle') {
+      handleToggleStatus(confirmTarget.coupon.id);
+    } else {
+      handleDelete(confirmTarget.coupon.id);
     }
+    setConfirmTarget(null);
   };
 
   const totalItems = coupons.length;
@@ -155,7 +164,7 @@ export default function AdminCouponsPage() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <Button size="sm" variant={coupon.isActive ? 'outline' : 'primary'} onClick={() => handleToggleStatus(coupon.id)}>
+                    <Button size="sm" variant={coupon.isActive ? 'outline' : 'primary'} onClick={() => setConfirmTarget({ type: 'toggle', coupon })}>
                       {coupon.isActive ? 'Disable' : 'Enable'}
                     </Button>
                     <Button
@@ -164,7 +173,7 @@ export default function AdminCouponsPage() {
                       className="p-2 rounded-xl transition-all shadow-sm"
                       title="Delete Coupon"
                       aria-label="Delete Coupon"
-                      onClick={() => handleDelete(coupon.id)}
+                      onClick={() => setConfirmTarget({ type: 'delete', coupon })}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -236,6 +245,22 @@ export default function AdminCouponsPage() {
           </Button>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        isOpen={confirmTarget !== null}
+        title={confirmTarget?.type === 'delete' ? 'Delete Coupon' : confirmTarget?.coupon.isActive ? 'Disable Coupon' : 'Enable Coupon'}
+        description={
+          confirmTarget?.type === 'delete'
+            ? `This will permanently remove coupon "${confirmTarget.coupon.code}". This action cannot be undone.`
+            : confirmTarget
+            ? `${confirmTarget.coupon.isActive ? 'Disable' : 'Enable'} coupon "${confirmTarget.coupon.code}"?`
+            : undefined
+        }
+        confirmLabel={confirmTarget?.type === 'delete' ? 'Delete' : confirmTarget?.coupon.isActive ? 'Disable' : 'Enable'}
+        variant={confirmTarget?.type === 'delete' || confirmTarget?.coupon.isActive ? 'danger' : 'default'}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmTarget(null)}
+      />
     </div>
   );
 }

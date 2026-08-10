@@ -231,8 +231,14 @@ export interface ChatGroup {
   description: string;
   category: string;
   iconEmoji: string;
+  /** Group profile picture; null falls back to an initial avatar. */
+  imageUrl?: string | null;
   coverGradient: string;
   isLocked: boolean;
+  /** Admin switch: when false, students cannot send text messages in this group. */
+  allowTextMessages: boolean;
+  /** Admin switch: when false, students cannot post polls in this group. */
+  allowPolls: boolean;
   type: string;
   createdAt: string;
 }

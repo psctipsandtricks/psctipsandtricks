@@ -125,6 +125,45 @@ export interface QuizResult {
     rank?: number;
     createdAt: string;
 }
+export type AttemptStatus = 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED';
+export interface QuizAttempt {
+    id: string;
+    quizId: string;
+    userId: string;
+    attemptNumber: number;
+    attemptStatus: AttemptStatus;
+    score: number;
+    totalMarks: number;
+    percentage: number;
+    totalQuestions: number;
+    passed: boolean;
+    correctAnswers: number;
+    wrongAnswers: number;
+    unattempted: number;
+    timeTakenSeconds: number;
+    answers: {
+        questionId: string;
+        selectedOptionIndex?: number;
+    }[];
+    startedAt: string;
+    submittedAt?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    quiz?: {
+        id: string;
+        title: string;
+        category: string;
+        durationMinutes: number;
+        totalQuestions: number;
+        passingMarks: number;
+        totalMarks: number;
+    };
+    user?: {
+        id: string;
+        name: string;
+        email: string;
+    };
+}
 export type MockTestStatus = 'UPCOMING' | 'LIVE' | 'COMPLETED';
 export interface MockTest {
     id: string;
@@ -176,8 +215,14 @@ export interface ChatGroup {
     description: string;
     category: string;
     iconEmoji: string;
+    /** Group profile picture; null falls back to an initial avatar. */
+    imageUrl?: string | null;
     coverGradient: string;
     isLocked: boolean;
+    /** Admin switch: when false, students cannot send text messages in this group. */
+    allowTextMessages: boolean;
+    /** Admin switch: when false, students cannot post polls in this group. */
+    allowPolls: boolean;
     type: string;
     createdAt: string;
 }
@@ -245,6 +290,7 @@ export interface LeaderboardEntry {
     userName: string;
     avatarUrl?: string | null;
     score: number;
+    totalMarks?: number;
     timeTakenSeconds?: number;
 }
 export interface AuthPayload {

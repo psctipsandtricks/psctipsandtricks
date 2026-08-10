@@ -107,6 +107,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('error', { message: 'You must join this group before sending messages' });
         return;
       }
+      const isModerator = await this.chatService.canModerate(authedUser.userId, authedUser.role);
+      try {
+        await this.chatService.assertGroupFeatureAllowed(
+          payload.groupId,
+          isModerator,
+          requestedType === ChatMessageType.TEXT ? 'text' : 'poll',
+        );
+      } catch (err: any) {
+        client.emit('error', { message: err?.message || 'This action is disabled for the group' });
+        return;
+      }
     }
 
     const room = payload.room || 'general';
@@ -120,7 +131,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       mediaUrl: payload.mediaUrl,
     });
     this.server.to(room).emit('newChatMessage', message);
+    if (payload.groupId) this.broadcastGroupMessage(payload.groupId, message);
     return message;
+  }
+
+  /**
+   * Push a message to everyone viewing a group. Called by the REST controller so
+   * that messages sent over HTTP still reach open clients in realtime, which is
+   * what lets the web app drop its polling interval.
+   */
+  broadcastGroupMessage(groupId: string, message: unknown) {
+    this.server.to(`group:${groupId}`).emit('newChatMessage', message);
   }
 
   @SubscribeMessage('quizBattleAnswer')

@@ -20,6 +20,7 @@ import {
   TableCell,
   Skeleton,
   Pagination,
+  ConfirmDialog,
 } from '@psc/ui';
 import { Radio, ChevronLeft, Plus, Users, Calendar, Trash2, Edit3, Loader2, Trophy } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
@@ -45,6 +46,7 @@ export default function AdminMockTestsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMockTest, setEditingMockTest] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   const [selectedLeaderboardMockTest, setSelectedLeaderboardMockTest] = useState<any | null>(null);
   const [adminLeaderboard, setAdminLeaderboard] = useState<any[]>([]);
@@ -137,7 +139,6 @@ export default function AdminMockTestsPage() {
   };
 
   const handleDelete = async (mockTest: any) => {
-    if (!confirm(`Delete "${mockTest.title}"? This will remove all participant records and cannot be undone.`)) return;
     try {
       setDeletingId(mockTest.id);
       await ApiClient.deleteMockTest(mockTest.id);
@@ -329,7 +330,7 @@ export default function AdminMockTestsPage() {
                             size="sm"
                             variant="danger"
                             disabled={deletingId === mt.id}
-                            onClick={() => handleDelete(mt)}
+                            onClick={() => setDeleteTarget(mt)}
                             className="p-2 rounded-xl transition-all shadow-sm"
                             title="Delete Mock Test"
                             aria-label="Delete Mock Test"
@@ -502,6 +503,19 @@ export default function AdminMockTestsPage() {
           </div>
         )}
       </Dialog>
+
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        title="Delete Mock Test"
+        description={deleteTarget ? `Delete "${deleteTarget.title}"? This will remove all participant records and cannot be undone.` : undefined}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) handleDelete(deleteTarget);
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }
