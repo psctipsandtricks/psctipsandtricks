@@ -15,10 +15,22 @@ export class RazorpayService {
   private mode: string;
 
   constructor(private configService: ConfigService) {
-    this.keyId = this.configService.get<string>('RAZORPAY_KEY_ID', '');
-    this.keySecret = this.configService.get<string>('RAZORPAY_KEY_SECRET', '');
-    this.webhookSecret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET', '');
-    this.mode = this.configService.get<string>('RAZORPAY_MODE', 'test');
+    this.keyId = this.configService.get<string>('RAZORPAY_KEY_ID', '').trim();
+    this.keySecret = this.configService.get<string>('RAZORPAY_KEY_SECRET', '').trim();
+    this.webhookSecret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET', '').trim();
+    this.mode = this.configService.get<string>('RAZORPAY_MODE', 'test').trim();
+
+    // Auto-correct if Key Secret was mistakenly placed into RAZORPAY_KEY_ID
+    if (this.keyId && (this.keyId.startsWith('rzp_test_s') || this.keyId.startsWith('rzp_live_s'))) {
+      this.logger.error(
+        `CRITICAL CONFIG ERROR: RAZORPAY_KEY_ID in environment is set to Key Secret (${this.keyId}). Auto-correcting key prefix for browser SDK.`,
+      );
+      if (this.keyId.startsWith('rzp_test_s')) {
+        this.keyId = this.keyId.replace('rzp_test_s', 'rzp_test_');
+      } else if (this.keyId.startsWith('rzp_live_s')) {
+        this.keyId = this.keyId.replace('rzp_live_s', 'rzp_live_');
+      }
+    }
 
     if (this.isRealKeyConfigured()) {
       try {

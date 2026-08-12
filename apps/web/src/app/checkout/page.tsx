@@ -135,7 +135,7 @@ function CheckoutFormContent() {
   const basePrice = item.price;
   const finalPrice = discountApplied ? Math.round(basePrice * 0.8) : basePrice;
 
-  const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_sample_key';
+  const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TOgmxfbeSFUgys';
   const isDemoMode =
     !process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
     process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID.includes('sample_key') ||
@@ -159,7 +159,12 @@ function CheckoutFormContent() {
       const order: any = await ApiClient.createOrder(orderPayload);
       if (!order?.id) throw new Error('Could not start the payment. Please try again.');
 
-      const activeKey = order.keyId || razorpayKey;
+      let activeKey = order.keyId || razorpayKey;
+      // Safeguard: Key Secret (starting with rzp_test_s... or rzp_live_s...) must NEVER be passed as key_id to browser JS SDK!
+      if (activeKey && (activeKey.startsWith('rzp_test_s') || activeKey.startsWith('rzp_live_s') || activeKey.length > 30)) {
+        console.warn('Razorpay Key Secret was passed as key_id. Falling back to public Key ID.');
+        activeKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TOgmxfbeSFUgys';
+      }
 
       const options = {
         key: activeKey,
