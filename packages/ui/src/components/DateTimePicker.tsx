@@ -34,6 +34,18 @@ function startOfDay(d: Date) {
   return n;
 }
 
+// Floor to the minute so the slot containing "now" stays selectable —
+// only strictly earlier minutes count as past.
+function floorToMinute(d: Date) {
+  const n = new Date(d);
+  n.setSeconds(0, 0);
+  return n;
+}
+
+function isSameDay(a: Date, b: Date) {
+  return startOfDay(a).getTime() === startOfDay(b).getTime();
+}
+
 function buildMonthGrid(viewDate: Date): (Date | null)[] {
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -69,6 +81,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   const hourColRef = useRef<HTMLDivElement>(null);
   const minuteColRef = useRef<HTMLDivElement>(null);
 
+  const minDateTime = minDate ? floorToMinute(minDate) : null;
   const selectedHour24 = parsed ? parsed.getHours() : null;
   const selectedHour12 = selectedHour24 === null ? null : selectedHour24 % 12 === 0 ? 12 : selectedHour24 % 12;
   const selectedMinute = parsed ? parsed.getMinutes() : null;
@@ -122,8 +135,23 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
     minuteColRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'center' });
   }, [isOpen]);
 
+  // Time options are only restricted on the min day itself — every later day is
+  // fully open. `timeBase` is the day the time columns are acting on.
+  const timeBase = parsed || viewDate;
+  const isMinDay = minDateTime ? isSameDay(timeBase, minDateTime) : false;
+
+  // With nothing picked yet there is no selected half-day or hour to judge
+  // against, so fall back to the period/hour the min itself sits in — otherwise
+  // an evening `minDate` would read as AM and black out every hour.
+  const effectiveAmPm: 'AM' | 'PM' =
+    selectedAmPm ?? (isMinDay && minDateTime ? (minDateTime.getHours() >= 12 ? 'PM' : 'AM') : 'AM');
+  const effectiveHour24 = selectedHour24 ?? timeBase.getHours();
+
+  // Safety net for the paths that shift a date across the boundary (day, AM/PM):
+  // the past options are disabled in the UI, but never emit a time before the min.
   const commit = (next: Date) => {
-    onChange(next.toISOString());
+    const clamped = minDateTime && next.getTime() < minDateTime.getTime() ? new Date(minDateTime) : next;
+    onChange(clamped.toISOString());
   };
 
   const handleOpen = () => {
@@ -135,15 +163,17 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
     const base = parsed ? new Date(parsed) : new Date();
     base.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
     if (!parsed) {
-      // Default to the next upcoming half-hour when no time has been chosen yet.
-      base.setHours(new Date().getHours(), 0, 0, 0);
+      // No time chosen yet — start from the current clock time, which commit()
+      // clamps forward if it lands in the past.
+      const now = new Date();
+      base.setHours(now.getHours(), now.getMinutes(), 0, 0);
     }
     commit(base);
   };
 
   const handleSelectHour = (hour12: number) => {
     const base = parsed ? new Date(parsed) : new Date(viewDate);
-    const isPM = selectedAmPm === 'PM';
+    const isPM = effectiveAmPm === 'PM';
     base.setHours((hour12 % 12) + (isPM ? 12 : 0), base.getMinutes(), 0, 0);
     commit(base);
   };
@@ -174,6 +204,31 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   const cells = buildMonthGrid(viewDate);
   const today = startOfDay(new Date());
   const minDay = minDate ? startOfDay(minDate) : null;
+
+  const timeAt = (hour24: number, minute: number) => {
+    const d = new Date(timeBase);
+    d.setHours(hour24, minute, 0, 0);
+    return d;
+  };
+
+  // An hour is out only when its last minute is still past — so the in-progress
+  // hour stays open with just its elapsed minutes disabled.
+  const isHourDisabled = (hour12: number) => {
+    if (!isMinDay || !minDateTime) return false;
+    const hour24 = (hour12 % 12) + (effectiveAmPm === 'PM' ? 12 : 0);
+    return timeAt(hour24, 59).getTime() < minDateTime.getTime();
+  };
+
+  const isMinuteDisabled = (minute: number) => {
+    if (!isMinDay || !minDateTime) return false;
+    return timeAt(effectiveHour24, minute).getTime() < minDateTime.getTime();
+  };
+
+  const isAmPmDisabled = (ampm: 'AM' | 'PM') => {
+    if (!isMinDay || !minDateTime) return false;
+    // Disabled only if the whole half-day has elapsed (AM once it is past noon).
+    return timeAt(ampm === 'PM' ? 23 : 11, 59).getTime() < minDateTime.getTime();
+  };
 
   return (
     <div className={cn('w-full space-y-1.5', className)}>
@@ -286,12 +341,13 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
                 </button>
                 <button
                   type="button"
+                  disabled={minDay ? today.getTime() < minDay.getTime() : false}
                   onClick={() => {
                     const now = new Date();
                     setViewDate(now);
                     handleSelectDay(now);
                   }}
-                  className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer"
+                  className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-amber-600"
                 >
                   Today
                 </button>
@@ -301,57 +357,72 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
             {/* Time columns */}
             <div className="flex divide-x divide-slate-200/80 dark:divide-slate-800/80 w-[132px]">
               <div ref={hourColRef} className="flex-1 overflow-y-auto max-h-[280px] py-1 scrollbar-none">
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
-                  <button
-                    key={h}
-                    type="button"
-                    data-active={selectedHour12 === h}
-                    onClick={() => handleSelectHour(h)}
-                    className={cn(
-                      'w-full text-center text-xs font-mono font-bold py-1.5 transition-colors cursor-pointer',
-                      selectedHour12 === h
-                        ? 'bg-amber-500 text-slate-950'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400',
-                    )}
-                  >
-                    {h.toString().padStart(2, '0')}
-                  </button>
-                ))}
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => {
+                  const disabled = isHourDisabled(h);
+                  return (
+                    <button
+                      key={h}
+                      type="button"
+                      disabled={disabled}
+                      data-active={selectedHour12 === h}
+                      onClick={() => handleSelectHour(h)}
+                      className={cn(
+                        'w-full text-center text-xs font-mono font-bold py-1.5 transition-colors cursor-pointer',
+                        selectedHour12 === h
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400',
+                        disabled && 'opacity-30 cursor-not-allowed hover:bg-transparent hover:text-slate-600 dark:hover:text-slate-400',
+                      )}
+                    >
+                      {h.toString().padStart(2, '0')}
+                    </button>
+                  );
+                })}
               </div>
               <div ref={minuteColRef} className="flex-1 overflow-y-auto max-h-[280px] py-1 scrollbar-none">
-                {Array.from({ length: 60 }, (_, i) => i).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    data-active={selectedMinute === m}
-                    onClick={() => handleSelectMinute(m)}
-                    className={cn(
-                      'w-full text-center text-xs font-mono font-bold py-1.5 transition-colors cursor-pointer',
-                      selectedMinute === m
-                        ? 'bg-amber-500 text-slate-950'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400',
-                    )}
-                  >
-                    {m.toString().padStart(2, '0')}
-                  </button>
-                ))}
+                {Array.from({ length: 60 }, (_, i) => i).map((m) => {
+                  const disabled = isMinuteDisabled(m);
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      disabled={disabled}
+                      data-active={selectedMinute === m}
+                      onClick={() => handleSelectMinute(m)}
+                      className={cn(
+                        'w-full text-center text-xs font-mono font-bold py-1.5 transition-colors cursor-pointer',
+                        selectedMinute === m
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400',
+                        disabled && 'opacity-30 cursor-not-allowed hover:bg-transparent hover:text-slate-600 dark:hover:text-slate-400',
+                      )}
+                    >
+                      {m.toString().padStart(2, '0')}
+                    </button>
+                  );
+                })}
               </div>
               <div className="flex-1 overflow-y-auto max-h-[280px] py-1 scrollbar-none">
-                {(['AM', 'PM'] as const).map((ap) => (
-                  <button
-                    key={ap}
-                    type="button"
-                    onClick={() => handleSelectAmPm(ap)}
-                    className={cn(
-                      'w-full text-center text-xs font-mono font-bold py-1.5 transition-colors cursor-pointer',
-                      selectedAmPm === ap
-                        ? 'bg-amber-500 text-slate-950'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400',
-                    )}
-                  >
-                    {ap}
-                  </button>
-                ))}
+                {(['AM', 'PM'] as const).map((ap) => {
+                  const disabled = isAmPmDisabled(ap);
+                  return (
+                    <button
+                      key={ap}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => handleSelectAmPm(ap)}
+                      className={cn(
+                        'w-full text-center text-xs font-mono font-bold py-1.5 transition-colors cursor-pointer',
+                        selectedAmPm === ap
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400',
+                        disabled && 'opacity-30 cursor-not-allowed hover:bg-transparent hover:text-slate-600 dark:hover:text-slate-400',
+                      )}
+                    >
+                      {ap}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>,

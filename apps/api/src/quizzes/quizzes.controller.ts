@@ -2,12 +2,14 @@ import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Requ
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { QuizzesService } from './quizzes.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { UserRole } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
+import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
 
 @ApiTags('Quizzes')
@@ -17,16 +19,18 @@ export class QuizzesController {
 
   @ApiOperation({ summary: 'List all quizzes and live mock tests' })
   @ApiQuery({ name: 'publishedOnly', required: false, type: Boolean })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async findAll(@Query('publishedOnly') publishedOnly?: string) {
+  async findAll(@Request() req: any, @Query('publishedOnly') publishedOnly?: string) {
     const isPublishedOnly = publishedOnly === 'true' || publishedOnly === '1';
-    return this.quizzesService.findAll(isPublishedOnly);
+    return this.quizzesService.findAll(isPublishedOnly, req.user);
   }
 
   @ApiOperation({ summary: 'Get quiz details by ID with questions' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.quizzesService.findOne(id);
+  async findOne(@Request() req: any, @Param('id') id: string) {
+    return this.quizzesService.findOne(id, req.user);
   }
 
   @ApiOperation({ summary: 'Get quiz leaderboard/rank list' })
@@ -51,7 +55,7 @@ export class QuizzesController {
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageQuizzes')
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: CreateQuizDto) {
+  async update(@Param('id') id: string, @Body() dto: UpdateQuizDto) {
     return this.quizzesService.update(id, dto);
   }
 
@@ -88,7 +92,7 @@ export class QuizzesController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/attempts/start')
   async startAttempt(@Request() req: any, @Param('id') id: string) {
-    return this.quizzesService.startAttempt(req.user.id, id);
+    return this.quizzesService.startAttempt(req.user, id);
   }
 
   @ApiOperation({ summary: 'Get active IN_PROGRESS quiz attempt' })
@@ -109,6 +113,6 @@ export class QuizzesController {
     @Body() dto: SubmitQuizDto,
     @Query('attemptId') attemptId?: string,
   ) {
-    return this.quizzesService.submitQuiz(req.user.id, id, dto, attemptId);
+    return this.quizzesService.submitQuiz(req.user, id, dto, attemptId);
   }
 }

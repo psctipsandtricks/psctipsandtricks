@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, Button, Badge, Input } from '@psc/ui';
+import { Card, Button, Badge, Input, Pagination } from '@psc/ui';
 import {
   History,
   Trophy,
@@ -29,6 +29,8 @@ export default function StudentQuizHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -59,6 +61,14 @@ export default function StudentQuizHistoryPage() {
     return matchesSearch && matchesStatus;
   });
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
+
+  const totalItems = filteredAttempts.length;
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+  const paginatedAttempts = filteredAttempts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   const totalCompleted = attempts.filter((a) => a.attemptStatus === 'COMPLETED').length;
   const avgPercentage =
     attempts.length > 0
@@ -78,11 +88,11 @@ export default function StudentQuizHistoryPage() {
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Skeleton className="h-24 rounded-xl" />
-          <Skeleton className="h-24 rounded-xl" />
-          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-2xl" />
+          <Skeleton className="h-24 rounded-2xl" />
+          <Skeleton className="h-24 rounded-2xl" />
         </div>
-        <Skeleton className="h-64 rounded-xl" />
+        <Skeleton className="h-64 rounded-2xl" />
       </div>
     );
   }
@@ -93,8 +103,12 @@ export default function StudentQuizHistoryPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
           <Link href="/quizzes">
-            <Button variant="outline" size="sm" className="p-2 rounded-xl">
-              <ChevronLeft className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="p-2 rounded-xl border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70"
+            >
+              <ChevronLeft className="w-5 h-5" />
             </Button>
           </Link>
           <div>
@@ -111,7 +125,7 @@ export default function StudentQuizHistoryPage() {
 
       {/* Quick Summary Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-        <Card className="p-3.5 sm:p-4 bg-white dark:bg-[#091124]/60 border border-slate-200 dark:border-[#1e2e56] flex items-center space-x-3 shadow-xs">
+        <Card className="p-3.5 sm:p-4 glass-card flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20">
             <Trophy className="w-5 h-5" />
           </div>
@@ -121,7 +135,7 @@ export default function StudentQuizHistoryPage() {
           </div>
         </Card>
 
-        <Card className="p-3.5 sm:p-4 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center space-x-3 shadow-sm">
+        <Card className="p-3.5 sm:p-4 glass-card flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
             <CheckCircle2 className="w-5 h-5" />
           </div>
@@ -131,7 +145,7 @@ export default function StudentQuizHistoryPage() {
           </div>
         </Card>
 
-        <Card className="p-3.5 sm:p-4 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center space-x-3 col-span-2 sm:col-span-1 shadow-sm">
+        <Card className="p-3.5 sm:p-4 glass-card flex items-center space-x-3 col-span-2 sm:col-span-1">
           <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
             <Sparkles className="w-5 h-5" />
           </div>
@@ -154,12 +168,12 @@ export default function StudentQuizHistoryPage() {
           />
         </div>
 
-        <div className="flex items-center space-x-1.5 bg-slate-200/80 dark:bg-slate-900/80 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800 self-start sm:self-auto">
+        <div className="flex items-center space-x-1.5 bg-slate-100 dark:bg-[#091124] p-1 rounded-xl border border-slate-200 dark:border-[#1e2e56] self-start sm:self-auto">
           <button
             onClick={() => setStatusFilter('ALL')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
               statusFilter === 'ALL'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
@@ -190,7 +204,7 @@ export default function StudentQuizHistoryPage() {
 
       {/* Attempt History List */}
       {filteredAttempts.length === 0 ? (
-        <Card className="p-8 text-center space-y-3 bg-white dark:bg-slate-900/40 border-dashed border-slate-300 dark:border-slate-800">
+        <Card className="p-8 text-center space-y-3 glass-card border-dashed">
           <History className="w-10 h-10 text-slate-400 dark:text-slate-500 mx-auto" />
           <h3 className="text-base font-bold text-slate-900 dark:text-white">No Quiz Attempts Found</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
@@ -204,7 +218,7 @@ export default function StudentQuizHistoryPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredAttempts.map((attempt) => {
+          {paginatedAttempts.map((attempt) => {
             const isCompleted = attempt.attemptStatus === 'COMPLETED';
             const quizTitle = attempt.quiz?.title || 'Practice Quiz';
             const durationSec = attempt.timeTakenSeconds || 0;
@@ -219,9 +233,9 @@ export default function StudentQuizHistoryPage() {
             return (
               <Card
                 key={attempt.id}
-                className="p-4 sm:p-5 bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-all space-y-3 shadow-sm"
+                className="p-4 sm:p-5 glass-card space-y-3"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-slate-800/80 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-[#1e2e56] pb-3">
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">{quizTitle}</span>
@@ -285,7 +299,7 @@ export default function StudentQuizHistoryPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-[#091124] p-2 rounded-lg border border-slate-200 dark:border-[#1e2e56]">
                       <AlertCircle className="w-4 h-4 shrink-0 text-slate-400 dark:text-slate-500" />
                       <div>
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Unattempted</span>
@@ -305,6 +319,18 @@ export default function StudentQuizHistoryPage() {
               </Card>
             );
           })}
+
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setCurrentPage(1);
+            }}
+          />
         </div>
       )}
     </div>

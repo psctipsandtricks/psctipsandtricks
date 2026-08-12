@@ -63,6 +63,12 @@ model User {
   status             UserStatus        @default(ACTIVE)
   isPremium          Boolean           @default(false)
   avatarUrl          String?
+  // The photo URL from the user's linked Google account, refreshed on every
+  // Google sign-in. Kept separate from `avatarUrl` (the active profile
+  // picture) so removing the active photo doesn't get silently undone the
+  // next time the user signs in with Google, while still letting the profile
+  // page offer "use my Google photo" as an explicit choice.
+  googleAvatarUrl    String?
   phoneNumber        String?
   orders             Order[]
   submissions        QuizSubmission[]
@@ -190,7 +196,17 @@ model Quiz {
   isLiveMock                      Boolean          @default(false)
   isPremium                       Boolean          @default(false)
   price                           Float            @default(0)
-  negativeMarkingValue            Float            @default(0.33)
+  // Negative marking is a "for every N wrong answers, deduct M marks" rule
+  // (default: every 3 wrong answers costs 1 mark), not a flat per-question
+  // penalty — that's why it's two numbers instead of one. Disabled by default
+  // for every quiz; the admin UI auto-enables it only when creating a premium
+  // (paid) quiz.
+  negativeMarkingEnabled          Boolean          @default(false)
+  negativeMarkingEvery            Int              @default(3)
+  negativeMarkingDeduct           Float            @default(1)
+  // When false (the default) a submission's score is floored at 0. An admin
+  // must opt in per-quiz to let a heavily negative-marked attempt end below 0.
+  allowNegativeScore              Boolean          @default(false)
   passingMarks                    Float            @default(40)
   totalMarks                      Float            @default(100)
   questions                       Question[]
@@ -327,9 +343,14 @@ model ChatGroupMember {
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   role      String    @default("MEMBER")
+  /// A blocked member keeps their row (so an admin can find and unblock them)
+  /// but the group disappears from their community list entirely.
+  isBlocked Boolean   @default(false)
+  blockedAt DateTime?
   joinedAt  DateTime  @default(now())
 
   @@unique([groupId, userId])
+  @@index([groupId, isBlocked])
 }
 
 model ChatGroupPin {

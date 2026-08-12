@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseQueueService } from '../queue/queue.service';
 import { SendNotificationDto } from './dto/send-notification.dto';
@@ -7,6 +7,8 @@ import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     private prisma: PrismaService,
     private queueService: SupabaseQueueService,
@@ -24,12 +26,19 @@ export class NotificationsService {
       },
     });
 
-    await this.queueService.send('notifications', {
-      id: notification.id,
-      title: data.title,
-      body: data.body,
-      userId: data.userId,
-    });
+    // The notification row is already saved; a queue outage must not turn a
+    // successful send into an error for the admin. Delivery is retried by the
+    // processor's own polling.
+    try {
+      await this.queueService.send('notifications', {
+        id: notification.id,
+        title: data.title,
+        body: data.body,
+        userId: data.userId,
+      });
+    } catch (err) {
+      this.logger.warn(`Push delivery enqueue skipped for notification ${notification.id}: ${err}`);
+    }
 
     return notification;
   }

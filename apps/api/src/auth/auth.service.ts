@@ -123,6 +123,27 @@ export class AuthService {
       }
     }
 
+    // The provider's photo seeds the active avatar only the first time this
+    // account gets one — after that the user owns `avatarUrl` (they may have
+    // uploaded their own photo, or deliberately removed it) and a routine
+    // Google sign-in must not overwrite that choice. `googleAvatarUrl` is kept
+    // fresh on every login regardless, so the profile page can always offer
+    // "use my Google photo" as a separate, explicit action.
+    if (avatarUrl && provider === OAuthProvider.GOOGLE) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleAvatarUrl: avatarUrl,
+          avatarUrl: user.avatarUrl ?? avatarUrl,
+        },
+      });
+    } else if (avatarUrl && !user.avatarUrl) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { avatarUrl },
+      });
+    }
+
     // Auto-promote admin emails to ADMIN role if needed
     if (
       (normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com') &&

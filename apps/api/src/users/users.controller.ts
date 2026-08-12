@@ -1,5 +1,19 @@
-import { Controller, Get, Post, Param, Patch, Body, UseGuards, Request, ForbiddenException } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Patch,
+  Delete,
+  Body,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  Request,
+  ForbiddenException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -53,6 +67,34 @@ export class UsersController {
       throw new ForbiddenException('You can only update your own profile');
     }
     return this.usersService.updateProfile(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Upload/replace a profile picture (self only)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  @Post(':id/avatar')
+  async uploadAvatar(
+    @Request() req: any,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (req.user.id !== id && req.user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('You can only update your own profile picture');
+    }
+    return this.usersService.uploadAvatar(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove the current profile picture (self only)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/avatar')
+  async removeAvatar(@Request() req: any, @Param('id') id: string) {
+    if (req.user.id !== id && req.user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('You can only update your own profile picture');
+    }
+    return this.usersService.removeAvatar(id);
   }
 
   @ApiOperation({ summary: 'Update a user account as an admin/staff (Admin / Staff with manage_users)' })

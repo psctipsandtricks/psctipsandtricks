@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Headers, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -27,8 +27,26 @@ export class OrdersController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('verify')
-  async verify(@Body() dto: VerifyPaymentDto) {
-    return this.ordersService.verifyPayment(dto.orderId, dto.paymentId);
+  async verify(@Request() req: any, @Body() dto: VerifyPaymentDto) {
+    return this.ordersService.verifyPayment(req.user.id, dto);
+  }
+
+  @ApiOperation({ summary: "Get the signed-in student's own purchase history" })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  async findMine(@Request() req: any) {
+    return this.ordersService.findMyOrders(req.user.id);
+  }
+
+  @ApiOperation({ summary: 'Razorpay webhook callback' })
+  @Post('webhook')
+  async webhook(
+    @Body() body: any,
+    @Headers('x-razorpay-signature') signature: string,
+  ) {
+    const rawBody = typeof body === 'string' ? body : JSON.stringify(body);
+    return this.ordersService.handleWebhook(rawBody, signature);
   }
 
   @ApiOperation({ summary: 'List all orders (Admin / Staff with view_orders)' })

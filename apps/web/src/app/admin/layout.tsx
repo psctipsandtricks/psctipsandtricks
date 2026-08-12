@@ -24,17 +24,26 @@ import {
   Clock,
 } from 'lucide-react';
 import { useTheme } from '../theme-provider';
-import { useAuth } from '../auth-provider';
+import { AdminAuthProvider, useAdminAuth } from './admin-auth-provider';
+import { AdminLoginForm } from './admin-login-form';
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  return (
+    <AdminAuthProvider>
+      <AdminLayoutGate>{children}</AdminLayoutGate>
+    </AdminAuthProvider>
+  );
+}
+
+function AdminLayoutGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
-  const { user, isLoading: authLoading, logout } = useAuth();
+  const { adminUser, isLoading: authLoading, logoutAdmin } = useAdminAuth();
   const [mounted, setMounted] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
@@ -43,14 +52,58 @@ export default function AdminLayout({
     setMounted(true);
   }, []);
 
-  const isStaffOrAdmin = user && (user.role === 'ADMIN' || user.role === 'STAFF');
+  // Checked before anything else renders — never a flash of the panel, and
+  // never a redirect away from /admin: an unauthenticated visit to any
+  // /admin/* URL always resolves to this same inline login form.
+  if (!mounted || authLoading) {
+    return (
+      <div className="min-h-screen bg-[#060b18] flex items-center justify-center text-slate-100">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400"></div>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (mounted && !authLoading && !isStaffOrAdmin) {
-      router.replace(`/login?redirect=${encodeURIComponent(pathname || '/admin')}`);
-    }
-  }, [mounted, authLoading, isStaffOrAdmin, pathname, router]);
+  if (!adminUser) {
+    return <AdminLoginForm />;
+  }
 
+  return (
+    <AdminPanelShell
+      pathname={pathname}
+      router={router}
+      theme={theme}
+      toggleTheme={toggleTheme}
+      adminUser={adminUser}
+      logoutAdmin={logoutAdmin}
+      mobileNavOpen={mobileNavOpen}
+      setMobileNavOpen={setMobileNavOpen}
+    >
+      {children}
+    </AdminPanelShell>
+  );
+}
+
+function AdminPanelShell({
+  children,
+  pathname,
+  router,
+  theme,
+  toggleTheme,
+  adminUser,
+  logoutAdmin,
+  mobileNavOpen,
+  setMobileNavOpen,
+}: {
+  children: React.ReactNode;
+  pathname: string | null;
+  router: ReturnType<typeof useRouter>;
+  theme: string;
+  toggleTheme: () => void;
+  adminUser: NonNullable<ReturnType<typeof useAdminAuth>['adminUser']>;
+  logoutAdmin: () => void;
+  mobileNavOpen: boolean;
+  setMobileNavOpen: (open: boolean) => void;
+}) {
   const sidebarItems = [
     { id: 'dashboard', label: 'Analytics Dashboard', href: '/admin', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'quizzes', label: 'Manage Quizzes', href: '/admin/quizzes', icon: <HelpCircle className="w-4 h-4" /> },
@@ -63,30 +116,29 @@ export default function AdminLayout({
     { id: 'announcements', label: 'Announcements', href: '/admin/announcements', icon: <Megaphone className="w-4 h-4" /> },
   ];
 
-  if (!mounted || authLoading || !isStaffOrAdmin) {
-    return (
-      <div className="min-h-screen bg-[#060b18] flex items-center justify-center text-slate-100">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400"></div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-[#060b18] text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-x-hidden">
+    <div className="h-screen h-[100vh] flex bg-slate-50 dark:bg-[#060b18] text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">
       {/* Desktop Sidebar */}
-      <Sidebar 
-        brandName="PSC Control Panel" 
-        items={sidebarItems} 
-        pathname={pathname} 
+      <Sidebar
+        brandName="PSC Control Panel"
+        brandIcon={
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 via-blue-500 to-indigo-600 text-slate-950 font-black flex items-center justify-center shadow-sm shrink-0">
+            <svg viewBox="0 0 512 512" className="w-4.5 h-4.5 fill-amber-300 drop-shadow-xs">
+              <path d="M 288 88 L 168 264 H 256 L 224 424 L 344 248 H 256 Z" />
+            </svg>
+          </div>
+        }
+        items={sidebarItems}
+        pathname={pathname || ''}
         onNavigate={(href, e) => {
           e.preventDefault();
           router.push(href);
         }}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 w-full">
+      <div className="flex-1 flex flex-col min-w-0 w-full h-full overflow-hidden">
         {/* Responsive Header */}
-        <header className="h-16 glass-header px-4 sm:px-6 flex items-center justify-between shrink-0 border-b border-slate-200/90 dark:border-[#1e2e56] sticky top-0 z-30">
+        <header className="h-16 glass-header px-4 sm:px-6 flex items-center justify-between shrink-0 border-b border-slate-200/90 dark:border-[#1e2e56] z-30">
           <div className="flex items-center space-x-3">
             {/* Mobile Nav Trigger */}
             <button
@@ -101,7 +153,7 @@ export default function AdminLayout({
             {/* Session Indicator Pill */}
             <span className="text-[11px] font-mono font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-3 py-1 rounded-full shadow-xs flex items-center space-x-1.5 truncate">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-              <span>{user!.role === 'ADMIN' ? 'Admin' : 'Staff'} Session</span>
+              <span>{adminUser.role === 'ADMIN' ? 'Admin' : 'Staff'} Session</span>
             </span>
           </div>
 
@@ -111,7 +163,7 @@ export default function AdminLayout({
               type="button"
               onClick={toggleTheme}
               className="p-2 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:text-cyan-400 transition-all shadow-xs cursor-pointer shrink-0"
-              title={mounted && theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
               {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-800" />}
             </button>
@@ -119,14 +171,14 @@ export default function AdminLayout({
             {/* User Profile Pill */}
             <div className="flex items-center space-x-2 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56]">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-400 to-blue-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-xs shrink-0">
-                {user!.name.slice(0, 1).toUpperCase()}
+                {adminUser.name.slice(0, 1).toUpperCase()}
               </div>
               <div className="flex flex-col hidden md:flex text-left">
                 <span className="font-bold text-slate-900 dark:text-white text-xs leading-none truncate max-w-[100px]">
-                  {user!.name}
+                  {adminUser.name}
                 </span>
                 <span className="text-[9px] font-mono text-slate-400 leading-none mt-0.5">
-                  {user!.role === 'ADMIN' ? 'Project Admin' : 'Staff Member'}
+                  {adminUser.role === 'ADMIN' ? 'Project Admin' : 'Staff Member'}
                 </span>
               </div>
             </div>
@@ -134,7 +186,7 @@ export default function AdminLayout({
             {/* Logout Pill */}
             <button
               type="button"
-              onClick={logout}
+              onClick={logoutAdmin}
               className="flex items-center space-x-1 text-xs text-rose-500 hover:bg-rose-500/10 border border-rose-500/20 px-2.5 py-1.5 rounded-xl font-bold cursor-pointer transition-all shrink-0"
               title="Logout from Admin Panel"
             >
@@ -171,7 +223,7 @@ export default function AdminLayout({
           </div>
         )}
 
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
+        <main className="flex-1 flex flex-col min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6">{children}</main>
       </div>
     </div>
   );

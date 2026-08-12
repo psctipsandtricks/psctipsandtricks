@@ -13,10 +13,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     
     const variants = {
       primary: 'btn-shine-effect bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:hover:from-cyan-300 dark:hover:to-blue-400 dark:text-slate-950 font-extrabold shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60',
-      secondary: 'bg-slate-100 dark:bg-[#091124] text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-[#0c152e] border border-slate-200 dark:border-[#1e2e56]',
-      outline: 'border border-cyan-500/40 dark:border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70 bg-transparent',
-      ghost: 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-[#0c152e]/80 hover:text-cyan-400',
-      danger: 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 shadow-xs',
+      secondary: 'bg-slate-100 dark:bg-[#091124] text-slate-800 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-[#0c152e] border border-slate-200 dark:border-[#1e2e56] shadow-2xs',
+      outline: 'border border-slate-300 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 bg-white/80 dark:bg-[#091124]/80 hover:bg-slate-100 dark:hover:bg-[#0c152e] hover:border-cyan-500/50 shadow-2xs',
+      ghost: 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-[#0c152e]/80 hover:text-cyan-600 dark:hover:text-cyan-400',
+      danger: 'bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 shadow-2xs',
       gold: 'btn-shine-effect bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:hover:from-cyan-300 dark:hover:to-blue-400 dark:text-slate-950 font-extrabold shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60',
     };
 

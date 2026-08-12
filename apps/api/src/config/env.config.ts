@@ -17,4 +17,8 @@ export const configValidationSchema = Joi.object({
   APPLE_KEY_ID: Joi.string().allow('').optional(),
   APPLE_PRIVATE_KEY: Joi.string().allow('').optional(),
   APPLE_CALLBACK_URL: Joi.string().default('http://localhost:4000/auth/apple/callback'),
+  RAZORPAY_KEY_ID: Joi.string().allow('').optional(),
+  RAZORPAY_KEY_SECRET: Joi.string().allow('').optional(),
+  RAZORPAY_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  RAZORPAY_MODE: Joi.string().valid('test', 'live', 'demo').default('test'),
 });

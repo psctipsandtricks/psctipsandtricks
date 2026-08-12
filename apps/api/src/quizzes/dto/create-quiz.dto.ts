@@ -6,8 +6,9 @@ export class CreateQuizDto {
   @IsString()
   title: string;
 
+  @IsOptional()
   @IsString()
-  category: string;
+  category?: string;
 
   @IsString()
   description: string;
@@ -63,9 +64,24 @@ export class CreateQuizDto {
   price?: number;
 
   @IsOptional()
+  @IsBoolean()
+  negativeMarkingEnabled?: boolean;
+
+  // "For every N wrong answers, deduct M marks" — N.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  negativeMarkingEvery?: number;
+
+  // "For every N wrong answers, deduct M marks" — M.
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  negativeMarkingValue?: number;
+  negativeMarkingDeduct?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowNegativeScore?: boolean;
 
   @IsOptional()
   @IsNumber()

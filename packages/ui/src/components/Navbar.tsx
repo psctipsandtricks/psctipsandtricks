@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { cn } from '../utils';
-import { Sun, Moon, Menu, X, User as UserIcon, BookOpen, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { Sun, Moon, Menu, X, User as UserIcon, BookOpen, Receipt, Settings, LogOut, ChevronDown } from 'lucide-react';
 
 export interface NavbarProps {
   brandName?: string;
@@ -12,16 +12,24 @@ export interface NavbarProps {
   onToggleTheme?: () => void;
   onLogout?: () => void;
   className?: string;
+  /**
+   * Lets the host app route internal links client-side (e.g. Next.js
+   * `router.push`) instead of a full browser navigation. Without this, every
+   * tab switch reloads the page and the auth state has to rehydrate from
+   * scratch, which is what causes the logged-out flash.
+   */
+  onNavigate?: (href: string, e: React.MouseEvent<HTMLAnchorElement>) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  brandName = '⚡ PSC Tips & Tricks',
+  brandName = '⚡ PSC Tips And Tricks',
   links = [],
   user,
   theme: propTheme,
   onToggleTheme,
   onLogout,
   className,
+  onNavigate,
 }) => {
   const [localTheme, setLocalTheme] = useState<'dark' | 'light'>('dark');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -73,11 +81,21 @@ export const Navbar: React.FC<NavbarProps> = ({
     return name.slice(0, 2).toUpperCase();
   };
 
+  const [avatarError, setAvatarError] = useState(false);
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [user?.avatarUrl]);
+
   return (
     <header className={cn('sticky top-0 z-40 w-full glass-header bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200/90 dark:border-slate-800/90', className)}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-8">
-          <a href="/" className="flex items-center space-x-2 font-black text-xl tracking-tight">
+          <a
+            href="/"
+            onClick={(e) => onNavigate?.('/', e)}
+            className="flex items-center space-x-2 font-black text-xl tracking-tight"
+          >
             <span className="bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500 dark:from-cyan-400 dark:via-cyan-300 dark:to-blue-400 bg-clip-text text-transparent drop-shadow-xs font-black">
               {brandName}
             </span>
@@ -87,6 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <a
                 key={link.href}
                 href={link.href}
+                onClick={(e) => onNavigate?.(link.href, e)}
                 className={cn(
                   'px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-200',
                   link.active
@@ -125,8 +144,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className="flex items-center space-x-2.5 p-1.5 rounded-2xl border border-slate-300 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#091124] hover:border-cyan-500/40 transition-all duration-200 cursor-pointer shadow-xs"
               >
-                {user.avatarUrl ? (
-                  <img src={user.avatarUrl} alt={user.name} className="w-8 h-8 rounded-xl object-cover" />
+                {user.avatarUrl && !avatarError ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className="w-8 h-8 rounded-xl object-cover"
+                    onError={() => setAvatarError(true)}
+                  />
                 ) : (
                   <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-500 text-slate-950 font-black flex items-center justify-center text-xs shadow-md shadow-cyan-500/20">
                     {getInitials(user.name)}
@@ -149,8 +173,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
 
                   <a
-                    href="/dashboard"
-                    onClick={() => setDropdownOpen(false)}
+                    href="/profile"
+                    onClick={(e) => {
+                      setDropdownOpen(false);
+                      onNavigate?.('/profile', e);
+                    }}
                     className="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all"
                   >
                     <UserIcon className="w-4 h-4 text-cyan-400" />
@@ -159,7 +186,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <a
                     href="/books"
-                    onClick={() => setDropdownOpen(false)}
+                    onClick={(e) => {
+                      setDropdownOpen(false);
+                      onNavigate?.('/books', e);
+                    }}
                     className="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all"
                   >
                     <BookOpen className="w-4 h-4 text-indigo-400" />
@@ -167,8 +197,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </a>
 
                   <a
+                    href="/orders"
+                    onClick={(e) => {
+                      setDropdownOpen(false);
+                      onNavigate?.('/orders', e);
+                    }}
+                    className="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all"
+                  >
+                    <Receipt className="w-4 h-4 text-amber-400" />
+                    <span>My Orders</span>
+                  </a>
+
+                  <a
                     href="/dashboard"
-                    onClick={() => setDropdownOpen(false)}
+                    onClick={(e) => {
+                      setDropdownOpen(false);
+                      onNavigate?.('/dashboard', e);
+                    }}
                     className="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all"
                   >
                     <Settings className="w-4 h-4 text-slate-500" />
@@ -197,12 +242,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="hidden sm:flex items-center space-x-2">
               <a
                 href="/login"
+                onClick={(e) => onNavigate?.('/login', e)}
                 className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-cyan-400 px-3.5 py-2 rounded-xl transition-colors"
               >
                 Log In
               </a>
               <a
                 href="/signup"
+                onClick={(e) => onNavigate?.('/signup', e)}
                 className="btn-shine-effect text-sm font-extrabold bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:text-slate-950 px-4 py-2 rounded-xl shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60 transition-all duration-200"
               >
                 Get Started
@@ -228,6 +275,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <a
               key={link.href}
               href={link.href}
+              onClick={(e) => {
+                setMobileMenuOpen(false);
+                onNavigate?.(link.href, e);
+              }}
               className={cn(
                 'block px-4 py-2.5 rounded-xl text-sm font-semibold transition-all',
                 link.active
@@ -242,12 +293,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] flex flex-col space-y-2">
               <a
                 href="/login"
+                onClick={(e) => {
+                  setMobileMenuOpen(false);
+                  onNavigate?.('/login', e);
+                }}
                 className="block text-center px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-[#091124]"
               >
                 Log In
               </a>
               <a
                 href="/signup"
+                onClick={(e) => {
+                  setMobileMenuOpen(false);
+                  onNavigate?.('/signup', e);
+                }}
                 className="block text-center px-4 py-2 rounded-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-blue-500"
               >
                 Get Started

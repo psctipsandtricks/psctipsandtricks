@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Navbar } from '@psc/ui';
 import { useAuth } from './auth-provider';
 import { useTheme } from './theme-provider';
 
 export function NavbarWrapper() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -30,12 +31,16 @@ export function NavbarWrapper() {
 
   return (
     <Navbar
-      brandName="⚡ PSC Tips & Tricks"
+      brandName="⚡ PSC Tips And Tricks"
       links={navLinks}
       user={mounted && user ? { name: user.name, email: user.email, avatarUrl: user.avatarUrl ?? undefined } : undefined}
       theme={mounted ? theme : 'dark'}
       onToggleTheme={toggleTheme}
       onLogout={logout}
+      onNavigate={(href, e) => {
+        e.preventDefault();
+        router.push(href);
+      }}
     />
   );
 }

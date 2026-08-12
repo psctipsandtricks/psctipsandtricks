@@ -5,6 +5,8 @@ import {
   QuizResult,
   LeaderboardEntry,
   Order,
+  OrderWithItems,
+  UserProfile,
   AuthResponse,
   User,
   ChatGroupWithUserState,
@@ -13,12 +15,98 @@ import {
   MockTest,
   MockTestParticipant,
   MockTestStatus,
+  StudentDashboard,
 } from '@psc/shared-types';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
 
+// The admin panel keeps a completely separate session from the student site —
+// separate storage keys, separate refresh/expiry handling — so being logged
+// in on one surface never implies access on the other. Which pair a request
+// uses is decided by the URL it's made from: anything under /admin is an
+// admin-panel request.
+const STUDENT_ACCESS_TOKEN_KEY = 'accessToken';
+const STUDENT_REFRESH_TOKEN_KEY = 'refreshToken';
+const STUDENT_USER_KEY = 'psc_user';
+export const ADMIN_ACCESS_TOKEN_KEY = 'adminAccessToken';
+export const ADMIN_REFRESH_TOKEN_KEY = 'adminRefreshToken';
+export const ADMIN_USER_KEY = 'psc_admin_user';
+
+function isAdminContext(): boolean {
+  return typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+}
+
+/** The access token for whichever session (student or admin) is active on the current page. */
+export function getActiveAccessToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(isAdminContext() ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY);
+}
+
+// Deduped in-flight refresh: concurrent 401s on the same session share one
+// /auth/refresh call. Student and admin sessions get independent promises so
+// a refresh on one surface can never be satisfied with the other's token.
+let studentRefreshPromise: Promise<string | null> | null = null;
+let adminRefreshPromise: Promise<string | null> | null = null;
+
+async function tryRefreshAccessToken(admin: boolean): Promise<string | null> {
+  const accessKey = admin ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY;
+  const refreshKey = admin ? ADMIN_REFRESH_TOKEN_KEY : STUDENT_REFRESH_TOKEN_KEY;
+  const existing = admin ? adminRefreshPromise : studentRefreshPromise;
+
+  const promise =
+    existing ||
+    (async () => {
+      const refreshToken = localStorage.getItem(refreshKey);
+      if (!refreshToken) return null;
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data?.accessToken) return null;
+        localStorage.setItem(accessKey, data.accessToken);
+        if (data.refreshToken) localStorage.setItem(refreshKey, data.refreshToken);
+        return data.accessToken as string;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      if (admin) adminRefreshPromise = null;
+      else studentRefreshPromise = null;
+    });
+
+  if (admin) adminRefreshPromise = promise;
+  else studentRefreshPromise = promise;
+  return promise;
+}
+
+// Stored token is dead and unrefreshable — drop the session so the UI returns
+// to logged-out instead of firing doomed authorized requests forever.
+// auth-provider / admin-auth-provider listen for their respective event.
+function clearExpiredSession(admin: boolean) {
+  if (typeof window === 'undefined') return;
+  if (admin) {
+    localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
+    localStorage.removeItem(ADMIN_REFRESH_TOKEN_KEY);
+    localStorage.removeItem(ADMIN_USER_KEY);
+    window.dispatchEvent(new Event('psc:admin-session-expired'));
+  } else {
+    localStorage.removeItem(STUDENT_ACCESS_TOKEN_KEY);
+    localStorage.removeItem(STUDENT_REFRESH_TOKEN_KEY);
+    localStorage.removeItem(STUDENT_USER_KEY);
+    window.dispatchEvent(new Event('psc:session-expired'));
+  }
+}
+
 async function fetcher<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const admin = isAdminContext();
+  const token =
+    typeof window !== 'undefined'
+      ? localStorage.getItem(admin ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY)
+      : null;
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -31,6 +119,19 @@ async function fetcher<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (!res.ok) {
+    // Expired access token: refresh once and retry. Skip /auth/* — a 401 there
+    // is a credential failure, not an expired session.
+    if (res.status === 401 && token && !endpoint.startsWith('/auth/')) {
+      const newToken = await tryRefreshAccessToken(admin);
+      if (newToken) {
+        const retry = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...options,
+          headers: { ...headers, Authorization: `Bearer ${newToken}` },
+        });
+        if (retry.ok) return retry.json();
+      }
+      clearExpiredSession(admin);
+    }
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.message || `API Error: ${res.statusText}`);
   }
@@ -39,7 +140,11 @@ async function fetcher<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 async function uploadFetcher<T>(endpoint: string, file: File): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const admin = isAdminContext();
+  const token =
+    typeof window !== 'undefined'
+      ? localStorage.getItem(admin ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY)
+      : null;
   const body = new FormData();
   body.append('file', file);
 
@@ -50,10 +155,76 @@ async function uploadFetcher<T>(endpoint: string, file: File): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 401 && token) {
+      const newToken = await tryRefreshAccessToken(admin);
+      if (newToken) {
+        const retry = await fetch(`${API_BASE_URL}${endpoint}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${newToken}` },
+          body,
+        });
+        if (retry.ok) return retry.json();
+      }
+      clearExpiredSession(admin);
+    }
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.message || `Upload failed: ${res.statusText}`);
   }
   return res.json();
+}
+
+async function uploadFetcherWithProgress<T>(
+  endpoint: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  const admin = isAdminContext();
+  const token =
+    typeof window !== 'undefined'
+      ? localStorage.getItem(admin ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY)
+      : null;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}${endpoint}`);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const parsed = JSON.parse(xhr.responseText);
+          resolve(parsed);
+        } catch {
+          resolve({} as T);
+        }
+      } else {
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          reject(new Error(errData.message || `Upload failed: ${xhr.statusText}`));
+        } catch {
+          reject(new Error(`Upload failed: ${xhr.statusText}`));
+        }
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error occurred during file upload.'));
+    xhr.ontimeout = () => reject(new Error('Upload request timed out.'));
+
+    const body = new FormData();
+    body.append('file', file);
+    xhr.send(body);
+  });
 }
 
 export const ApiClient = {
@@ -65,6 +236,11 @@ export const ApiClient = {
   createUser: (payload: any) => fetcher<User>('/users', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateUser: (id: string, payload: any) =>
     fetcher<User>(`/users/${id}/admin`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  getUserProfile: (id: string) => fetcher<UserProfile>(`/users/${id}`),
+  updateMyProfile: (id: string, payload: Partial<{ name: string; phoneNumber: string; avatarUrl: string }>) =>
+    fetcher<UserProfile>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  uploadAvatar: (id: string, file: File) => uploadFetcher<UserProfile>(`/users/${id}/avatar`, file),
+  removeAvatar: (id: string) => fetcher<UserProfile>(`/users/${id}/avatar`, { method: 'DELETE' }),
 
   // Books
   getBooks: () => fetcher<Book[]>('/books'),
@@ -90,6 +266,7 @@ export const ApiClient = {
       body: JSON.stringify(payload),
     }),
   getStudentAttemptHistory: () => fetcher<any[]>('/quizzes/history/me'),
+  getMyDashboard: () => fetcher<StudentDashboard>('/analytics/me/dashboard'),
   getAdminAttemptHistory: (quizId?: string, userId?: string) =>
     fetcher<any[]>(`/quizzes/admin/attempts?${quizId ? `quizId=${quizId}&` : ''}${userId ? `userId=${userId}` : ''}`),
   getLeaderboard: (id: string) => fetcher<LeaderboardEntry[]>(`/quizzes/${id}/leaderboard`),
@@ -110,10 +287,19 @@ export const ApiClient = {
   deleteMockTest: (id: string) => fetcher<any>(`/mock-tests/${id}`, { method: 'DELETE' }),
 
   // Orders
-  createOrder: (payload: { bookId?: string; quizId?: string; amount: number }) =>
-    fetcher<Order>('/orders', { method: 'POST', body: JSON.stringify(payload) }),
-  verifyPayment: (payload: { orderId: string; paymentId: string }) =>
-    fetcher<Order>('/orders/verify', { method: 'POST', body: JSON.stringify(payload) }),
+  createOrder: (payload: { bookId?: string; quizId?: string; amount: number; couponCode?: string }) =>
+    fetcher<Order & { keyId?: string; mode?: string; isSimulated?: boolean }>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  verifyPayment: (payload: {
+    orderId: string;
+    paymentId: string;
+    razorpayOrderId?: string;
+    razorpaySignature?: string;
+  }) => fetcher<Order>('/orders/verify', { method: 'POST', body: JSON.stringify(payload) }),
+  getAllOrders: () => fetcher<any[]>('/orders'),
+  getMyOrders: () => fetcher<OrderWithItems[]>('/orders/me'),
 
   // Community Chat
   getChatGroups: () => fetcher<ChatGroupWithUserState[]>('/chat/groups/mine'),
@@ -136,11 +322,26 @@ export const ApiClient = {
     fetcher(`/chat/groups/${groupId}/read`, { method: 'POST', body: JSON.stringify({ lastReadMessageId }) }),
   updateMessageMetadata: (messageId: string, metadata: Record<string, any>) =>
     fetcher<ChatMessage>(`/chat/messages/${messageId}/metadata`, { method: 'PATCH', body: JSON.stringify({ metadata }) }),
+  deleteMessage: (messageId: string) => fetcher(`/chat/messages/${messageId}`, { method: 'DELETE' }),
 
   // Community Chat — Admin
   getAllChatGroups: () => fetcher<any[]>('/chat/groups'),
   uploadGroupImage: (groupId: string, file: File) =>
     uploadFetcher<any>(`/chat/groups/${groupId}/image`, file),
+  uploadChatAttachment: (file: File) =>
+    uploadFetcher<{ name: string; url: string; type: 'pdf' | 'excel' | 'word' | 'image' | 'file'; size: string }>(
+      '/chat/upload-attachment',
+      file,
+    ),
+  uploadChatAttachmentWithProgress: (
+    file: File,
+    onProgress?: (percent: number) => void,
+  ) =>
+    uploadFetcherWithProgress<{ name: string; url: string; type: 'pdf' | 'excel' | 'word' | 'image' | 'file'; size: string }>(
+      '/chat/upload-attachment',
+      file,
+      onProgress,
+    ),
   createChatGroup: (payload: { name: string; description: string; category: string; iconEmoji?: string; imageUrl?: string; coverGradient?: string }) =>
     fetcher('/chat/groups', { method: 'POST', body: JSON.stringify(payload) }),
   updateChatGroup: (
@@ -158,9 +359,24 @@ export const ApiClient = {
     fetcher(`/chat/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   toggleGroupLock: (groupId: string) => fetcher(`/chat/groups/${groupId}/lock`, { method: 'PATCH' }),
   deleteChatGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}`, { method: 'DELETE' }),
-  getGroupMembers: (groupId: string) => fetcher<any[]>(`/chat/groups/${groupId}/members`),
+  getGroupMembers: (
+    groupId: string,
+    opts?: { search?: string; page?: number; limit?: number; status?: 'ALL' | 'ACTIVE' | 'BLOCKED' },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.search) qs.set('search', opts.search);
+    if (opts?.page) qs.set('page', String(opts.page));
+    if (opts?.limit) qs.set('limit', String(opts.limit));
+    if (opts?.status && opts.status !== 'ALL') qs.set('status', opts.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return fetcher<any>(`/chat/groups/${groupId}/members${suffix}`);
+  },
   removeGroupMember: (groupId: string, userId: string) =>
     fetcher(`/chat/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
+  blockGroupMember: (groupId: string, userId: string) =>
+    fetcher(`/chat/groups/${groupId}/members/${userId}/block`, { method: 'POST' }),
+  unblockGroupMember: (groupId: string, userId: string) =>
+    fetcher(`/chat/groups/${groupId}/members/${userId}/block`, { method: 'DELETE' }),
   postAnnouncement: (
     groupId: string,
     payload: { content: string; metadata?: Record<string, any> },

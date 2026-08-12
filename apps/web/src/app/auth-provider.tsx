@@ -39,6 +39,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // api-client fires this when the stored token is rejected and refresh fails —
+  // storage is already cleared there; we just drop the in-memory user.
+  useEffect(() => {
+    const handleSessionExpired = () => setUser(null);
+    window.addEventListener('psc:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('psc:session-expired', handleSessionExpired);
+  }, []);
+
   const determineLoginMethod = (email: string, oauthIdentities?: Array<{ provider: string }>): 'Email' | 'Google' | 'Apple' => {
     if (Array.isArray(oauthIdentities) && oauthIdentities.length > 0) {
       const prov = oauthIdentities[0].provider?.toUpperCase();

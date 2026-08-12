@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, Button, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@psc/ui';
-import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio } from 'lucide-react';
+import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
+import { QuizPaywall } from '@/app/quiz-paywall';
 import { QuizTakingSkeleton } from '../../skeletons/page-skeletons';
 
 interface QuizQuestion {
@@ -47,34 +48,35 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     }
   }, [user, authLoading, params.id, router]);
 
+  // Also re-run after a payment settles: the server withholds questions for a
+  // locked premium test, so they only arrive once access opens.
+  const loadMockTest = useCallback(async () => {
+    try {
+      const data = await ApiClient.getMockTestById(params.id);
+      setMockTest(data);
+      const mapped: QuizQuestion[] = (data.quiz?.questions || []).map((q: any) => {
+        const opts = Array.isArray(q.options) ? q.options : [];
+        return {
+          id: q.id,
+          text: q.text,
+          options: opts.map((o: any) => (typeof o === 'string' ? o : o.text)),
+          correct: q.correctOptionIndex ?? 0,
+          explanation: q.explanation || '',
+          marks: q.marks ?? 1,
+        };
+      });
+      setQuestions(mapped);
+    } catch (err: any) {
+      console.error('Failed to fetch mock test:', err);
+      setError(err.message || 'Failed to load mock test');
+    }
+  }, [params.id]);
+
   useEffect(() => {
     if (!user) return;
-    async function fetchMockTest() {
-      try {
-        setLoading(true);
-        const data = await ApiClient.getMockTestById(params.id);
-        setMockTest(data);
-        const mapped: QuizQuestion[] = (data.quiz?.questions || []).map((q: any) => {
-          const opts = Array.isArray(q.options) ? q.options : [];
-          return {
-            id: q.id,
-            text: q.text,
-            options: opts.map((o: any) => (typeof o === 'string' ? o : o.text)),
-            correct: q.correctOptionIndex ?? 0,
-            explanation: q.explanation || '',
-            marks: q.marks ?? 1,
-          };
-        });
-        setQuestions(mapped);
-      } catch (err: any) {
-        console.error('Failed to fetch mock test:', err);
-        setError(err.message || 'Failed to load mock test');
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchMockTest();
-  }, [params.id, user]);
+    setLoading(true);
+    loadMockTest().finally(() => setLoading(false));
+  }, [user, loadMockTest]);
 
   // Tick every second while UPCOMING so the countdown view flips exactly at start time.
   useEffect(() => {
@@ -103,9 +105,19 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   const hasSubmitted = isSubmitted || !!myParticipant?.submittedAt;
   const isCompleted = mockTest?.status === 'COMPLETED';
 
-  const showLeaderboardView = !!mockTest && (hasSubmitted || isCompleted);
-  const showQuizView = !!mockTest && hasStarted && !showLeaderboardView;
-  const showCountdownView = !!mockTest && !hasStarted && !showLeaderboardView;
+  // The server decides this; the page only reflects it. Questions arrive empty
+  // for a locked premium test, so there is nothing to attempt either way.
+  const access = mockTest?.access;
+  const isLocked = !!mockTest && access?.hasAccess === false;
+
+  // A completed test the student never submitted must not fall into the
+  // leaderboard view (that would leak the final rank list to someone who
+  // didn't participate) or the quiz-taking view (the live window is over —
+  // there is nothing left to "join"). It gets its own missed/not-attempted view.
+  const showLeaderboardView = !!mockTest && !isLocked && hasSubmitted;
+  const showMissedView = !!mockTest && !isLocked && !hasSubmitted && isCompleted;
+  const showQuizView = !!mockTest && !isLocked && hasStarted && !showLeaderboardView && !showMissedView;
+  const showCountdownView = !!mockTest && !isLocked && !hasStarted && !showLeaderboardView && !showMissedView;
 
   // Join once when entering the live quiz-taking view.
   useEffect(() => {
@@ -172,6 +184,24 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     );
   }
 
+  // Premium test with no settled payment: nothing below this point should run.
+  if (isLocked) {
+    return (
+      <QuizPaywall
+        quizId={mockTest.quizId}
+        title={mockTest.title}
+        access={access}
+        loginRedirect={`/mock-tests/${params.id}`}
+        onUnlocked={loadMockTest}
+        subtitle={
+          isCompleted
+            ? 'This live mock test has ended. Purchase access to unlock the quiz for practice and review.'
+            : undefined
+        }
+      />
+    );
+  }
+
   const handleSubmit = async () => {
     const answerPayload = questions.map((q) => {
       const selected = selectedAnswers[q.id];
@@ -188,13 +218,33 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       setSubmitResult(result);
       setIsSubmitted(true);
     } catch (err: any) {
+      const message: string = err?.message || '';
+
+      // An earlier attempt can persist server-side while its response still
+      // fails. The server's "already submitted" is the authoritative answer, so
+      // move to the result view instead of leaving the student on a page whose
+      // only button can never succeed.
+      if (/already submitted/i.test(message)) {
+        setIsSubmitted(true);
+        try {
+          setMockTest(await ApiClient.getMockTestById(params.id));
+        } catch (refreshErr) {
+          console.error('Failed to refresh mock test after duplicate submit:', refreshErr);
+        }
+        return;
+      }
+
       console.error('Failed to submit mock test:', err);
-      alert(err.message || 'Failed to submit — please try again.');
+      alert(message || 'Failed to submit — please try again.');
     }
   };
 
   if (showCountdownView) {
     return <CountdownGate mockTest={mockTest} />;
+  }
+
+  if (showMissedView) {
+    return <MissedTestView mockTest={mockTest} joined={!!myParticipant} />;
   }
 
   if (showLeaderboardView) {
@@ -254,7 +304,11 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
           <Badge variant="outline" className="text-xs">Question #{currentIndex + 1}</Badge>
           <div className="flex items-center space-x-1.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
             <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span>{currentQ.marks} Mark • -{mockTest.quiz.negativeMarkingValue} Neg</span>
+            <span>
+              {currentQ.marks} Mark
+              {mockTest.quiz.negativeMarkingEnabled &&
+                ` • -${mockTest.quiz.negativeMarkingDeduct} per ${mockTest.quiz.negativeMarkingEvery} wrong`}
+            </span>
           </div>
         </div>
 
@@ -353,6 +407,57 @@ function CountdownGate({ mockTest }: { mockTest: any }) {
       <p className="text-xs text-slate-500 dark:text-slate-400">
         This page automatically unlocks the moment the mock test goes live — no need to refresh.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Shown instead of the rank list when the live window has closed and this
+ * student never submitted — whether they joined and ran out of time
+ * (`joined`) or never took part at all. Either way there is no score or rank
+ * to show, so this offers a way to at least practice the quiz instead.
+ */
+function MissedTestView({ mockTest, joined }: { mockTest: any; joined: boolean }) {
+  const canPractice = mockTest.quiz?.isActive !== false;
+
+  return (
+    <div className="max-w-2xl mx-auto py-16 text-center space-y-6 px-4">
+      <div
+        className={`w-14 h-14 rounded-2xl border flex items-center justify-center mx-auto ${
+          joined
+            ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
+            : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+        }`}
+      >
+        {joined ? <Clock className="w-7 h-7" /> : <XCircle className="w-7 h-7" />}
+      </div>
+
+      <div className="space-y-2">
+        <Badge variant={joined ? 'warning' : 'outline'} className="font-bold">
+          {joined ? 'Missed' : 'Not Attempted'}
+        </Badge>
+        <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">{mockTest.title}</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+          {joined
+            ? "You joined this live mock test but didn't submit before it ended, so no rank or score is available."
+            : 'You did not participate in this live mock test, so no rank or score is available.'}
+        </p>
+      </div>
+
+      {canPractice && (
+        <Link href={`/quizzes/${mockTest.quizId}`}>
+          <Button variant="gold" className="font-bold flex items-center justify-center space-x-2 mx-auto px-6 py-3 cursor-pointer">
+            <span>Go to Attempt Test</span>
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </Link>
+      )}
+
+      <div className="pt-1">
+        <Link href="/mock-tests/completed" className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline">
+          Back to Completed Mock Tests
+        </Link>
+      </div>
     </div>
   );
 }

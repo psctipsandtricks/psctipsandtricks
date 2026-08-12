@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { PanelLeft } from 'lucide-react';
 import { cn } from '../utils';
 
 export interface SidebarItem {
@@ -11,9 +12,23 @@ export interface SidebarItem {
   active?: boolean;
 }
 
+export type SidebarMode = 'expanded' | 'collapsed' | 'hover';
+
+const SIDEBAR_MODE_KEY = 'psc_sidebar_mode';
+/** Superseded by SIDEBAR_MODE_KEY; still read once so existing users keep their preference. */
+const LEGACY_COLLAPSED_KEY = 'psc_sidebar_collapsed';
+
+const MODE_OPTIONS: { id: SidebarMode; label: string }[] = [
+  { id: 'expanded', label: 'Expanded' },
+  { id: 'collapsed', label: 'Collapsed' },
+  { id: 'hover', label: 'Expand on hover' },
+];
+
 export interface SidebarProps {
   items: SidebarItem[];
   brandName?: string;
+  /** Logo shown top-left. Consumers pass their own asset; defaults to a bolt tile. */
+  brandIcon?: React.ReactNode;
   pathname?: string;
   className?: string;
   onNavigate?: (href: string, e: React.MouseEvent<HTMLAnchorElement>) => void;
@@ -22,31 +37,67 @@ export interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   items,
   brandName = 'PSC Control Panel',
+  brandIcon = (
+    <div className="w-full h-full rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-500 text-slate-950 font-black flex items-center justify-center">
+      ⚡
+    </div>
+  ),
   pathname: propPathname,
   className,
   onNavigate,
 }) => {
   const [currentPath, setCurrentPath] = useState('');
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [mode, setMode] = useState<SidebarMode>('expanded');
   const [isHovered, setIsHovered] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const controlRef = useRef<HTMLDivElement>(null);
 
-  const isNarrow = isCollapsed && !isHovered;
+  // 'collapsed' stays narrow even under the cursor — that is what separates it from 'hover'.
+  // An open control menu pins the sidebar open so it cannot slide shut from under the pointer.
+  const isNarrow = mode === 'collapsed' || (mode === 'hover' && !isHovered && !isMenuOpen);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setCurrentPath(window.location.pathname);
-      const saved = localStorage.getItem('psc_sidebar_collapsed');
-      if (saved === 'true') {
-        setIsCollapsed(true);
-      }
+    if (typeof window === 'undefined') return;
+
+    setCurrentPath(window.location.pathname);
+
+    const saved = localStorage.getItem(SIDEBAR_MODE_KEY);
+    if (saved === 'expanded' || saved === 'collapsed' || saved === 'hover') {
+      setMode(saved);
+      return;
+    }
+
+    // The old boolean collapsed the rail but still expanded it on hover, so that maps to 'hover'.
+    if (localStorage.getItem(LEGACY_COLLAPSED_KEY) === 'true') {
+      setMode('hover');
     }
   }, []);
 
-  const toggleCollapse = () => {
-    const nextState = !isCollapsed;
-    setIsCollapsed(nextState);
+  useEffect(() => {
+    if (!isMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (controlRef.current && !controlRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMenuOpen]);
+
+  const changeMode = (nextMode: SidebarMode) => {
+    setMode(nextMode);
+    setIsMenuOpen(false);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('psc_sidebar_collapsed', String(nextState));
+      localStorage.setItem(SIDEBAR_MODE_KEY, nextMode);
     }
   };
 
@@ -64,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div 
-      className={cn("hidden md:block relative h-screen sticky top-0 shrink-0 transition-all duration-300 ease-in-out z-40", isCollapsed ? "w-[72px]" : "w-64", className)}
+      className={cn("hidden md:block relative h-screen sticky top-0 shrink-0 transition-all duration-300 ease-in-out z-40", mode === 'expanded' ? "w-64" : "w-[72px]", className)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -75,27 +126,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       >
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-200/90 dark:border-[#1e2e56] font-black text-lg tracking-tight">
-        <a href="/admin" className={cn('flex items-center space-x-3 overflow-hidden transition-all duration-300', isNarrow ? 'w-0 opacity-0' : 'w-auto opacity-100')}>
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-500 text-slate-950 font-black flex items-center justify-center shadow-xs shrink-0">
-            ⚡
-          </div>
-          <div className="flex flex-col">
+      <div
+        className={cn(
+          'h-16 flex items-center border-b border-slate-200/90 dark:border-[#1e2e56] font-black text-lg tracking-tight',
+          isNarrow ? 'justify-center px-2' : 'justify-between px-4'
+        )}
+      >
+        {/* Collapsed shows the logo alone — the wordmark is not rendered at all,
+            so nothing can spill past the 72px rail. */}
+        <a href="/admin" className="flex items-center space-x-3 overflow-hidden" title={brandName}>
+          <span className="w-8 h-8 rounded-xl overflow-hidden shadow-xs shrink-0 flex items-center justify-center">
+            {brandIcon}
+          </span>
+          {!isNarrow && (
             <span className="text-sm font-black bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 dark:from-cyan-400 dark:via-cyan-300 dark:to-blue-400 bg-clip-text text-transparent tracking-tight leading-none whitespace-nowrap">
               PSC Control
             </span>
-          </div>
+          )}
         </a>
-        <button
-          type="button"
-          onClick={toggleCollapse}
-          className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-[#091124] border border-slate-200/90 dark:border-[#1e2e56] text-slate-500 hover:text-cyan-400 flex items-center justify-center transition-all shadow-xs hover:scale-105 cursor-pointer shrink-0 mx-auto"
-          title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-        >
-          <span className={cn('transform transition-transform duration-300 font-bold text-xs', isCollapsed ? 'rotate-180' : 'rotate-0')}>
-            ◀
-          </span>
-        </button>
+
       </div>
 
       {/* Navigation List */}
@@ -151,15 +200,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Footer Collapse Button */}
-      <div className="p-3 border-t border-slate-200/90 dark:border-[#1e2e56] text-xs text-slate-500 text-center font-mono font-medium">
-        <button
-          type="button"
-          onClick={toggleCollapse}
-          className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-[#0c152e] text-slate-400 hover:text-cyan-400 transition-colors cursor-pointer"
-        >
-          <span>{isNarrow ? '»' : '« Collapse'}</span>
-        </button>
+      {/* Footer Sidebar Control */}
+      <div ref={controlRef} className="p-3 border-t border-slate-200/90 dark:border-[#1e2e56]">
+        <div className="relative">
+          {isMenuOpen && (
+            <div
+              role="menu"
+              aria-orientation="vertical"
+              aria-label="Sidebar control"
+              className="absolute bottom-full left-0 mb-2 w-56 rounded-2xl border border-slate-200/90 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-2xl overflow-hidden z-50"
+            >
+              <div className="px-4 py-2.5 text-xs font-bold text-slate-500 dark:text-slate-400 border-b border-slate-200/90 dark:border-[#1e2e56]">
+                Sidebar control
+              </div>
+              <div className="py-1.5">
+                {MODE_OPTIONS.map((option) => {
+                  const isSelected = mode === option.id;
+
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={isSelected}
+                      onClick={() => changeMode(option.id)}
+                      className={cn(
+                        'w-full flex items-center space-x-3 px-4 py-2 text-xs font-semibold transition-colors cursor-pointer',
+                        isSelected
+                          ? 'text-cyan-700 dark:text-cyan-300 bg-cyan-500/10'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#0f1b3d]'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'w-1.5 h-1.5 rounded-full shrink-0 transition-colors',
+                          isSelected ? 'bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)]' : 'bg-transparent'
+                        )}
+                      />
+                      <span className="truncate">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            aria-haspopup="menu"
+            aria-expanded={isMenuOpen}
+            title="Sidebar control"
+            className={cn(
+              'w-full flex items-center py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer',
+              isNarrow ? 'justify-center px-0' : 'space-x-2.5 px-3',
+              isMenuOpen
+                ? 'bg-slate-100 dark:bg-[#0f1b3d] text-cyan-600 dark:text-cyan-300'
+                : 'text-slate-400 hover:text-cyan-400 hover:bg-slate-100 dark:hover:bg-[#0c152e]'
+            )}
+          >
+            <PanelLeft className="w-4 h-4 shrink-0" />
+            {!isNarrow && <span className="truncate">Sidebar control</span>}
+          </button>
+        </div>
       </div>
     </aside>
     </div>

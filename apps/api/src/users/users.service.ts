@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AdminCreateUserDto } from './dto/admin-create-user.dto';
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
@@ -14,6 +15,7 @@ const SAFE_SELECT = {
   status: true,
   isPremium: true,
   avatarUrl: true,
+  googleAvatarUrl: true,
   phoneNumber: true,
   oauthIdentities: { select: { provider: true } },
   createdAt: true,
@@ -28,7 +30,10 @@ function withCounts<T extends { _count: { orders: number; submissions: number } 
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private storageService: StorageService,
+  ) {}
 
   async findAll() {
     const users = await this.prisma.user.findMany({
@@ -52,6 +57,34 @@ export class UsersService {
     const user = await this.prisma.user.update({
       where: { id },
       data,
+      select: SAFE_SELECT,
+    });
+    return withCounts(user);
+  }
+
+  async uploadAvatar(id: string, file: Express.Multer.File) {
+    await this.findOne(id);
+    if (!file) throw new BadRequestException('No image file provided');
+
+    const url = await this.storageService.upload(
+      'avatars',
+      `${id}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { avatarUrl: url },
+      select: SAFE_SELECT,
+    });
+    return withCounts(user);
+  }
+
+  async removeAvatar(id: string) {
+    await this.findOne(id);
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { avatarUrl: null },
       select: SAFE_SELECT,
     });
     return withCounts(user);

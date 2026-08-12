@@ -22,6 +22,7 @@ import {
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { generateQuizSolutionsPDF, ExportPDFQuestionOption } from '@/lib/pdf-exporter';
+import { QuizPaywall, type QuizAccessState } from '@/app/quiz-paywall';
 import { QuizTakingSkeleton } from '../../skeletons/page-skeletons';
 
 interface QuizQuestion {
@@ -52,6 +53,8 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [attemptNumber, setAttemptNumber] = useState<number>(1);
   const [isPremiumQuiz, setIsPremiumQuiz] = useState(false);
+  const [access, setAccess] = useState<QuizAccessState | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Require login to take quiz
   useEffect(() => {
@@ -69,6 +72,14 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         const quiz = await ApiClient.getQuizById(params.id) as any;
         setQuizTitle(quiz.title);
         setIsPremiumQuiz(Boolean(quiz.isPremium || quiz.accessType === 'PAID' || (quiz.price && quiz.price > 0)));
+        setAccess(quiz.access ?? null);
+
+        // The server withholds questions and refuses attempts for a premium
+        // quiz until it is paid for, so stop here and let the paywall render.
+        if (quiz.access && quiz.access.hasAccess === false) {
+          setQuestions([]);
+          return;
+        }
         setShowCorrectAnswerAfterSelection(quiz.showCorrectAnswerAfterSelection ?? true);
         const durationSeconds = (quiz.durationMinutes || 15) * 60;
         setQuizDuration(durationSeconds);
@@ -109,7 +120,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
       }
     }
     fetchQuiz();
-  }, [params.id, user]);
+  }, [params.id, user, reloadKey]);
 
   useEffect(() => {
     if (isSubmitted || timeLeft <= 0 || loading || !user) return;
@@ -119,6 +130,19 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
 
   if (loading || authLoading || !user) {
     return <QuizTakingSkeleton />;
+  }
+
+  if (access && access.hasAccess === false) {
+    return (
+      <QuizPaywall
+        quizId={params.id}
+        title={quizTitle}
+        access={access}
+        loginRedirect={`/quizzes/${params.id}`}
+        subtitle="This question bank is premium. Complete the payment to unlock the questions and attempt it."
+        onUnlocked={() => setReloadKey((k) => k + 1)}
+      />
+    );
   }
 
   if (error || questions.length === 0) {
@@ -396,7 +420,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
             </Button>
           ) : (
             <Button variant="gold" className="flex items-center space-x-2" onClick={() => setCurrentIndex((i) => i + 1)}>
-              <span>Next Question</span>
+              <span>{selectedAnswers[currentQ.id] === undefined ? 'Skip' : 'Next Question'}</span>
               <ChevronRight className="w-4 h-4" />
             </Button>
           )}

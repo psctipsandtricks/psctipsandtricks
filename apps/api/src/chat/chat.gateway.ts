@@ -75,7 +75,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('joinRoom')
-  handleJoinRoom(@ConnectedSocket() client: Socket, @MessageBody('room') room: string) {
+  async handleJoinRoom(@ConnectedSocket() client: Socket, @MessageBody('room') room: string) {
+    // Blocked members must not receive a group's realtime feed either.
+    const groupId = room?.startsWith('group:') ? room.slice('group:'.length) : null;
+    const authedUser = this.socketUsers.get(client.id);
+    if (groupId && authedUser && (await this.chatService.isBlocked(groupId, authedUser.userId))) {
+      client.emit('error', { message: 'You have been blocked from this group by an admin' });
+      return;
+    }
+
     client.join(room);
     this.logger.log(`Client ${client.id} joined room: ${room}`);
     return { event: 'joinedRoom', room };
@@ -136,12 +144,52 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Push a message to everyone viewing a group. Called by the REST controller so
-   * that messages sent over HTTP still reach open clients in realtime, which is
-   * what lets the web app drop its polling interval.
+   * Push a message to everyone viewing a group as well as global notifications.
    */
   broadcastGroupMessage(groupId: string, message: unknown) {
     this.server.to(`group:${groupId}`).emit('newChatMessage', message);
+    this.server.emit('globalGroupNotification', {
+      groupId,
+      message,
+    });
+  }
+
+  /**
+   * Broadcast reactions and poll vote updates in real time.
+   */
+  broadcastMetadataUpdate(messageId: string, metadata: unknown) {
+    this.server.emit('messageMetadataUpdated', { messageId, metadata });
+  }
+
+  /** Tells every connected client to drop a deleted message from their thread. */
+  broadcastMessageDeleted(groupId: string, messageId: string) {
+    this.server.emit('messageDeleted', { groupId, messageId });
+  }
+
+  /**
+   * Group lifecycle + moderation events. All emitted globally (like the other
+   * chat broadcasts) rather than room-scoped, since a student's sidebar list
+   * needs to know about a new/renamed/locked/deleted group even when they don't
+   * have that group's thread open yet.
+   */
+  broadcastGroupCreated(group: unknown) {
+    this.server.emit('groupCreated', { group });
+  }
+
+  broadcastGroupUpdated(group: unknown) {
+    this.server.emit('groupUpdated', { group });
+  }
+
+  broadcastGroupDeleted(groupId: string) {
+    this.server.emit('groupDeleted', { groupId });
+  }
+
+  broadcastMemberBlockStatusChanged(groupId: string, userId: string, isBlocked: boolean) {
+    this.server.emit('memberBlockStatusChanged', { groupId, userId, isBlocked });
+  }
+
+  broadcastMemberRemoved(groupId: string, userId: string) {
+    this.server.emit('memberRemoved', { groupId, userId });
   }
 
   @SubscribeMessage('quizBattleAnswer')

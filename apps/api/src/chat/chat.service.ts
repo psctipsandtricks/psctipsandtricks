@@ -1,12 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import { ChatMessageType, UserRole } from '@prisma/client';
+import { ChatMessageType, Prisma, UserRole } from '@prisma/client';
 import { CreateChatGroupDto } from './dto/create-chat-group.dto';
 import { UpdateChatGroupDto } from './dto/update-chat-group.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 
 const MAX_PINS = 3;
+const DEFAULT_MEMBER_PAGE_SIZE = 20;
+const MAX_MEMBER_PAGE_SIZE = 100;
+
+export type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'BLOCKED';
 
 @Injectable()
 export class ChatService {
@@ -62,7 +71,8 @@ export class ChatService {
 
   async listGroups() {
     return this.prisma.chatGroup.findMany({
-      include: { _count: { select: { members: true } } },
+      // Blocked members no longer participate, so they don't count as members.
+      include: { _count: { select: { members: { where: { isBlocked: false } } } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -86,6 +96,37 @@ export class ChatService {
     return this.prisma.chatGroup.update({ where: { id }, data: { imageUrl: url } });
   }
 
+  /** Stores a chat message attachment (PDF, Excel, Word, Image, Doc) uploaded by Admin. */
+  async uploadAttachment(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+
+    const ext = file.originalname.split('.').pop()?.toLowerCase() || 'file';
+    let fileType: 'pdf' | 'excel' | 'word' | 'image' | 'file' = 'file';
+    if (ext === 'pdf') fileType = 'pdf';
+    else if (['xls', 'xlsx', 'csv'].includes(ext)) fileType = 'excel';
+    else if (['doc', 'docx'].includes(ext)) fileType = 'word';
+    else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) fileType = 'image';
+
+    const formattedSize =
+      file.size > 1024 * 1024
+        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.round(file.size / 1024)} KB`;
+
+    const url = await this.storageService.upload(
+      'chat-attachments',
+      `admin-uploads/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+
+    return {
+      name: file.originalname,
+      url,
+      type: fileType,
+      size: formattedSize,
+    };
+  }
+
   async updateGroup(id: string, dto: UpdateChatGroupDto) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id } });
     if (!group) throw new NotFoundException('Chat group not found');
@@ -104,21 +145,40 @@ export class ChatService {
     return this.prisma.chatGroup.delete({ where: { id } });
   }
 
+  /** Blocked members are deliberately not "members" — every membership check treats them as outsiders. */
   async isMember(groupId: string, userId: string): Promise<boolean> {
     const membership = await this.prisma.chatGroupMember.findUnique({
       where: { groupId_userId: { groupId, userId } },
     });
-    return !!membership;
+    return !!membership && !membership.isBlocked;
+  }
+
+  async isBlocked(groupId: string, userId: string): Promise<boolean> {
+    const membership = await this.prisma.chatGroupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+      select: { isBlocked: true },
+    });
+    return !!membership?.isBlocked;
+  }
+
+  private async assertNotBlocked(groupId: string, userId: string) {
+    if (await this.isBlocked(groupId, userId)) {
+      throw new ForbiddenException('You have been blocked from this group by an admin');
+    }
   }
 
   async listGroupsForUser(userId: string, userRole?: UserRole) {
     // Locked groups are admin-only workspaces — students shouldn't see them at all.
     const isModerator = userRole ? await this.canModerate(userId, userRole) : false;
     const groups = await this.prisma.chatGroup.findMany({
-      where: isModerator ? undefined : { isLocked: false },
+      // A blocked student loses the group from their list entirely — it's not
+      // just read-only for them, it's invisible.
+      where: isModerator
+        ? undefined
+        : { isLocked: false, members: { none: { userId, isBlocked: true } } },
       include: {
-        _count: { select: { members: true } },
-        members: { where: { userId }, select: { id: true } },
+        _count: { select: { members: { where: { isBlocked: false } } } },
+        members: { where: { userId, isBlocked: false }, select: { id: true } },
         pins: { where: { userId }, select: { id: true } },
         reads: { where: { userId }, select: { lastReadAt: true, lastReadMessageId: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -184,6 +244,7 @@ export class ChatService {
   async joinGroup(groupId: string, userId: string) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Chat group not found');
+    await this.assertNotBlocked(groupId, userId);
     return this.prisma.chatGroupMember.upsert({
       where: { groupId_userId: { groupId, userId } },
       create: { groupId, userId },
@@ -218,9 +279,12 @@ export class ChatService {
     return { groupId, unpinned: true };
   }
 
-  async getGroupMessages(groupId: string, before?: string, limit = 50) {
+  async getGroupMessages(groupId: string, before?: string, limit = 50, userId?: string) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Chat group not found');
+    // Stops a blocked student from reading the thread by opening the group URL
+    // directly, now that the group no longer appears in their list.
+    if (userId) await this.assertNotBlocked(groupId, userId);
 
     const messages = await this.prisma.chatMessage.findMany({
       where: {
@@ -245,6 +309,11 @@ export class ChatService {
     const isMember = await this.isMember(message.groupId, userId);
     if (!isMember) throw new BadRequestException('You must be a member of this group');
 
+    // Prevent poll author from voting on their own poll
+    if (metadata?.poll && message.userId === userId) {
+      throw new BadRequestException('As the author of this poll, you cannot vote on your own poll');
+    }
+
     return this.prisma.chatMessage.update({
       where: { id: messageId },
       data: { metadata: { ...(message.metadata as any), ...metadata } },
@@ -262,8 +331,23 @@ export class ChatService {
     if (!group) throw new NotFoundException('Chat group not found');
     if (group.isLocked) throw new BadRequestException('This group is locked by an admin');
 
+    await this.assertNotBlocked(groupId, userId);
     const member = await this.isMember(groupId, userId);
-    if (!member) throw new BadRequestException('You must join this group before sending messages');
+    if (!member) {
+      // The frontend treats ADMIN as an implicit member of every group (no "Join"
+      // step shown), so the backend has to honor that assumption instead of
+      // rejecting the send — otherwise an admin's post (including any uploaded
+      // image) silently 400s after the upload already succeeded.
+      if (userRole === UserRole.ADMIN) {
+        await this.prisma.chatGroupMember.upsert({
+          where: { groupId_userId: { groupId, userId } },
+          create: { groupId, userId },
+          update: {},
+        });
+      } else {
+        throw new BadRequestException('You must join this group before sending messages');
+      }
+    }
 
     const isModerator = userRole ? await this.canModerate(userId, userRole) : false;
     await this.assertGroupFeatureAllowed(
@@ -295,20 +379,87 @@ export class ChatService {
     });
   }
 
-  async listGroupMembers(groupId: string) {
+  /**
+   * Paginated + searchable roster. Groups can hold tens of thousands of members,
+   * so this never returns the whole list — the admin searches by name or email
+   * and pages through the matches.
+   */
+  async listGroupMembers(
+    groupId: string,
+    options: { search?: string; page?: number; limit?: number; status?: MemberStatusFilter } = {},
+  ) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Chat group not found');
 
-    return this.prisma.chatGroupMember.findMany({
-      where: { groupId },
-      include: { user: { select: { id: true, name: true, email: true, avatarUrl: true, role: true } } },
-      orderBy: { joinedAt: 'asc' },
-    });
+    const page = Math.max(1, Math.floor(options.page || 1));
+    const limit = Math.min(MAX_MEMBER_PAGE_SIZE, Math.max(1, Math.floor(options.limit || DEFAULT_MEMBER_PAGE_SIZE)));
+    const search = options.search?.trim();
+
+    const where: Prisma.ChatGroupMemberWhereInput = {
+      groupId,
+      ...(options.status === 'BLOCKED' ? { isBlocked: true } : {}),
+      ...(options.status === 'ACTIVE' ? { isBlocked: false } : {}),
+      ...(search
+        ? {
+            user: {
+              OR: [
+                { name: { contains: search, mode: Prisma.QueryMode.insensitive } },
+                { email: { contains: search, mode: Prisma.QueryMode.insensitive } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    const [items, total, blockedCount] = await Promise.all([
+      this.prisma.chatGroupMember.findMany({
+        where,
+        include: { user: { select: { id: true, name: true, email: true, avatarUrl: true, role: true } } },
+        orderBy: { joinedAt: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.chatGroupMember.count({ where }),
+      this.prisma.chatGroupMember.count({ where: { groupId, isBlocked: true } }),
+    ]);
+
+    return {
+      items,
+      total,
+      blockedCount,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
   }
 
   async removeMember(groupId: string, userId: string) {
     await this.prisma.chatGroupMember.deleteMany({ where: { groupId, userId } });
     return { groupId, userId, removed: true };
+  }
+
+  /**
+   * Blocks a member without deleting their row, so the admin can still find them
+   * in the roster to undo it. Admins can't be blocked out of their own groups.
+   */
+  async setMemberBlocked(groupId: string, userId: string, blocked: boolean) {
+    const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
+    if (!group) throw new NotFoundException('Chat group not found');
+
+    const membership = await this.prisma.chatGroupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+      include: { user: { select: { role: true } } },
+    });
+    if (!membership) throw new NotFoundException('This user is not a member of the group');
+    if (blocked && membership.user.role === UserRole.ADMIN) {
+      throw new BadRequestException('Admins cannot be blocked from a group');
+    }
+
+    return this.prisma.chatGroupMember.update({
+      where: { groupId_userId: { groupId, userId } },
+      data: { isBlocked: blocked, blockedAt: blocked ? new Date() : null },
+      include: { user: { select: { id: true, name: true, email: true, avatarUrl: true, role: true } } },
+    });
   }
 
   // Admin/staff broadcast — bypasses the membership requirement and, when pinned,

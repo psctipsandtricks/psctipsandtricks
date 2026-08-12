@@ -71,7 +71,7 @@ export default function AdminQuizAttemptsPage() {
 
   if (loading || authLoading) {
     return (
-      <div className="max-w-6xl mx-auto space-y-6 py-6 px-2">
+      <div className="w-full space-y-6">
         <div className="flex items-center space-x-3">
           <Skeleton className="w-10 h-10 rounded-xl" />
           <div className="space-y-2">
@@ -85,7 +85,7 @@ export default function AdminQuizAttemptsPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 py-4 px-1 sm:px-0">
+    <div className="w-full space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center space-x-3">

@@ -3,41 +3,70 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseQueueService } from '../queue/queue.service';
 import { Prisma } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
+import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
+import { AccessActor, QuizAccessService } from '../common/access/quiz-access.service';
+import { computeFinalScore } from '../common/scoring';
 
 @Injectable()
 export class QuizzesService {
   constructor(
     private prisma: PrismaService,
     private queueService: SupabaseQueueService,
+    private quizAccess: QuizAccessService,
   ) {}
 
-  async findAll(publishedOnly = false) {
-    return this.prisma.quiz.findMany({
-      where: publishedOnly ? { isActive: true } : undefined,
+  async findAll(publishedOnly = false, actor?: AccessActor | null) {
+    const quizzes = await this.prisma.quiz.findMany({
+      // A quiz with no questions yet is a draft — even if `isActive` is
+      // somehow true, it must never appear in the public/student list.
+      where: publishedOnly ? { isActive: true, questions: { some: {} } } : undefined,
       include: {
         questions: true,
         _count: { select: { questions: true, submissions: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // This route is public, so paid quizzes must not ship their answer key to
+    // browsers that have not paid for them.
+    return this.quizAccess.redactQuizList(actor, quizzes);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: AccessActor | null) {
     const quiz = await this.prisma.quiz.findUnique({
       where: { id },
       include: { questions: true },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
-    return quiz;
+
+    // A questionless quiz is a draft in progress — students must not be able
+    // to reach it directly by URL even though it's already hidden from the
+    // list. 404 (not 403) so a guessed ID doesn't confirm a draft exists.
+    // Staff still need full access to keep building it.
+    if (quiz.questions.length === 0 && !this.quizAccess.isStaff(actor)) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    // Questions hold the answer key, so a paid quiz is described but not
+    // revealed until the caller has paid for it.
+    const access = await this.quizAccess.getAccessState(actor, quiz);
+    return { ...this.quizAccess.stripQuestionsIfLocked(quiz, access), access };
   }
 
   async create(data: CreateQuizDto) {
     const { questions, ...quizData } = data;
+    const questionCount = questions?.length ?? 0;
     return this.prisma.quiz.create({
       data: {
+        category: data.category || 'General',
         ...quizData,
-        totalQuestions: questions?.length ?? 0,
+        totalQuestions: questionCount,
+        // A quiz can't go live for students before it has at least one
+        // question, regardless of what the admin form's toggle sent — force
+        // it hidden here, and the first question saved via update() below
+        // flips it back on automatically.
+        isActive: questionCount > 0 ? (quizData.isActive ?? true) : false,
         questions: questions
           ? {
               create: questions.map((q) => ({
@@ -51,22 +80,47 @@ export class QuizzesService {
     });
   }
 
-  async update(id: string, data: CreateQuizDto) {
-    const existing = await this.prisma.quiz.findUnique({ where: { id } });
+  async update(id: string, data: UpdateQuizDto) {
+    const existing = await this.prisma.quiz.findUnique({
+      where: { id },
+      include: { _count: { select: { questions: true } } },
+    });
     if (!existing) throw new NotFoundException('Quiz not found');
 
-    const { questions, ...quizData } = data;
+    const { questions, ...rest } = data;
+
+    // A partial update must only touch the columns the caller actually sent —
+    // an explicit `undefined` key would still be handed to Prisma otherwise.
+    const quizData = Object.fromEntries(
+      Object.entries(rest).filter(([, value]) => value !== undefined),
+    );
 
     // Delete existing questions and recreate if questions array is provided
     if (questions) {
       await this.prisma.question.deleteMany({ where: { quizId: id } });
     }
 
+    const previousQuestionCount = existing._count.questions;
+    const newQuestionCount = questions ? questions.length : previousQuestionCount;
+
+    // Auto-publish the instant a quiz gains its first question, and
+    // auto-hide it the instant it loses its last one — overriding whatever
+    // `isActive` the request asked for, so an empty quiz can never be left
+    // reachable by students. A quiz that already had questions and still
+    // does keeps the admin's explicit isActive choice untouched.
+    let isActiveOverride: boolean | undefined;
+    if (newQuestionCount === 0) {
+      isActiveOverride = false;
+    } else if (previousQuestionCount === 0 && newQuestionCount > 0) {
+      isActiveOverride = true;
+    }
+
     return this.prisma.quiz.update({
       where: { id },
       data: {
         ...quizData,
-        totalQuestions: questions ? questions.length : existing.totalQuestions,
+        totalQuestions: newQuestionCount,
+        ...(isActiveOverride !== undefined ? { isActive: isActiveOverride } : {}),
         questions: questions
           ? {
               create: questions.map((q) => ({
@@ -86,12 +140,17 @@ export class QuizzesService {
     return this.prisma.quiz.delete({ where: { id } });
   }
 
-  async startAttempt(userId: string, quizId: string) {
+  async startAttempt(actor: AccessActor, quizId: string) {
+    const userId = actor.id;
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
       include: { questions: true },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
+    if (quiz.questions.length === 0) throw new NotFoundException('Quiz not found');
+
+    // A premium quiz cannot be started without a settled payment.
+    await this.quizAccess.assertCanAttempt(actor, quiz);
 
     // Check if there is already an active IN_PROGRESS attempt
     const activeAttempt = await this.prisma.quizSubmission.findFirst({
@@ -138,12 +197,18 @@ export class QuizzesService {
     });
   }
 
-  async submitQuiz(userId: string, quizId: string, payload: SubmitQuizDto, attemptId?: string) {
+  async submitQuiz(actor: AccessActor, quizId: string, payload: SubmitQuizDto, attemptId?: string) {
+    const userId = actor.id;
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
       include: { questions: true },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
+    if (quiz.questions.length === 0) throw new NotFoundException('Quiz not found');
+
+    // Re-checked at submit as well as at start, so a reversal between the two
+    // cannot leave a scoring path open.
+    await this.quizAccess.assertCanAttempt(actor, quiz);
 
     let score = 0;
     let correctCount = 0;
@@ -158,12 +223,11 @@ export class QuizzesService {
         score += q.marks;
         correctCount++;
       } else {
-        score -= quiz.negativeMarkingValue;
         wrongCount++;
       }
     });
 
-    const finalScore = Math.max(0, Math.round(score * 100) / 100);
+    const finalScore = computeFinalScore(score, wrongCount, quiz);
     const totalMarks = quiz.totalMarks || 100;
     const percentage = Math.round((finalScore / (totalMarks || 1)) * 100 * 100) / 100;
     const passed = finalScore >= quiz.passingMarks;

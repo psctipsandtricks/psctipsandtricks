@@ -10,7 +10,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { io, type Socket } from 'socket.io-client';
-import { ApiClient } from '../../lib/api-client';
+import { ApiClient, getActiveAccessToken } from '../../lib/api-client';
 import type { ChatGroupWithUserState, ChatMessageType } from '@psc/shared-types';
 
 export const MAX_PINS = 3;
@@ -23,17 +23,29 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:
 /* ── Realtime socket (single shared connection) ───────────────── */
 
 let socket: Socket | null = null;
+let socketToken: string | null = null;
 
+/**
+ * The student and admin surfaces are separate sessions with separate tokens
+ * (see api-client.ts) — reconnect if the active token has changed since the
+ * cached socket was opened, so an admin session actually authenticates as the
+ * admin instead of silently reusing (or failing to find) a student token.
+ */
 function getSocket(): Socket | null {
   if (typeof window === 'undefined') return null;
-  const token = localStorage.getItem('accessToken');
+  const token = getActiveAccessToken();
   if (!token) return null;
+  if (socket && socketToken !== token) {
+    socket.disconnect();
+    socket = null;
+  }
   if (!socket) {
     socket = io(API_BASE_URL, {
       auth: { token },
       transports: ['websocket'],
       autoConnect: true,
     });
+    socketToken = token;
   }
   return socket;
 }
@@ -46,10 +58,14 @@ export interface PollOption {
 }
 
 export interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'pdf' | 'file';
+  type: 'image' | 'video' | 'audio' | 'pdf' | 'excel' | 'word' | 'file';
   url: string;
   name: string;
   size?: string;
+  file?: File;
+  uploadStatus?: 'uploading' | 'completed' | 'error';
+  uploadProgress?: number;
+  uploadError?: string;
 }
 
 export interface Reaction {
@@ -76,9 +92,12 @@ export interface DiscussionMessage {
   isPinned?: boolean;
   isAnnouncement?: boolean;
   attachments?: Attachment[];
-  poll?: { question: string; options: PollOption[]; totalVotes: number };
+  poll?: { question: string; options: PollOption[]; totalVotes: number; correctOptionId?: string };
   reactions: Reaction[];
   replyTo?: ReplyPreview;
+  /** Set on an optimistic message when the send/upload ultimately failed, so the
+   *  delivery tick can show a clear error instead of spinning forever. */
+  sendFailed?: boolean;
 }
 
 export interface CommunityGroup {
@@ -108,7 +127,7 @@ const ROLE_LABEL: Record<string, 'Admin' | 'Moderator' | 'Student'> = {
   STUDENT: 'Student',
 };
 
-function mapMessage(m: any): DiscussionMessage {
+export function mapMessage(m: any): DiscussionMessage {
   const metadata = m.metadata || {};
   return {
     id: m.id,
@@ -165,7 +184,7 @@ export function useChatGroups() {
   });
 }
 
-type MessagePage = DiscussionMessage[];
+export type MessagePage = DiscussionMessage[];
 
 const OPTIMISTIC_PREFIX = 'optimistic-';
 
@@ -176,7 +195,7 @@ const OPTIMISTIC_PREFIX = 'optimistic-';
  * Without this the sender saw their own message twice: the optimistic copy is
  * keyed by a temporary id, so an id-only check treats the socket echo as new.
  */
-function mergeIncomingMessage(
+export function mergeIncomingMessage(
   old: InfiniteData<MessagePage> | undefined,
   msg: DiscussionMessage,
 ): InfiniteData<MessagePage> | undefined {
@@ -270,12 +289,153 @@ export function useGroupRealtime(groupId: string | null) {
       qc.invalidateQueries({ queryKey: chatGroupsKey });
     };
 
+    const onMetadataUpdated = (payload: { messageId: string; metadata: any }) => {
+      const { messageId, metadata } = payload;
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
+        if (!old) return old;
+        const pages = old.pages.map((page) =>
+          page.map((m) => {
+            if (m.id !== messageId) return m;
+            return {
+              ...m,
+              reactions: metadata.reactions ?? m.reactions,
+              poll: metadata.poll ?? m.poll,
+            };
+          }),
+        );
+        return { ...old, pages };
+      });
+    };
+
+    const onMessageDeleted = (payload: { groupId: string; messageId: string }) => {
+      if (payload.groupId !== groupId) return;
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
+        if (!old) return old;
+        return { ...old, pages: old.pages.map((page) => page.filter((m) => m.id !== payload.messageId)) };
+      });
+      // The deleted message may have been the sidebar's "last message" preview —
+      // refresh it for every viewer, not just the admin who deleted it.
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+    };
+
     s.on('newChatMessage', onNewMessage);
+    s.on('messageMetadataUpdated', onMetadataUpdated);
+    s.on('messageDeleted', onMessageDeleted);
     return () => {
       s.off('newChatMessage', onNewMessage);
+      s.off('messageMetadataUpdated', onMetadataUpdated);
+      s.off('messageDeleted', onMessageDeleted);
       s.off('connect', join);
     };
   }, [groupId, qc]);
+}
+
+export interface RealtimeNotificationEvent {
+  groupId: string;
+  senderName: string;
+  senderRole?: string;
+  content: string;
+  isPoll?: boolean;
+}
+
+export function useGlobalRealtimeNotifications(
+  onNotif?: (evt: RealtimeNotificationEvent) => void,
+) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+
+    const handleGlobalNotif = (payload: { groupId: string; message: any }) => {
+      const { groupId, message } = payload;
+      const mapped = mapMessage(message);
+
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
+        if (!old) return old;
+        return mergeIncomingMessage(old, mapped);
+      });
+
+      if (onNotif) {
+        onNotif({
+          groupId,
+          senderName: mapped.senderName,
+          senderRole: mapped.senderRole,
+          content: mapped.content || (mapped.poll ? `Poll: ${mapped.poll.question}` : 'Attached document'),
+          isPoll: !!mapped.poll,
+        });
+      }
+    };
+
+    s.on('globalGroupNotification', handleGlobalNotif);
+    return () => {
+      s.off('globalGroupNotification', handleGlobalNotif);
+    };
+  }, [qc, onNotif]);
+}
+
+export interface CommunityLifecycleEvent {
+  type: 'groupCreated' | 'groupUpdated' | 'groupDeleted' | 'memberBlockStatusChanged' | 'memberRemoved';
+  groupId: string;
+  userId?: string;
+  isBlocked?: boolean;
+}
+
+/**
+ * Keeps the group list, admin roster, and open thread in sync with moderation
+ * actions taken elsewhere: another admin creating/renaming/locking/deleting a
+ * group, or blocking/removing a member — none of which touch the message
+ * stream, so useGroupRealtime/useGlobalRealtimeNotifications never see them.
+ * Independent of which group (if any) is currently open, since a sidebar
+ * update or a group disappearing has to reach every connected client.
+ */
+export function useCommunityRealtimeSync(onEvent?: (evt: CommunityLifecycleEvent) => void) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+
+    const refreshGroupLists = () => {
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+      qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
+    };
+    const refreshRoster = (groupId: string) => {
+      qc.invalidateQueries({ queryKey: ['chat-group-members', groupId] });
+    };
+
+    const onGroupCreated = () => refreshGroupLists();
+    const onGroupUpdated = () => refreshGroupLists();
+    const onGroupDeleted = (payload: { groupId: string }) => {
+      refreshGroupLists();
+      onEvent?.({ type: 'groupDeleted', groupId: payload.groupId });
+    };
+    const onMemberBlockStatusChanged = (payload: { groupId: string; userId: string; isBlocked: boolean }) => {
+      refreshGroupLists();
+      refreshRoster(payload.groupId);
+      onEvent?.({ type: 'memberBlockStatusChanged', ...payload });
+    };
+    const onMemberRemoved = (payload: { groupId: string; userId: string }) => {
+      refreshGroupLists();
+      refreshRoster(payload.groupId);
+      onEvent?.({ type: 'memberRemoved', ...payload });
+    };
+
+    s.on('groupCreated', onGroupCreated);
+    s.on('groupUpdated', onGroupUpdated);
+    s.on('groupDeleted', onGroupDeleted);
+    s.on('memberBlockStatusChanged', onMemberBlockStatusChanged);
+    s.on('memberRemoved', onMemberRemoved);
+    return () => {
+      s.off('groupCreated', onGroupCreated);
+      s.off('groupUpdated', onGroupUpdated);
+      s.off('groupDeleted', onGroupDeleted);
+      s.off('memberBlockStatusChanged', onMemberBlockStatusChanged);
+      s.off('memberRemoved', onMemberRemoved);
+    };
+  }, [qc, onEvent]);
 }
 
 /**
@@ -440,8 +600,17 @@ export function useUpdateMessageMetadata(groupId: string) {
   const key = chatMessagesKey(groupId);
 
   return useMutation({
-    mutationFn: ({ messageId, metadata }: { messageId: string; metadata: Record<string, any> }) =>
-      ApiClient.updateMessageMetadata(messageId, metadata),
+    mutationFn: async ({ messageId, metadata }: { messageId: string; metadata: Record<string, any> }) => {
+      if (!messageId || messageId.startsWith('optimistic-') || messageId.startsWith('temp-')) {
+        return null;
+      }
+      try {
+        return await ApiClient.updateMessageMetadata(messageId, metadata);
+      } catch (err) {
+        console.warn('Failed to update message metadata on backend:', err);
+        return null;
+      }
+    },
 
     onMutate: async ({ messageId, metadata }) => {
       await qc.cancelQueries({ queryKey: key });
@@ -472,6 +641,36 @@ export function useUpdateMessageMetadata(groupId: string) {
   });
 }
 
+/**
+ * Deletes a message from a group. Admins/staff-with-manageChat can delete any
+ * message, not just their own — removed from the cache immediately, with a
+ * socket broadcast (see useGroupRealtime) keeping every other open viewer in sync.
+ */
+export function useDeleteMessage(groupId: string) {
+  const qc = useQueryClient();
+  const key = chatMessagesKey(groupId);
+
+  return useMutation({
+    mutationFn: (messageId: string) => ApiClient.deleteMessage(messageId),
+
+    onMutate: async (messageId: string) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<InfiniteData<MessagePage>>(key);
+      qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
+        if (!old) return old;
+        return { ...old, pages: old.pages.map((page) => page.filter((m) => m.id !== messageId)) };
+      });
+      return { previous };
+    },
+
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+    },
+
+    onSuccess: () => qc.invalidateQueries({ queryKey: chatGroupsKey }),
+  });
+}
+
 /* ── Admin hooks ──────────────────────────────────────────── */
 
 export interface AdminGroup {
@@ -493,9 +692,25 @@ export interface GroupMemberWithUser {
   groupId: string;
   userId: string;
   role: string;
+  isBlocked: boolean;
+  blockedAt?: string | null;
   joinedAt: string;
   user: { id: string; name: string; email: string; avatarUrl?: string | null; role: string };
 }
+
+export type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'BLOCKED';
+
+export interface GroupMemberPage {
+  items: GroupMemberWithUser[];
+  total: number;
+  blockedCount: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+/** Roster page size — groups can hold tens of thousands of members. */
+export const MEMBER_PAGE_SIZE = 20;
 
 function mapAdminGroup(g: any): AdminGroup {
   return {
@@ -612,11 +827,28 @@ export function useToggleGroupFeature() {
   });
 }
 
-export function useGroupMembers(groupId: string | null) {
+/**
+ * Searching and paging happen on the server: a group can have 30k+ members, so
+ * the roster never loads them all to filter client-side.
+ */
+export function useGroupMembers(
+  groupId: string | null,
+  opts: { search?: string; page?: number; status?: MemberStatusFilter } = {},
+) {
+  const { search = '', page = 1, status = 'ALL' } = opts;
   return useQuery({
-    queryKey: ['chat-group-members', groupId],
-    queryFn: () => ApiClient.getGroupMembers(groupId as string) as Promise<GroupMemberWithUser[]>,
+    queryKey: ['chat-group-members', groupId, search, page, status],
+    queryFn: () =>
+      ApiClient.getGroupMembers(groupId as string, {
+        search: search || undefined,
+        page,
+        limit: MEMBER_PAGE_SIZE,
+        status,
+      }) as Promise<GroupMemberPage>,
     enabled: !!groupId,
+    // Keeps the previous page on screen while the next one loads, so typing in
+    // the search box doesn't flash an empty roster on every keystroke.
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -627,6 +859,20 @@ export function useRemoveGroupMember(groupId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat-group-members', groupId] });
       qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
+    },
+  });
+}
+
+/** Blocks/unblocks a member — a blocked student stops seeing the group entirely. */
+export function useSetGroupMemberBlocked(groupId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, blocked }: { userId: string; blocked: boolean }) =>
+      blocked ? ApiClient.blockGroupMember(groupId, userId) : ApiClient.unblockGroupMember(groupId, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chat-group-members', groupId] });
+      qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
     },
   });
 }

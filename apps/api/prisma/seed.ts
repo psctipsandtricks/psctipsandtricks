@@ -6,11 +6,11 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Starting database seeding...');
 
-  // Create Test Admin User
+  // Create / Update Test Admin Users
   const adminPassword = await bcrypt.hash('Admin@123', 10);
   const admin = await prisma.user.upsert({
     where: { email: 'admin@psctips.com' },
-    update: {},
+    update: { password: adminPassword, role: UserRole.ADMIN },
     create: {
       email: 'admin@psctips.com',
       password: adminPassword,
@@ -19,7 +19,20 @@ async function main() {
       isPremium: true,
     },
   });
-  console.log('✅ Created Admin user:', admin.email);
+  console.log('✅ Created/Updated Admin user:', admin.email);
+
+  const mainAdmin = await prisma.user.upsert({
+    where: { email: 'psctipsandtricksapp@gmail.com' },
+    update: { password: adminPassword, role: UserRole.ADMIN },
+    create: {
+      email: 'psctipsandtricksapp@gmail.com',
+      password: adminPassword,
+      name: 'PSC Tips App Admin',
+      role: UserRole.ADMIN,
+      isPremium: true,
+    },
+  });
+  console.log('✅ Created/Updated Main Admin user:', mainAdmin.email);
 
   // Create Test Student User
   const studentPassword = await bcrypt.hash('Student@123', 10);

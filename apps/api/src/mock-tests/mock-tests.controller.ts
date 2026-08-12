@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Re
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MockTestsService } from './mock-tests.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -16,9 +17,10 @@ export class MockTestsController {
   constructor(private readonly mockTestsService: MockTestsService) {}
 
   @ApiOperation({ summary: 'List mock tests, optionally filtered by status' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async findAll(@Query('status') status?: MockTestStatus) {
-    return this.mockTestsService.findAll(status);
+  async findAll(@Request() req: any, @Query('status') status?: MockTestStatus) {
+    return this.mockTestsService.findAll(status, req.user);
   }
 
   @ApiOperation({ summary: "Get the current user's mock test participation records" })
@@ -30,9 +32,10 @@ export class MockTestsController {
   }
 
   @ApiOperation({ summary: 'Get mock test details with current rank list' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.mockTestsService.findOne(id);
+  async findOne(@Request() req: any, @Param('id') id: string) {
+    return this.mockTestsService.findOne(id, req.user);
   }
 
   @ApiOperation({ summary: 'Get the live rank list for a mock test' })
@@ -76,7 +79,7 @@ export class MockTestsController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/join')
   async join(@Request() req: any, @Param('id') id: string) {
-    return this.mockTestsService.join(id, req.user.id);
+    return this.mockTestsService.join(id, req.user);
   }
 
   @ApiOperation({ summary: 'Submit mock test responses' })
@@ -84,6 +87,6 @@ export class MockTestsController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/submit')
   async submit(@Request() req: any, @Param('id') id: string, @Body() dto: SubmitQuizDto) {
-    return this.mockTestsService.submit(id, req.user.id, dto);
+    return this.mockTestsService.submit(id, req.user, dto);
   }
 }

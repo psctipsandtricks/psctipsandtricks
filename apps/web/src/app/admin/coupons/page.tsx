@@ -96,8 +96,9 @@ export default function AdminCouponsPage() {
   const paginatedCoupons = coupons.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="space-y-4 sm:space-y-6 px-1 sm:px-0">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+      {/* Fixed Header */}
+      <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">Coupon Code Management</h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 leading-relaxed">Create and manage discount codes for courses and e-books.</p>
@@ -107,8 +108,10 @@ export default function AdminCouponsPage() {
         </Button>
       </div>
 
-      <Card>
-        <Table>
+      {/* Scrollable Table */}
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+        <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Code</TableHead>
@@ -184,8 +187,9 @@ export default function AdminCouponsPage() {
             )}
           </TableBody>
         </Table>
+        </div>
 
-        <div className="px-4 pb-4">
+        <div className="shrink-0 px-4 py-3 border-t border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#091124]">
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}

@@ -285,8 +285,9 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="space-y-4 sm:space-y-8 px-1 sm:px-0">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+      {/* Fixed Header & Filter Bar */}
+      <div className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
             Student Account Management
@@ -323,8 +324,10 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      <Card className="p-3 sm:p-6">
-        <Table>
+      {/* Scrollable Table Container */}
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+        <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Student Details</TableHead>
@@ -451,8 +454,9 @@ export default function AdminUsersPage() {
             )}
           </TableBody>
         </Table>
+        </div>
 
-        <div className="px-4 pb-4">
+        <div className="shrink-0 px-4 py-3 border-t border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#091124]">
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
