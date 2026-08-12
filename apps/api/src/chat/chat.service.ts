@@ -153,6 +153,15 @@ export class ChatService {
     return !!membership && !membership.isBlocked;
   }
 
+  /** Who a group notification should reach — active members only, same rule as `isMember`. */
+  async getActiveMemberUserIds(groupId: string): Promise<string[]> {
+    const members = await this.prisma.chatGroupMember.findMany({
+      where: { groupId, isBlocked: false },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
+
   async isBlocked(groupId: string, userId: string): Promise<boolean> {
     const membership = await this.prisma.chatGroupMember.findUnique({
       where: { groupId_userId: { groupId, userId } },
@@ -186,32 +195,40 @@ export class ChatService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Unread counts for every group in a single grouped query, rather than one
-    // COUNT per group (which made this endpoint scale linearly with group count).
+    // Unread counts for every joined group in a single grouped query, rather
+    // than one COUNT per group (which made this endpoint scale linearly with
+    // group count). Restricted to groups the user has actually joined — a
+    // group with no `ChatGroupRead` row has no "read up to" position to count
+    // forward from, so including it here would report its *entire* message
+    // history as unread for every student merely browsing the group list.
+    const joinedGroups = groups.filter((g) => g.members.length > 0);
     const readAtByGroup = new Map<string, Date | undefined>(
-      groups.map((g) => [g.id, g.reads[0]?.lastReadAt]),
+      joinedGroups.map((g) => [g.id, g.reads[0]?.lastReadAt]),
     );
-    const unreadRows = await this.prisma.chatMessage.groupBy({
-      by: ['groupId'],
-      where: {
-        OR: groups.map((g) => ({
-          groupId: g.id,
-          ...(readAtByGroup.get(g.id) ? { createdAt: { gt: readAtByGroup.get(g.id) } } : {}),
-        })),
-      },
-      _count: { _all: true },
-    });
+    const unreadRows = joinedGroups.length
+      ? await this.prisma.chatMessage.groupBy({
+          by: ['groupId'],
+          where: {
+            OR: joinedGroups.map((g) => ({
+              groupId: g.id,
+              ...(readAtByGroup.get(g.id) ? { createdAt: { gt: readAtByGroup.get(g.id) } } : {}),
+            })),
+          },
+          _count: { _all: true },
+        })
+      : [];
     const unreadByGroup = new Map(unreadRows.map((r) => [r.groupId, r._count._all]));
 
     return groups.map((g) => {
       const readRecord = g.reads[0];
       const { members, pins, reads, messages, ...groupFields } = g;
+      const isJoined = members.length > 0;
       return {
         ...groupFields,
         memberCount: g._count.members,
-        isJoined: members.length > 0,
+        isJoined,
         isPinned: pins.length > 0,
-        unreadCount: unreadByGroup.get(g.id) ?? 0,
+        unreadCount: isJoined ? unreadByGroup.get(g.id) ?? 0 : 0,
         lastReadMessageId: readRecord?.lastReadMessageId || null,
         lastMessage: messages[0] || null,
       };

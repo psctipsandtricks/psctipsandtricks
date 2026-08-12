@@ -73,7 +73,7 @@ export function QuizPaywall({
         key: activeKey,
         amount: Math.round(access.price * 100),
         currency: order.currency || 'INR',
-        name: 'Kerala PSC Tips & Tricks',
+        name: 'PSC Tips And Tricks',
         description: title,
         order_id: order.razorpayOrderId && !order.razorpayOrderId.startsWith('order_sim_') ? order.razorpayOrderId : undefined,
         theme: {

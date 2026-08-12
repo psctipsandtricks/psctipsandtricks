@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   useQuery,
   useInfiniteQuery,
@@ -252,9 +252,19 @@ export function useGroupMessages(groupId: string | null) {
     gcTime: 30 * 60 * 1000,
   });
 
+  // `query.data` only gets a new reference when the cached content actually
+  // changes (react-query preserves identity across unrelated re-renders), so
+  // memoizing on it — rather than recomputing a fresh array every render —
+  // is what makes `messages` safe to use as an effect dependency elsewhere.
+  // An unstable array here previously fed a mark-as-read effect a "changed"
+  // dependency on every render regardless of content, which retriggered the
+  // effect, which mutated and invalidated the cache, which re-rendered —
+  // an infinite loop hammering the API for as long as a group stayed open.
+  const messages = useMemo(() => flattenMessages(query.data), [query.data]);
+
   return {
     ...query,
-    messages: flattenMessages(query.data),
+    messages,
     /** Older messages exist further back in history. */
     hasOlder: query.hasNextPage,
     isLoadingOlder: query.isFetchingNextPage,

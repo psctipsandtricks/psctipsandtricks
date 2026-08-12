@@ -104,6 +104,8 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   // Three-Dot Header Menu State
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Which sidebar row's chevron dropdown (Mute/Pin) is currently open, if any. */
+  const [openRowMenuGroupId, setOpenRowMenuGroupId] = useState<string | null>(null);
 
   // In-App Document & Image Viewer Modal State
   const [activePreview, setActivePreview] = useState<{
@@ -144,6 +146,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   // Close header menu on click outside or group change
   useEffect(() => {
     setShowGroupMenu(false);
+    setOpenRowMenuGroupId(null);
   }, [selectedGroupId]);
 
   useEffect(() => {
@@ -155,6 +158,27 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Close a sidebar row's chevron menu on an outside click or Escape. Scoped
+  // by `data-row-menu` rather than a per-row ref, since rows are generated
+  // from a `.map()` and don't each get a stable ref of their own.
+  useEffect(() => {
+    if (!openRowMenuGroupId) return;
+    const handleClickOutsideRowMenu = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('[data-row-menu]')) {
+        setOpenRowMenuGroupId(null);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenRowMenuGroupId(null);
+    };
+    document.addEventListener('mousedown', handleClickOutsideRowMenu);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutsideRowMenu);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [openRowMenuGroupId]);
 
   // Realtime Socket for active group & metadata
   useGroupRealtime(selectedGroupId);
@@ -174,9 +198,16 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
       if (mutedGroupIds.includes(evt.groupId)) return;
 
       const group = groups.find((g) => g.id === evt.groupId);
+      // The server already scopes this event to the group's active members,
+      // but a stale/not-yet-loaded local group list must not surface a toast
+      // for a group this session doesn't (yet) show as joined — moderators
+      // are the one exception, since they can act on any group.
+      const isModerator = user?.role === 'ADMIN' || user?.role === 'STAFF';
+      if (!group || !(group.isJoined || isModerator)) return;
+
       setRealtimeToast({
         groupId: evt.groupId,
-        groupName: group?.name || 'Study Circle',
+        groupName: group.name,
         senderName: evt.senderName,
         content: evt.content,
         isAdmin: evt.senderRole === 'Admin',
@@ -338,13 +369,29 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     priority.forEach((g) => prefetchMessages(g.id));
   }, [groups, prefetchMessages]);
 
+  // `useMutation`'s result OBJECT gets a new identity on every render (its
+  // `.mutate` function does not) — this is the piece that has to go in a
+  // dependency array below. Depending on the whole object instead used to
+  // retrigger the effect on every single render it caused, which in turn
+  // called `setQueryData`/`mutate` and caused another render: an infinite
+  // loop that hammered `/chat/groups/mine` and the mark-read endpoint
+  // continuously, and — because every one of those cache writes raced with
+  // the real realtime update — was also *why* incoming messages elsewhere
+  // never visibly moved the unread badge.
+  const markRead = markReadMutation.mutate;
+
   /* ── Instant Auto Mark-As-Read & Badge Clear ── */
   useEffect(() => {
     if (!selectedGroupId) return;
 
-    qc.setQueryData<any[]>(chatGroupsKey, (old) =>
-      old?.map((g) => (g.id === selectedGroupId ? { ...g, unreadCount: 0 } : g)),
-    );
+    qc.setQueryData<any[]>(chatGroupsKey, (old) => {
+      if (!old) return old;
+      const target = old.find((g) => g.id === selectedGroupId);
+      // Returning the same reference when nothing actually changes avoids
+      // notifying subscribers (and re-rendering) for a no-op update.
+      if (!target || target.unreadCount === 0) return old;
+      return old.map((g) => (g.id === selectedGroupId ? { ...g, unreadCount: 0 } : g));
+    });
 
     if (messages.length === 0) return;
     const lastMsgId = messages[messages.length - 1].id;
@@ -352,13 +399,13 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
     markReadTimerRef.current = setTimeout(() => {
-      markReadMutation.mutate(lastMsgId);
+      markRead(lastMsgId);
     }, 400);
 
     return () => {
       if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
     };
-  }, [selectedGroupId, messages, markReadMutation, qc]);
+  }, [selectedGroupId, messages, markRead, qc]);
 
   /* ── Scroll Position Preservation Logic ── */
   const handleChatScroll = () => {
@@ -467,7 +514,12 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   const canSendText = !!selectedGroup && (selectedGroup.allowTextMessages || isModerator);
   const canPostPolls = !!selectedGroup && (selectedGroup.allowPolls || isModerator);
   const isSending = sendMutation.isPending;
-  const isPinBusy = pinMutation.isPending || unpinMutation.isPending;
+  // Scoped per group rather than one shared flag — otherwise pinning Group A
+  // would leave every other group's pin button disabled for the duration of
+  // that one request.
+  const isPinBusyFor = (groupId: string) =>
+    (pinMutation.isPending && pinMutation.variables === groupId) ||
+    (unpinMutation.isPending && unpinMutation.variables === groupId);
 
   const categories = ['All', 'Joined', 'Kerala PSC', 'SSC & UPSC', 'Subject Wise'];
 
@@ -950,13 +1002,13 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     return messages.findIndex((m, i) => i > idx && m.senderId !== user.id);
   })();
 
-  /* Group Row Renderer - Clean with NO "Joined" Badge */
+  /* Group Row Renderer - WhatsApp Style Right-End Time & Hover Chevron + WhatsApp Green Notification Badge */
   const renderGroupRow = (group: (typeof groups)[number]) => {
     const isSelected = group.id === selectedGroupId;
     const joined = group.isJoined || isAdmin;
     const isPinned = group.isPinned;
     const isMuted = mutedGroupIds.includes(group.id);
-    const isHovered = hoveredGroupId === group.id;
+    const isRowMenuOpen = openRowMenuGroupId === group.id;
     const unread = isSelected ? 0 : group.unreadCount ?? 0;
     const isJoiningThisGroup = joiningGroupId === group.id;
 
@@ -971,9 +1023,9 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
         onFocus={() => prefetchMessages(group.id)}
         onTouchStart={() => prefetchMessages(group.id)}
         onMouseLeave={() => setHoveredGroupId(null)}
-        className={`p-3 flex items-start space-x-3 transition-all cursor-pointer relative rounded-xl mx-1.5 my-1 ${
+        className={`group p-3 flex items-start space-x-3 transition-all cursor-pointer relative rounded-xl mx-1.5 my-1 ${
           isSelected
-            ? 'bg-amber-500/20 dark:bg-amber-500/25 border-l-4 border-amber-500 ring-1 ring-amber-500/40 shadow-md font-bold'
+            ? 'bg-emerald-500/15 dark:bg-emerald-500/20 border-l-4 border-emerald-500 ring-1 ring-emerald-500/30 shadow-md font-bold'
             : 'hover:bg-slate-100 dark:hover:bg-slate-900/60 border-l-4 border-transparent'
         }`}
       >
@@ -989,10 +1041,11 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
           )}
         </div>
 
-        <div className="flex-1 min-w-0 pr-12">
+        <div className="flex-1 min-w-0">
+          {/* Top Line: Title + Right End (Time / Hover Chevron) */}
           <div className="flex items-center justify-between gap-1">
-            <div className="flex items-center space-x-1 min-w-0">
-              {isPinned && <Pin className="w-2.5 h-2.5 text-amber-500 shrink-0" />}
+            <div className="flex items-center space-x-1 min-w-0 flex-1">
+              {isPinned && <Pin className="w-2.5 h-2.5 text-emerald-500 shrink-0" />}
               {isMuted && (
                 <span title="Notifications Muted">
                   <BellOff className="w-2.5 h-2.5 text-slate-400 shrink-0" />
@@ -1001,18 +1054,100 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
               <h3
                 className={`text-xs truncate transition-colors ${
                   isSelected
-                    ? 'text-amber-600 dark:text-amber-400 font-black'
-                    : 'text-slate-900 dark:text-white font-extrabold group-hover:text-amber-500'
+                    ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                    : 'text-slate-900 dark:text-white font-extrabold group-hover:text-emerald-500'
                 }`}
               >
                 {group.name}
               </h3>
             </div>
-            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0">
-              {group.lastMessageTime
-                ? new Date(group.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : 'Today'}
-            </span>
+
+            {/* Right End: WhatsApp-style Time & Hover Down Arrow Chevron */}
+            <div className="shrink-0 relative flex items-center justify-end min-w-[55px] h-5">
+              {/* Time display (hides on hover/menu open like WhatsApp) */}
+              <span
+                className={`text-[10px] font-mono text-slate-500 dark:text-slate-400 transition-opacity ${
+                  isRowMenuOpen ? 'opacity-0' : 'group-hover:opacity-0 sm:group-hover:opacity-0'
+                }`}
+              >
+                {group.lastMessageTime
+                  ? new Date(group.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : 'Today'}
+              </span>
+
+              {/* WhatsApp Down Arrow Hover Trigger */}
+              <div data-row-menu className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpenRowMenuGroupId((prev) => (prev === group.id ? null : group.id));
+                  }}
+                  title="Chat options"
+                  className={`p-1 rounded-full shadow-sm transition-all cursor-pointer ${
+                    isRowMenuOpen
+                      ? 'opacity-100 bg-emerald-500 text-white'
+                      : 'opacity-0 group-hover:opacity-100 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-500 hover:text-white'
+                  }`}
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+
+                {isRowMenuOpen && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-0 top-7 z-50 w-48 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-0.5 animate-in fade-in zoom-in-95"
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        toggleMuteGroup(group.id, e);
+                        setOpenRowMenuGroupId(null);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs font-bold flex items-center space-x-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      {isMuted ? (
+                        <>
+                          <Bell className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <span>Unmute Notifications</span>
+                        </>
+                      ) : (
+                        <>
+                          <BellOff className="w-4 h-4 text-slate-400 shrink-0" />
+                          <span>Mute Notifications</span>
+                        </>
+                      )}
+                    </button>
+
+                    {joined && (
+                      <button
+                        type="button"
+                        disabled={isPinBusyFor(group.id)}
+                        onClick={(e) => {
+                          handleTogglePin(group.id, e);
+                          setOpenRowMenuGroupId(null);
+                        }}
+                        title={isPinned ? undefined : `${pinnedCount}/${MAX_PINS} pinned`}
+                        className="w-full px-3.5 py-2 text-left text-xs font-bold flex items-center space-x-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-200 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isPinned ? (
+                          <>
+                            <PinOff className="w-4 h-4 text-emerald-500 shrink-0" />
+                            <span>Unpin Chat</span>
+                          </>
+                        ) : (
+                          <>
+                            <Pin className="w-4 h-4 text-slate-400 shrink-0" />
+                            <span>Pin Chat</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <p className={`text-[11px] truncate mt-0.5 ${isSelected ? 'text-slate-800 dark:text-slate-200 font-semibold' : 'text-slate-600 dark:text-slate-400'}`}>
@@ -1021,22 +1156,21 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
           <div className="flex items-center justify-between mt-1.5">
             <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 flex items-center space-x-0.5">
-              <Users className="w-3 h-3 text-amber-500 inline mr-0.5" />
+              <Users className="w-3 h-3 text-emerald-500 inline mr-0.5" />
               {group.memberCount.toLocaleString()}
             </span>
 
             <div className="flex items-center space-x-1.5">
-              {/* Join Button for unjoined users (NO "Joined" badge rendered) */}
               {!joined && (
                 <button
                   type="button"
                   disabled={isJoiningThisGroup}
                   onClick={(e) => handleToggleJoin(group.id, e)}
-                  className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black shadow-md active:scale-95 transition-all shrink-0 flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                  className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black shadow-md active:scale-95 transition-all shrink-0 flex items-center gap-1 cursor-pointer disabled:opacity-60"
                 >
                   {isJoiningThisGroup ? (
                     <>
-                      <Loader2 className="w-3 h-3 animate-spin text-slate-950" />
+                      <Loader2 className="w-3 h-3 animate-spin text-white" />
                       <span>Joining…</span>
                     </>
                   ) : (
@@ -1048,49 +1182,15 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 </button>
               )}
 
-              {/* Unread count badge */}
+              {/* WhatsApp Green Unread Count Badge */}
               {!isSelected && unread > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black flex items-center justify-center shadow-sm">
+                <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">
                   {unread > 99 ? '99+' : unread}
                 </span>
               )}
             </div>
           </div>
         </div>
-
-        {/* Hover Action Buttons: Mute/Unmute & Pin */}
-        {isHovered && (
-          <div className="absolute top-2 right-2 flex items-center space-x-1 z-10">
-            <button
-              type="button"
-              onClick={(e) => toggleMuteGroup(group.id, e)}
-              title={isMuted ? 'Unmute notifications' : 'Mute notifications'}
-              className={`p-1 rounded-lg transition-all shadow-sm ${
-                isMuted
-                  ? 'bg-rose-500/15 text-rose-500 hover:bg-rose-500/25'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-amber-500/10 hover:text-amber-500'
-              }`}
-            >
-              {isMuted ? <BellOff className="w-3 h-3" /> : <Bell className="w-3 h-3" />}
-            </button>
-
-            {joined && (
-              <button
-                type="button"
-                disabled={isPinBusy}
-                onClick={(e) => handleTogglePin(group.id, e)}
-                title={isPinned ? 'Unpin' : `Pin (${pinnedCount}/${MAX_PINS})`}
-                className={`p-1 rounded-lg transition-all shadow-sm ${
-                  isPinned
-                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-rose-500/10 hover:text-rose-500'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:bg-amber-500/10 hover:text-amber-500'
-                }`}
-              >
-                {isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
-              </button>
-            )}
-          </div>
-        )}
       </div>
     );
   };
@@ -1099,24 +1199,24 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     <div className="w-full h-[calc(100vh-64px)] flex flex-col">
       {/* Real-time Notification Banner */}
       {realtimeToast && (
-        <div className="fixed top-20 right-6 z-50 max-w-sm w-full p-4 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-2xl border border-amber-500/40 flex items-start space-x-3 transition-all animate-bounce">
-          <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 font-black text-sm flex items-center justify-center shrink-0 shadow-sm">
+        <div className="fixed top-20 right-6 z-50 max-w-sm w-full p-4 rounded-2xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xl border border-emerald-500/40 flex items-start space-x-3 transition-all animate-bounce">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm">
             {realtimeToast.isAdmin ? '👑' : '💬'}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1">
-              <span className="text-xs font-black text-amber-400 dark:text-amber-600 truncate">
+              <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 truncate">
                 {realtimeToast.isAdmin ? '👑 Admin Announcement' : realtimeToast.senderName} in {realtimeToast.groupName}
               </span>
               <button
                 type="button"
                 onClick={() => setRealtimeToast(null)}
-                className="text-slate-400 hover:text-white dark:hover:text-slate-900 p-0.5"
+                className="text-slate-400 hover:text-slate-900 dark:hover:text-white p-0.5"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-            <p className="text-xs font-medium text-slate-200 dark:text-slate-700 line-clamp-2 mt-1">
+            <p className="text-xs font-medium text-slate-700 dark:text-slate-200 line-clamp-2 mt-1">
               {realtimeToast.content}
             </p>
             <button
@@ -1125,7 +1225,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 handleSelectGroup(realtimeToast.groupId);
                 setRealtimeToast(null);
               }}
-              className="mt-2 px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-black text-[10px] hover:bg-amber-400 active:scale-95 transition-all inline-flex items-center gap-1 shadow-sm"
+              className="mt-2 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] active:scale-95 transition-all inline-flex items-center gap-1 shadow-sm"
             >
               <span>View Message →</span>
             </button>
@@ -1401,27 +1501,10 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
           <div className="flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800/40">
             {/* Pinned Section */}
-            {pinnedFiltered.length > 0 && (
-              <div className="px-4 py-1.5 flex items-center space-x-1.5 bg-amber-500/5 dark:bg-amber-500/5 sticky top-0 z-10 border-b border-amber-500/10">
-                <Pin className="w-2.5 h-2.5 text-amber-500" />
-                <span className="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest">
-                  Pinned — {pinnedFiltered.length}/{MAX_PINS}
-                </span>
-              </div>
-            )}
             {pinnedFiltered.map((g) => renderGroupRow(g))}
 
             {/* Joined Groups Section */}
-            {joinedUnpinnedFiltered.length > 0 && (
-              <>
-                <div className="px-4 py-1.5 bg-slate-100/90 dark:bg-slate-900/40 sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800">
-                  <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
-                    {isAdmin ? `All Groups (${joinedUnpinnedFiltered.length})` : `My Joined Groups (${joinedUnpinnedFiltered.length})`}
-                  </span>
-                </div>
-                {joinedUnpinnedFiltered.map((g) => renderGroupRow(g))}
-              </>
-            )}
+            {joinedUnpinnedFiltered.map((g) => renderGroupRow(g))}
 
             {/* Unjoined Groups Section */}
             {unjoinedFiltered.length > 0 && (
@@ -1554,7 +1637,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       {(selectedGroup.isJoined || isAdmin) && (
                         <button
                           type="button"
-                          disabled={isPinBusy}
+                          disabled={isPinBusyFor(selectedGroup.id)}
                           onClick={(e) => {
                             handleTogglePin(selectedGroup.id, e);
                             setShowGroupMenu(false);

@@ -6,7 +6,7 @@ import { FooterWrapper } from './footer-wrapper';
 import { MainWrapper } from './main-wrapper';
 
 export const metadata: Metadata = {
-  title: 'PSC Tips & Tricks — Ed-Tech Platform for Kerala PSC & SSC',
+  title: 'PSC Tips And Tricks — Ed-Tech Platform for Kerala PSC & SSC',
   description:
     'Crack Kerala PSC, SSC, and UPSC exams with interactive mock tests, question banks, e-books, and real-time rank tracking.',
   icons: {

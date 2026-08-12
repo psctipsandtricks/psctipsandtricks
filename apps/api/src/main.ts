@@ -29,8 +29,8 @@ async function bootstrap() {
 
   // OpenAPI / Swagger setup
   const config = new DocumentBuilder()
-    .setTitle('PSC Tips & Tricks API')
-    .setDescription('Comprehensive Ed-Tech REST & WebSocket API documentation for PSC Tips & Tricks platform.')
+    .setTitle('PSC Tips And Tricks API')
+    .setDescription('Comprehensive Ed-Tech REST & WebSocket API documentation for the PSC Tips And Tricks platform.')
     .setVersion('1.0.0')
     .addBearerAuth()
     .addTag('Auth', 'User registration, login, and JWT tokens')

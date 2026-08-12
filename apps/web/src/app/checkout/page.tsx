@@ -170,7 +170,7 @@ function CheckoutFormContent() {
         key: activeKey,
         amount: Math.round(finalPrice * 100),
         currency: order.currency || 'INR',
-        name: 'Kerala PSC Tips & Tricks',
+        name: 'PSC Tips And Tricks',
         description: item.title,
         order_id: order.razorpayOrderId && !order.razorpayOrderId.startsWith('order_sim_') ? order.razorpayOrderId : undefined,
         prefill: {

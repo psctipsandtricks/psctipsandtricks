@@ -67,6 +67,37 @@
   background: radial-gradient(circle, rgba(99, 102, 241, 0.10) 0%, rgba(99, 102, 241, 0) 70%);
 }
 
+.ambient-glow-amber {
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.14) 0%, rgba(245, 158, 11, 0) 70%);
+}
+
+.ambient-glow-emerald {
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.12) 0%, rgba(16, 185, 129, 0) 70%);
+}
+
+/* Landing-page entrance animation — plain CSS, fires once on paint, no JS
+   required, so it never hides content from no-JS clients or crawlers. */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal-fade-up {
+  animation: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-fade-up {
+    animation: none;
+  }
+}
+
 /* Smooth Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

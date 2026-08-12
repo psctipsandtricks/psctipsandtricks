@@ -61,6 +61,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new Error('Invalid user');
       }
       this.socketUsers.set(client.id, { userId: user.id, userName: user.name, role: user.role });
+      // A personal room per user (independent of which group rooms they've
+      // joined) is how group-scoped notifications reach exactly this user's
+      // connections — including a second open tab — without broadcasting to
+      // every connected socket regardless of membership.
+      client.join(`user:${user.id}`);
       this.logger.log(`Client connected: ${client.id} (${user.name})`);
     } catch {
       this.logger.warn(`Rejected socket with invalid token: ${client.id}`);
@@ -144,14 +149,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Push a message to everyone viewing a group as well as global notifications.
+   * Push a message to everyone viewing a group, plus a global toast-style
+   * notification for the group's other members. The notification is scoped to
+   * actual (non-blocked) membership — a broadcast to every connected socket
+   * would surface it to students who never joined this group.
    */
-  broadcastGroupMessage(groupId: string, message: unknown) {
+  async broadcastGroupMessage(groupId: string, message: unknown) {
     this.server.to(`group:${groupId}`).emit('newChatMessage', message);
-    this.server.emit('globalGroupNotification', {
-      groupId,
-      message,
-    });
+    try {
+      const memberIds = await this.chatService.getActiveMemberUserIds(groupId);
+      if (memberIds.length === 0) return;
+      this.server.to(memberIds.map((id) => `user:${id}`)).emit('globalGroupNotification', {
+        groupId,
+        message,
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to broadcast group notification for ${groupId}: ${err}`);
+    }
   }
 
   /**

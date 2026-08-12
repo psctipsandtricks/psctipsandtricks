@@ -61,7 +61,7 @@ export function generateQuizSolutionsPDF({
     doc.setTextColor(148, 163, 184);
     doc.text(`Page ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
     doc.setFont('helvetica', 'normal');
-    doc.text('PSC Tips & Tricks Learning Platform  •  Personal Student Revision Copy', margin, pageHeight - 8);
+    doc.text('PSC Tips And Tricks Learning Platform  •  Personal Student Revision Copy', margin, pageHeight - 8);
   };
 
   const checkAddPage = (neededHeight: number) => {
