@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CouponsService } from './coupons.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -8,6 +8,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { UserRole } from '@prisma/client';
 import { CreateCouponDto } from './dto/create-coupon.dto';
+import { UpdateCouponDto } from './dto/update-coupon.dto';
 
 const MANAGE_COUPONS_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
 
@@ -40,6 +41,16 @@ export class CouponsController {
   @Post()
   async create(@Body() dto: CreateCouponDto) {
     return this.couponsService.create(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a coupon code, or just enable/disable it (Admin / Staff with manage_coupons)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_COUPONS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageCoupons')
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() dto: UpdateCouponDto) {
+    return this.couponsService.update(id, dto);
   }
 
   @ApiOperation({ summary: 'Delete coupon code (Admin / Staff with manage_coupons)' })

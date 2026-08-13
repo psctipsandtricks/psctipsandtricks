@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateQuestionDto } from './create-question.dto';
 
@@ -9,9 +9,6 @@ export class CreateQuizDto {
   @IsOptional()
   @IsString()
   category?: string;
-
-  @IsString()
-  description: string;
 
   @IsOptional()
   @IsString()
@@ -25,17 +22,15 @@ export class CreateQuizDto {
   @IsBoolean()
   isActive?: boolean;
 
+  /**
+   * ISO timestamp the quiz becomes visible to students. Omit (or send null)
+   * for a quiz that is live as soon as it is published. Whether the moment is
+   * allowed to be in the past is decided in the service, which can tell a new
+   * schedule apart from a re-save of an already-released one.
+   */
   @IsOptional()
-  @IsString()
+  @IsDateString()
   releaseDate?: string;
-
-  @IsOptional()
-  @IsString()
-  bookId?: string;
-
-  @IsOptional()
-  @IsString()
-  chapterId?: string;
 
   @IsOptional()
   @IsString()

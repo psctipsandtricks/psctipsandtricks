@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseQueueService } from '../queue/queue.service';
 import { Prisma } from '@prisma/client';
@@ -8,6 +8,13 @@ import { SubmitQuizDto } from './dto/submit-quiz.dto';
 import { AccessActor, QuizAccessService } from '../common/access/quiz-access.service';
 import { computeFinalScore } from '../common/scoring';
 
+/**
+ * How far into the past a submitted release date may fall before it is
+ * rejected. Covers the seconds between an admin picking "now" and the request
+ * arriving, plus modest clock drift between their machine and the server.
+ */
+const RELEASE_DATE_GRACE_MS = 60_000;
+
 @Injectable()
 export class QuizzesService {
   constructor(
@@ -16,13 +23,66 @@ export class QuizzesService {
     private quizAccess: QuizAccessService,
   ) {}
 
+  /**
+   * A scheduled quiz is a draft as far as students are concerned: it exists,
+   * but nothing about it is reachable until its release moment passes. Staff
+   * are exempt so they can build and preview what they scheduled.
+   */
+  private isAwaitingRelease(
+    quiz: { releaseDate?: string | null },
+    actor?: AccessActor | null,
+  ): boolean {
+    if (!quiz.releaseDate) return false;
+    if (this.quizAccess.isStaff(actor)) return false;
+    const releaseAt = new Date(quiz.releaseDate).getTime();
+    // A value that predates this feature and can't be parsed is treated as
+    // "no schedule" — an unreadable date must never hide a live quiz.
+    if (isNaN(releaseAt)) return false;
+    return releaseAt > Date.now();
+  }
+
+  /**
+   * A release moment may be now or later, never earlier — a past date would
+   * publish the quiz the instant it was saved, which is not what "schedule"
+   * means. The minute of leeway absorbs the gap between the admin picking a
+   * time and the request landing, plus any client/server clock drift.
+   */
+  private assertReleaseDateNotInThePast(value: Date | string) {
+    const releaseAt = value instanceof Date ? value : new Date(value);
+    if (isNaN(releaseAt.getTime())) {
+      throw new BadRequestException('Release date is not a valid date/time.');
+    }
+    if (releaseAt.getTime() < Date.now() - RELEASE_DATE_GRACE_MS) {
+      throw new BadRequestException(
+        'Release date and time cannot be in the past. Pick the current or a future date/time.',
+      );
+    }
+  }
+
   async findAll(publishedOnly = false, actor?: AccessActor | null) {
+    // Scheduling is enforced for everyone who is not staff, including
+    // unauthenticated visitors and any caller that skips `publishedOnly`.
+    // The column holds ISO-8601 UTC strings of a fixed shape, so `lte` against
+    // the current instant in the same format compares them chronologically.
+    const releaseFilter: Prisma.QuizWhereInput | undefined = this.quizAccess.isStaff(actor)
+      ? undefined
+      : { OR: [{ releaseDate: null }, { releaseDate: { lte: new Date().toISOString() } }] };
+
+    const publishedFilter: Prisma.QuizWhereInput | undefined = publishedOnly
+      ? // A quiz with no questions yet is a draft — even if `isActive` is
+        // somehow true, it must never appear in the public/student list.
+        { isActive: true, questions: { some: {} } }
+      : undefined;
+
+    const where: Prisma.QuizWhereInput | undefined =
+      publishedFilter || releaseFilter
+        ? { ...(publishedFilter ?? {}), ...(releaseFilter ?? {}) }
+        : undefined;
+
     const quizzes = await this.prisma.quiz.findMany({
-      // A quiz with no questions yet is a draft — even if `isActive` is
-      // somehow true, it must never appear in the public/student list.
-      where: publishedOnly ? { isActive: true, questions: { some: {} } } : undefined,
+      where,
       include: {
-        questions: true,
+        questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         _count: { select: { questions: true, submissions: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -36,7 +96,7 @@ export class QuizzesService {
   async findOne(id: string, actor?: AccessActor | null) {
     const quiz = await this.prisma.quiz.findUnique({
       where: { id },
-      include: { questions: true },
+      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
 
@@ -45,6 +105,12 @@ export class QuizzesService {
     // list. 404 (not 403) so a guessed ID doesn't confirm a draft exists.
     // Staff still need full access to keep building it.
     if (quiz.questions.length === 0 && !this.quizAccess.isStaff(actor)) {
+      throw new NotFoundException('Quiz not found');
+    }
+
+    // Same treatment for a quiz whose release moment has not arrived: 404 so a
+    // direct link can't be used to jump the schedule.
+    if (this.isAwaitingRelease(quiz, actor)) {
       throw new NotFoundException('Quiz not found');
     }
 
@@ -57,26 +123,28 @@ export class QuizzesService {
   async create(data: CreateQuizDto) {
     const { questions, ...quizData } = data;
     const questionCount = questions?.length ?? 0;
+
+    if (quizData.releaseDate) {
+      this.assertReleaseDateNotInThePast(quizData.releaseDate);
+    }
+
     return this.prisma.quiz.create({
       data: {
         category: data.category || 'General',
         ...quizData,
         totalQuestions: questionCount,
-        // A quiz can't go live for students before it has at least one
-        // question, regardless of what the admin form's toggle sent — force
-        // it hidden here, and the first question saved via update() below
-        // flips it back on automatically.
-        isActive: questionCount > 0 ? (quizData.isActive ?? true) : false,
+        isActive: quizData.isActive ?? true,
         questions: questions
           ? {
-              create: questions.map((q) => ({
+              create: questions.map((q, order) => ({
                 ...q,
+                order,
                 options: q.options as unknown as Prisma.InputJsonValue,
               })),
             }
           : undefined,
       },
-      include: { questions: true },
+      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
     });
   }
 
@@ -95,6 +163,17 @@ export class QuizzesService {
       Object.entries(rest).filter(([, value]) => value !== undefined),
     );
 
+    // Only a *changed* release moment has to be in the future — re-saving a
+    // quiz that went live last month must not be rejected for carrying its own
+    // (now past) release date back to the server.
+    if (quizData.releaseDate) {
+      const incoming = String(quizData.releaseDate);
+      const unchanged =
+        !!existing.releaseDate &&
+        new Date(existing.releaseDate).getTime() === new Date(incoming).getTime();
+      if (!unchanged) this.assertReleaseDateNotInThePast(incoming);
+    }
+
     // Delete existing questions and recreate if questions array is provided
     if (questions) {
       await this.prisma.question.deleteMany({ where: { quizId: id } });
@@ -103,34 +182,22 @@ export class QuizzesService {
     const previousQuestionCount = existing._count.questions;
     const newQuestionCount = questions ? questions.length : previousQuestionCount;
 
-    // Auto-publish the instant a quiz gains its first question, and
-    // auto-hide it the instant it loses its last one — overriding whatever
-    // `isActive` the request asked for, so an empty quiz can never be left
-    // reachable by students. A quiz that already had questions and still
-    // does keeps the admin's explicit isActive choice untouched.
-    let isActiveOverride: boolean | undefined;
-    if (newQuestionCount === 0) {
-      isActiveOverride = false;
-    } else if (previousQuestionCount === 0 && newQuestionCount > 0) {
-      isActiveOverride = true;
-    }
-
     return this.prisma.quiz.update({
       where: { id },
       data: {
         ...quizData,
         totalQuestions: newQuestionCount,
-        ...(isActiveOverride !== undefined ? { isActive: isActiveOverride } : {}),
         questions: questions
           ? {
-              create: questions.map((q) => ({
+              create: questions.map((q, order) => ({
                 ...q,
+                order,
                 options: q.options as unknown as Prisma.InputJsonValue,
               })),
             }
           : undefined,
       },
-      include: { questions: true },
+      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
     });
   }
 
@@ -144,10 +211,12 @@ export class QuizzesService {
     const userId = actor.id;
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
-      include: { questions: true },
+      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
     if (quiz.questions.length === 0) throw new NotFoundException('Quiz not found');
+    // A scheduled quiz cannot be started early, even by someone holding the id.
+    if (this.isAwaitingRelease(quiz, actor)) throw new NotFoundException('Quiz not found');
 
     // A premium quiz cannot be started without a settled payment.
     await this.quizAccess.assertCanAttempt(actor, quiz);
@@ -201,10 +270,11 @@ export class QuizzesService {
     const userId = actor.id;
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
-      include: { questions: true },
+      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
     if (quiz.questions.length === 0) throw new NotFoundException('Quiz not found');
+    if (this.isAwaitingRelease(quiz, actor)) throw new NotFoundException('Quiz not found');
 
     // Re-checked at submit as well as at start, so a reversal between the two
     // cannot leave a scoring path open.
@@ -230,8 +300,10 @@ export class QuizzesService {
     const finalScore = computeFinalScore(score, wrongCount, quiz);
     const totalMarks = quiz.totalMarks || 100;
     const percentage = Math.round((finalScore / (totalMarks || 1)) * 100 * 100) / 100;
-    const passed = finalScore >= quiz.passingMarks;
     const totalQuestions = quiz.totalQuestions || quiz.questions.length;
+    const passingThreshold = quiz.passingMarks ?? 40;
+    const requiredScore = passingThreshold <= 100 ? (passingThreshold / 100) * totalMarks : passingThreshold;
+    const passed = percentage >= passingThreshold || finalScore >= requiredScore;
 
     let submission;
     if (attemptId) {

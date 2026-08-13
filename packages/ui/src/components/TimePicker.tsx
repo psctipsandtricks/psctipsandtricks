@@ -10,6 +10,12 @@ export interface TimePickerProps {
   value: string; // HH:mm format (24-hour) or empty
   onChange: (timeString: string) => void;
   required?: boolean;
+  /**
+   * Earliest selectable time as "HH:mm" (24-hour). Callers pass this only when
+   * the chosen date makes it meaningful — e.g. the current clock time when the
+   * date is today — since the picker has no idea which day it is picking for.
+   */
+  minTime?: string;
   placeholder?: string;
   helperText?: string;
   error?: string;
@@ -45,11 +51,20 @@ function formatDisplayTime(parsed: { hour12: number; minute: number; ampm: 'AM' 
   return `${hStr}:${mStr} ${parsed.ampm}`;
 }
 
+/** Minutes since midnight, or null when the string is not a usable "HH:mm". */
+function toMinutesOfDay(timeStr?: string): number | null {
+  if (!timeStr) return null;
+  const [h, m] = timeStr.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+
 export const TimePicker: React.FC<TimePickerProps> = ({
   label,
   value,
   onChange,
   required,
+  minTime,
   placeholder = 'Select time…',
   helperText,
   error,
@@ -64,9 +79,13 @@ export const TimePicker: React.FC<TimePickerProps> = ({
   const hourColRef = useRef<HTMLDivElement>(null);
   const minuteColRef = useRef<HTMLDivElement>(null);
 
-  const selectedHour12 = parsed ? parsed.hour12 : 12;
-  const selectedMinute = parsed ? parsed.minute : 0;
-  const selectedAmPm: 'AM' | 'PM' = parsed ? parsed.ampm : 'AM';
+  // With nothing chosen yet the panel starts at the earliest time it is
+  // allowed to offer, not 12:00 AM — otherwise a minTime later than midnight
+  // would open the panel with every minute of that dead hour struck through.
+  const fallback = parseTimeStr(minTime);
+  const selectedHour12 = parsed ? parsed.hour12 : (fallback?.hour12 ?? 12);
+  const selectedMinute = parsed ? parsed.minute : (fallback?.minute ?? 0);
+  const selectedAmPm: 'AM' | 'PM' = parsed ? parsed.ampm : (fallback?.ampm ?? 'AM');
 
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return;
@@ -137,6 +156,20 @@ export const TimePicker: React.FC<TimePickerProps> = ({
 
   const displayVal = formatDisplayTime(parsed);
 
+  // An option is greyed out only when *no* time it could still lead to is
+  // allowed — an hour stays open if its :59 clears the minimum, so a student
+  // of this picker can never strand themselves on a dead-end selection.
+  const minMinutes = toMinutesOfDay(minTime);
+  const isBeforeMin = (timeStr: string) => {
+    if (minMinutes === null) return false;
+    const mins = toMinutesOfDay(timeStr);
+    return mins !== null && mins < minMinutes;
+  };
+  const hourDisabled = (h12: number) => isBeforeMin(formatTime24(h12, 59, selectedAmPm));
+  const minuteDisabled = (m: number) => isBeforeMin(formatTime24(selectedHour12, m, selectedAmPm));
+  const periodDisabled = (ap: 'AM' | 'PM') => isBeforeMin(formatTime24(11, 59, ap));
+  const disabledCell = 'opacity-30 cursor-not-allowed line-through hover:bg-transparent';
+
   return (
     <div className={cn('w-full space-y-1.5', className)}>
       {label && (
@@ -191,12 +224,14 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                     key={`h-${h}`}
                     type="button"
                     data-active={selectedHour12 === h}
+                    disabled={hourDisabled(h)}
                     onClick={() => handleSelectHour(h)}
                     className={cn(
                       'w-full text-center text-xs font-mono font-bold py-1.5 rounded-lg transition-colors cursor-pointer',
                       selectedHour12 === h
                         ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-xs'
                         : 'text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400',
+                      hourDisabled(h) && disabledCell,
                     )}
                   >
                     {h.toString().padStart(2, '0')}
@@ -212,12 +247,14 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                     key={`m-${m}`}
                     type="button"
                     data-active={selectedMinute === m}
+                    disabled={minuteDisabled(m)}
                     onClick={() => handleSelectMinute(m)}
                     className={cn(
                       'w-full text-center text-xs font-mono font-bold py-1.5 rounded-lg transition-colors cursor-pointer',
                       selectedMinute === m
                         ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-xs'
                         : 'text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400',
+                      minuteDisabled(m) && disabledCell,
                     )}
                   >
                     {m.toString().padStart(2, '0')}
@@ -232,12 +269,14 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                   <button
                     key={`ampm-${ap}`}
                     type="button"
+                    disabled={periodDisabled(ap)}
                     onClick={() => handleSelectAmPm(ap)}
                     className={cn(
                       'w-full text-center text-xs font-mono font-bold py-2 rounded-lg transition-colors cursor-pointer mb-1',
                       selectedAmPm === ap
                         ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-xs'
                         : 'text-slate-700 dark:text-slate-300 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400',
+                      periodDisabled(ap) && disabledCell,
                     )}
                   >
                     {ap}
@@ -280,6 +319,35 @@ export const TimePicker: React.FC<TimePickerProps> = ({
     </div>
   );
 };
+
+export function todayLocalDateStr(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+export function getMinMockTestTime(dateStr?: string): string | undefined {
+  if (!dateStr) return undefined;
+
+  const now = new Date();
+  const todayStr = todayLocalDateStr();
+
+  if (dateStr < todayStr) {
+    return '23:59';
+  }
+
+  if (dateStr === todayStr) {
+    const minTime = new Date(now.getTime() + 60_000);
+    const minDateStr = `${minTime.getFullYear()}-${String(minTime.getMonth() + 1).padStart(2, '0')}-${String(minTime.getDate()).padStart(2, '0')}`;
+    if (minDateStr > todayStr) {
+      return '23:59';
+    }
+    const hours = String(minTime.getHours()).padStart(2, '0');
+    const minutes = String(minTime.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+
+  return undefined;
+}
 
 export function combineDateAndTime(dateStr?: string, timeStr?: string): string {
   if (!dateStr) return '';

@@ -1,63 +1,112 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton } from '@psc/ui';
-import { Trash2, Ticket, Tag } from 'lucide-react';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, DatePicker, Badge, Pagination, Skeleton } from '@psc/ui';
+import { Trash2, Ticket, Tag, Edit3 } from 'lucide-react';
+import { Coupon } from '@psc/shared-types';
+import { ApiClient } from '@/lib/api-client';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 
-const couponSchema = Yup.object({
+const sharedCouponFields = {
   code: Yup.string().trim().matches(/^[A-Za-z0-9]+$/, 'Code can only contain letters and numbers').required('Coupon code is required'),
   discountPercent: Yup.number().typeError('Must be a number').min(1, 'Must be at least 1%').max(100, 'Cannot exceed 100%').required('Discount percentage is required'),
   maxDiscount: Yup.number().typeError('Must be a number').positive('Must be greater than 0').required('Max discount amount is required'),
+};
+
+// A new coupon must expire in the future. An existing one may already have
+// passed its date — the admin can still edit its other fields (or use the
+// date field itself to expire it immediately) without being forced to first
+// push the date forward.
+const createCouponSchema = Yup.object({
+  ...sharedCouponFields,
   validTill: Yup.date().typeError('Enter a valid date').min(new Date(), 'Valid-till date must be in the future').required('Valid-till date is required'),
 });
+const editCouponSchema = Yup.object({
+  ...sharedCouponFields,
+  validTill: Yup.date().typeError('Enter a valid date').required('Valid-till date is required'),
+});
 
-interface CouponItem {
-  id: string;
-  code: string;
-  discountPercent: number;
-  maxDiscountAmount: number;
-  validTill: string;
-  usageCount: number;
-  isActive: boolean;
+/** `Coupon.validTill` comes back as a full ISO timestamp; the date picker only wants the date part. */
+function toDateInputValue(iso: string) {
+  return iso.slice(0, 10);
 }
 
 export default function AdminCouponsPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [coupons, setCoupons] = useState<CouponItem[]>([
-    { id: 'c-1', code: 'PSC2026', discountPercent: 20, maxDiscountAmount: 100, validTill: '2027-12-31', usageCount: 142, isActive: true },
-    { id: 'c-2', code: 'LDC50', discountPercent: 15, maxDiscountAmount: 75, validTill: '2026-10-31', usageCount: 68, isActive: true },
-    { id: 'c-3', code: 'WELCOME10', discountPercent: 10, maxDiscountAmount: 50, validTill: '2026-08-31', usageCount: 210, isActive: false },
-  ]);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [confirmTarget, setConfirmTarget] = useState<{ type: 'toggle' | 'delete'; coupon: CouponItem } | null>(null);
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ type: 'toggle' | 'delete'; coupon: Coupon } | null>(null);
 
-  React.useEffect(() => {
-    setMounted(true);
-    setLoading(false);
+  const fetchCoupons = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await ApiClient.getCoupons();
+      setCoupons(data);
+    } catch (err) {
+      console.error('Failed to fetch coupons:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    setMounted(true);
+    fetchCoupons();
+  }, [fetchCoupons]);
 
   const formik = useFormik({
     initialValues: { code: '', discountPercent: '20', maxDiscount: '100', validTill: '2027-12-31' },
-    validationSchema: couponSchema,
-    onSubmit: (values, { resetForm }) => {
-      const newCoupon: CouponItem = {
-        id: `c-${Date.now()}`,
+    validationSchema: editingCoupon ? editCouponSchema : createCouponSchema,
+    onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
+      const payload = {
         code: values.code.trim().toUpperCase(),
         discountPercent: Number(values.discountPercent),
         maxDiscountAmount: Number(values.maxDiscount),
         validTill: values.validTill,
-        usageCount: 0,
-        isActive: true,
       };
-      setCoupons((prev) => [newCoupon, ...prev]);
-      resetForm();
+      try {
+        if (editingCoupon) {
+          await ApiClient.updateCoupon(editingCoupon.id, payload);
+        } else {
+          await ApiClient.createCoupon(payload);
+        }
+        resetForm();
+        setIsDialogOpen(false);
+        setEditingCoupon(null);
+        await fetchCoupons();
+      } catch (err: any) {
+        setFieldError('code', err.message || `Failed to ${editingCoupon ? 'update' : 'create'} coupon.`);
+      } finally {
+        setSubmitting(false);
+      }
     },
   });
+
+  const handleOpenCreateDialog = () => {
+    setEditingCoupon(null);
+    formik.resetForm({
+      values: { code: '', discountPercent: '20', maxDiscount: '100', validTill: '2027-12-31' },
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleOpenEditDialog = (coupon: Coupon) => {
+    setEditingCoupon(coupon);
+    formik.resetForm({
+      values: {
+        code: coupon.code,
+        discountPercent: String(coupon.discountPercent),
+        maxDiscount: String(coupon.maxDiscountAmount),
+        validTill: toDateInputValue(coupon.validTill),
+      },
+    });
+    setIsDialogOpen(true);
+  };
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -71,20 +120,32 @@ export default function AdminCouponsPage() {
     );
   }
 
-  const handleToggleStatus = (id: string) => {
-    setCoupons(
-      coupons.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c))
-    );
+  const handleToggleStatus = async (coupon: Coupon) => {
+    const nextActive = !coupon.isActive;
+    setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: nextActive } : c)));
+    try {
+      await ApiClient.setCouponActive(coupon.id, nextActive);
+    } catch (err: any) {
+      setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: coupon.isActive } : c)));
+      alert(err.message || 'Failed to update coupon status.');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setCoupons(coupons.filter((c) => c.id !== id));
+  const handleDelete = async (id: string) => {
+    const previousCoupons = coupons;
+    setCoupons((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await ApiClient.deleteCoupon(id);
+    } catch (err: any) {
+      setCoupons(previousCoupons);
+      alert(err.message || 'Failed to delete coupon.');
+    }
   };
 
   const handleConfirmAction = () => {
     if (!confirmTarget) return;
     if (confirmTarget.type === 'toggle') {
-      handleToggleStatus(confirmTarget.coupon.id);
+      handleToggleStatus(confirmTarget.coupon);
     } else {
       handleDelete(confirmTarget.coupon.id);
     }
@@ -103,7 +164,7 @@ export default function AdminCouponsPage() {
           <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">Coupon Code Management</h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 leading-relaxed">Create and manage discount codes for courses and e-books.</p>
         </div>
-        <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 w-full sm:w-auto shrink-0" onClick={() => setIsDialogOpen(true)}>
+        <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 w-full sm:w-auto shrink-0" onClick={handleOpenCreateDialog}>
           + Create Coupon
         </Button>
       </div>
@@ -158,8 +219,8 @@ export default function AdminCouponsPage() {
                 <TableCell className="font-mono font-bold text-cyan-400">{coupon.code}</TableCell>
                 <TableCell className="font-bold">{coupon.discountPercent}%</TableCell>
                 <TableCell className="font-mono font-semibold">₹{coupon.maxDiscountAmount}</TableCell>
+                <TableCell className="font-mono text-xs text-slate-500 dark:text-slate-400">{new Date(coupon.validTill).toLocaleDateString('en-IN')}</TableCell>
                 <TableCell className="font-mono text-slate-700 dark:text-slate-300">{coupon.usageCount}</TableCell>
-                <TableCell className="font-mono text-xs text-slate-500 dark:text-slate-400">{coupon.validTill}</TableCell>
                 <TableCell>
                   <Badge variant={coupon.isActive ? 'success' : 'danger'}>
                     {coupon.isActive ? 'Active' : 'Disabled'}
@@ -167,6 +228,16 @@ export default function AdminCouponsPage() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="p-2 rounded-xl transition-all shadow-sm"
+                      title="Edit Coupon"
+                      aria-label="Edit Coupon"
+                      onClick={() => handleOpenEditDialog(coupon)}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
                     <Button size="sm" variant={coupon.isActive ? 'outline' : 'primary'} onClick={() => setConfirmTarget({ type: 'toggle', coupon })}>
                       {coupon.isActive ? 'Disable' : 'Enable'}
                     </Button>
@@ -204,7 +275,14 @@ export default function AdminCouponsPage() {
         </div>
       </Card>
 
-      <Dialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title="Create Discount Coupon">
+      <Dialog
+        isOpen={isDialogOpen}
+        onClose={() => {
+          setIsDialogOpen(false);
+          setEditingCoupon(null);
+        }}
+        title={editingCoupon ? `Edit Coupon — ${editingCoupon.code}` : 'Create Discount Coupon'}
+      >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input
             label="Coupon Code"
@@ -235,17 +313,18 @@ export default function AdminCouponsPage() {
             onBlur={formik.handleBlur}
             error={formik.touched.maxDiscount && formik.errors.maxDiscount ? formik.errors.maxDiscount : undefined}
           />
-          <Input
+          <DatePicker
             label="Valid Until"
-            name="validTill"
-            type="date"
             value={formik.values.validTill}
-            onChange={formik.handleChange}
-            onBlur={formik.handleBlur}
+            onChange={(date) => {
+              formik.setFieldValue('validTill', date, true);
+              formik.setFieldTouched('validTill', true, false);
+            }}
+            minDate={editingCoupon ? undefined : new Date().toISOString().split('T')[0]}
             error={formik.touched.validTill && formik.errors.validTill ? (formik.errors.validTill as string) : undefined}
           />
-          <Button type="submit" variant="gold" className="w-full font-bold shadow-md shadow-amber-500/20">
-            Create Coupon Code 🎟️
+          <Button type="submit" variant="gold" className="w-full font-bold shadow-md shadow-amber-500/20" isLoading={formik.isSubmitting}>
+            {editingCoupon ? 'Save Changes' : 'Create Coupon Code 🎟️'}
           </Button>
         </form>
       </Dialog>

@@ -26,11 +26,6 @@ enum OrderStatus {
   REFUNDED
 }
 
-enum ContentStatus {
-  DRAFT
-  PUBLISHED
-}
-
 enum MockTestStatus {
   UPCOMING
   LIVE
@@ -55,13 +50,13 @@ enum OAuthProvider {
 }
 
 model User {
-  id                 String            @id @default(uuid())
-  email              String            @unique
+  id                 String                @id @default(uuid())
+  email              String                @unique
   password           String?
   name               String
-  role               UserRole          @default(STUDENT)
-  status             UserStatus        @default(ACTIVE)
-  isPremium          Boolean           @default(false)
+  role               UserRole              @default(STUDENT)
+  status             UserStatus            @default(ACTIVE)
+  isPremium          Boolean               @default(false)
   avatarUrl          String?
   // The photo URL from the user's linked Google account, refreshed on every
   // Google sign-in. Kept separate from `avatarUrl` (the active profile
@@ -76,17 +71,17 @@ model User {
   notifications      Notification[]
   readingProgress    ReadingProgress[]
   bookmarks          Bookmark[]
-  staffPermission    StaffPermission?  @relation("OwnPermission")
-  grantedPermissions StaffPermission[] @relation("GrantedByAdmin")
+  staffPermission    StaffPermission?      @relation("OwnPermission")
+  grantedPermissions StaffPermission[]     @relation("GrantedByAdmin")
   mockTestEntries    MockTestParticipant[]
   createdMockTests   MockTest[]
-  sentNotifications  Notification[]    @relation("NotificationSender")
+  sentNotifications  Notification[]        @relation("NotificationSender")
   chatGroupMembers   ChatGroupMember[]
   chatGroupPins      ChatGroupPin[]
   chatGroupReads     ChatGroupRead[]
   oauthIdentities    OAuthIdentity[]
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 }
 
 model OAuthIdentity {
@@ -102,67 +97,116 @@ model OAuthIdentity {
 }
 
 model StaffPermission {
-  id                    String   @id @default(uuid())
-  userId                String   @unique
-  user                  User     @relation("OwnPermission", fields: [userId], references: [id], onDelete: Cascade)
-  manageBooks           Boolean  @default(false)
-  manageQuizzes         Boolean  @default(false)
-  manageChat            Boolean  @default(false)
-  manageCoupons         Boolean  @default(false)
-  manageNotifications   Boolean  @default(false)
-  viewOrders            Boolean  @default(false)
-  viewAnalytics         Boolean  @default(false)
-  manageUsers           Boolean  @default(false)
-  grantedById           String?
-  grantedBy             User?    @relation("GrantedByAdmin", fields: [grantedById], references: [id])
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation("OwnPermission", fields: [userId], references: [id], onDelete: Cascade)
+  manageBooks         Boolean  @default(false)
+  manageQuizzes       Boolean  @default(false)
+  manageChat          Boolean  @default(false)
+  manageCoupons       Boolean  @default(false)
+  manageNotifications Boolean  @default(false)
+  viewOrders          Boolean  @default(false)
+  viewAnalytics       Boolean  @default(false)
+  manageUsers         Boolean  @default(false)
+  grantedById         String?
+  grantedBy           User?    @relation("GrantedByAdmin", fields: [grantedById], references: [id])
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model Book {
-  id            String    @id @default(uuid())
-  title         String
-  author        String
-  description   String    @db.Text
-  coverUrl      String
-  pdfUrl        String?
-  price         Float     @default(0)
-  category      String
-  isPremium     Boolean   @default(false)
-  isPublished   Boolean   @default(true)
-  downloadCount Int       @default(0)
-  orders        Order[]
-  chapters      Chapter[]
-  readingProgress ReadingProgress[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String            @id @default(uuid())
+  title            String
+  author           String
+  description      String            @db.Text
+  coverUrl         String
+  pdfUrl           String?
+  price            Float             @default(0)
+  discountPercent  Float             @default(0)
+  /// Always the effective, actually-charged price (price minus the discount).
+  /// Persisted rather than derived so the checkout and order history read one
+  /// authoritative number instead of each re-deriving the discount.
+  finalPrice       Float             @default(0)
+  category         String
+  publicationYear  Int?
+  /// Store-listing identifiers carried over from the previous app: the
+  /// Play Store product / base-plan ids and the App Store product id.
+  productId        String?
+  appleId          String?
+  basePlanId       String?
+  subscriptionType String            @default("FULL_TIME_ACCESS")
+  isPremium        Boolean           @default(false)
+  isPublished      Boolean           @default(true)
+  /// Whether the book shows in the public/guest listing for signed-out users.
+  visibleToGuests  Boolean           @default(false)
+  downloadCount    Int               @default(0)
+  orders           Order[]
+  chapters         Chapter[]
+  readingProgress  ReadingProgress[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 }
 
 model Chapter {
-  id                    String            @id @default(uuid())
-  bookId                String
-  book                  Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  title                 String
-  orderIndex            Int               @default(0)
-  textContent           String?           @db.Text
-  audioUrl              String?
-  audioDurationSeconds  Int?
-  status                ContentStatus     @default(DRAFT)
-  readingProgress       ReadingProgress[]
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  id                   String            @id @default(uuid())
+  bookId               String
+  book                 Book              @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  title                String
+  description          String?           @db.Text
+  orderIndex           Int               @default(0)
+  isActive             Boolean           @default(true)
+  textContent          String?           @db.Text
+  youtubeUrl           String?
+  audioUrl             String?
+  audioDurationSeconds Int?
+  pdfUrl               String?
+  topics               Topic[]
+  readingProgress      ReadingProgress[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+}
+
+model Topic {
+  id          String     @id @default(uuid())
+  chapterId   String
+  chapter     Chapter    @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title       String
+  description String?    @db.Text
+  orderIndex  Int        @default(0)
+  isActive    Boolean    @default(true)
+  youtubeUrl  String?
+  audioUrl    String?
+  pdfUrl      String?
+  subtopics   Subtopic[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Subtopic {
+  id          String   @id @default(uuid())
+  topicId     String
+  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  title       String
+  description String?  @db.Text
+  orderIndex  Int      @default(0)
+  isActive    Boolean  @default(true)
+  youtubeUrl  String?
+  audioUrl    String?
+  pdfUrl      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model ReadingProgress {
-  id               String   @id @default(uuid())
-  userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bookId           String
-  book             Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  chapterId        String?
-  chapter          Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
-  progressPercent  Float    @default(0)
-  lastReadAt       DateTime @default(now())
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId          String
+  book            Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chapterId       String?
+  chapter         Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  progressPercent Float    @default(0)
+  lastReadAt      DateTime @default(now())
 
   @@unique([userId, bookId])
 }
@@ -182,14 +226,16 @@ model Quiz {
   id                              String           @id @default(uuid())
   title                           String
   category                        String
-  description                     String           @db.Text
   folderName                      String?          @default("Root")
   accessType                      String           @default("FREE")
   isActive                        Boolean          @default(true)
   showCorrectAnswerAfterSelection Boolean          @default(true)
+  // When set, the quiz stays invisible to students until this moment passes.
+  // Stored as the ISO-8601 UTC string the admin form produces — fixed width
+  // and always Zulu, so a lexicographic comparison against
+  // `new Date().toISOString()` orders these exactly as timestamps would, and
+  // the release gate needs no column migration.
   releaseDate                     String?
-  bookId                          String?
-  chapterId                       String?
   topic                           String?
   totalQuestions                  Int              @default(0)
   durationMinutes                 Int              @default(30)
@@ -222,10 +268,15 @@ model Question {
   quizId             String
   quiz               Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
   text               String   @db.Text
-  options            Json     // array of { id: string, text: string }
+  options            Json // array of { id: string, text: string }
   correctOptionIndex Int
   explanation        String?  @db.Text
   marks              Float    @default(1)
+  /// Position within the quiz (admin-defined, e.g. by drag-to-reorder). Every
+  /// save recreates all questions in one transaction, so `createdAt` alone
+  /// can't be trusted to break ties — Postgres resolves `now()` once per
+  /// transaction, not once per row.
+  order              Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
@@ -261,29 +312,29 @@ model QuizSubmission {
 }
 
 model MockTest {
-  id           String                 @id @default(uuid())
+  id           String                @id @default(uuid())
   title        String
   quizId       String
-  quiz         Quiz                   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  quiz         Quiz                  @relation(fields: [quizId], references: [id], onDelete: Cascade)
   scheduledAt  DateTime
-  status       MockTestStatus         @default(UPCOMING)
+  status       MockTestStatus        @default(UPCOMING)
   createdById  String
-  createdBy    User                   @relation(fields: [createdById], references: [id])
+  createdBy    User                  @relation(fields: [createdById], references: [id])
   participants MockTestParticipant[]
-  createdAt    DateTime               @default(now())
-  updatedAt    DateTime               @updatedAt
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
 }
 
 model MockTestParticipant {
-  id           String    @id @default(uuid())
-  mockTestId   String
-  mockTest     MockTest  @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  score        Float?
-  rank         Int?
-  submittedAt  DateTime?
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(uuid())
+  mockTestId  String
+  mockTest    MockTest  @relation(fields: [mockTestId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Float?
+  rank        Int?
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
 
   @@unique([mockTestId, userId])
 }
@@ -317,23 +368,23 @@ model Coupon {
 }
 
 model ChatGroup {
-  id            String              @id @default(uuid())
-  name          String
-  description   String              @default("") @db.Text
-  category      String              @default("General")
-  iconEmoji     String              @default("💬")
+  id                String            @id @default(uuid())
+  name              String
+  description       String            @default("") @db.Text
+  category          String            @default("General")
+  iconEmoji         String            @default("💬")
   /// Group profile picture; falls back to an initial avatar when empty.
-  imageUrl      String?
-  coverGradient String              @default("from-amber-500/20 to-orange-600/20")
-  isLocked      Boolean             @default(false)
-  allowTextMessages Boolean         @default(true)
-  allowPolls        Boolean         @default(true)
-  type          String              @default("community")
-  messages      ChatMessage[]
-  members       ChatGroupMember[]
-  pins          ChatGroupPin[]
-  reads         ChatGroupRead[]
-  createdAt     DateTime            @default(now())
+  imageUrl          String?
+  coverGradient     String            @default("from-amber-500/20 to-orange-600/20")
+  isLocked          Boolean           @default(false)
+  allowTextMessages Boolean           @default(true)
+  allowPolls        Boolean           @default(true)
+  type              String            @default("community")
+  messages          ChatMessage[]
+  members           ChatGroupMember[]
+  pins              ChatGroupPin[]
+  reads             ChatGroupRead[]
+  createdAt         DateTime          @default(now())
 }
 
 model ChatGroupMember {
@@ -393,17 +444,17 @@ model ChatMessage {
 }
 
 model Notification {
-  id         String   @id @default(uuid())
-  title      String
-  body       String   @db.Text
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  target     String   @default("all")
-  sentById   String?
-  sentBy     User?    @relation("NotificationSender", fields: [sentById], references: [id])
-  isRead     Boolean  @default(false)
-  type       String?  @default("ANNOUNCEMENT")
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  title     String
+  body      String   @db.Text
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target    String   @default("all")
+  sentById  String?
+  sentBy    User?    @relation("NotificationSender", fields: [sentById], references: [id])
+  isRead    Boolean  @default(false)
+  type      String?  @default("ANNOUNCEMENT")
+  createdAt DateTime @default(now())
 }
 
 model AnnouncementPopup {

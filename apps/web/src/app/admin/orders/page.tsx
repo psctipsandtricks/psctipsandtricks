@@ -37,37 +37,24 @@ export default function AdminOrdersPage() {
       setLoading(true);
       try {
         const fetchedOrders = await ApiClient.getAllOrders();
-        if (cancelled) return;
-        if (Array.isArray(fetchedOrders) && fetchedOrders.length > 0) {
+        if (Array.isArray(fetchedOrders)) {
           const formatted: OrderRecord[] = fetchedOrders.map((o: any) => ({
             id: o.id,
-            email: o.user?.email || 'student@psctips.com',
+            email: o.user?.email || 'N/A',
             item: o.book?.title || o.quiz?.title || 'PSC Premium Access',
             amount: o.amount,
             razorpayPaymentId: o.razorpayPaymentId || o.razorpayOrderId || 'N/A',
             status: o.status,
-            date: o.createdAt ? new Date(o.createdAt).toISOString().split('T')[0] : '2026-08-11',
+            date: o.createdAt ? new Date(o.createdAt).toISOString().split('T')[0] : '',
             isSimulated: o.razorpayOrderId?.startsWith('order_sim_'),
           }));
           setOrders(formatted);
         } else {
-          // Default initial sample records for admin demonstration
-          setOrders([
-            { id: 'ord_98127341', email: 'student@psctips.com', item: 'Kerala PSC Master Question Bank 2026', amount: 299, razorpayPaymentId: 'pay_rzp_mock_881', status: 'SUCCESS', date: '2026-08-03' },
-            { id: 'ord_98127342', email: 'anandu.k@gmail.com', item: 'Indian Constitution & Polity Guide', amount: 199, razorpayPaymentId: 'pay_rzp_mock_882', status: 'SUCCESS', date: '2026-08-03' },
-            { id: 'ord_98127343', email: 'sneha.nair@psctips.com', item: 'Kerala Geography Handbook 2026', amount: 149, razorpayPaymentId: 'pay_rzp_mock_883', status: 'SUCCESS', date: '2026-08-02' },
-            { id: 'ord_98127344', email: 'rahul.varma@icloud.com', item: 'VIP Unlimited Subscription', amount: 499, razorpayPaymentId: 'pay_rzp_mock_884', status: 'SUCCESS', date: '2026-08-01' },
-            { id: 'ord_98127345', email: 'divya.sp@gmail.com', item: 'Kerala PSC Master Question Bank 2026', amount: 299, razorpayPaymentId: 'pay_rzp_mock_885', status: 'FAILED', date: '2026-07-31' },
-          ]);
+          setOrders([]);
         }
       } catch (err) {
         if (!cancelled) {
-          // Fallback sample data
-          setOrders([
-            { id: 'ord_98127341', email: 'student@psctips.com', item: 'Kerala PSC Master Question Bank 2026', amount: 299, razorpayPaymentId: 'pay_rzp_mock_881', status: 'SUCCESS', date: '2026-08-03' },
-            { id: 'ord_98127342', email: 'anandu.k@gmail.com', item: 'Indian Constitution & Polity Guide', amount: 199, razorpayPaymentId: 'pay_rzp_mock_882', status: 'SUCCESS', date: '2026-08-03' },
-            { id: 'ord_98127343', email: 'sneha.nair@psctips.com', item: 'Kerala Geography Handbook 2026', amount: 149, razorpayPaymentId: 'pay_rzp_mock_883', status: 'SUCCESS', date: '2026-08-02' },
-          ]);
+          setOrders([]);
         }
       } finally {
         if (!cancelled) setLoading(false);

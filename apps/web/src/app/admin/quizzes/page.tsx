@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { ApiClient } from '@/lib/api-client';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton, DatePicker, TimePicker, combineDateAndTime, splitIsoToDateAndTime } from '@psc/ui';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton, DatePicker, TimePicker, combineDateAndTime, splitIsoToDateAndTime, getMinMockTestTime, todayLocalDateStr } from '@psc/ui';
 import {
   Folder,
   Lock,
@@ -60,11 +60,8 @@ export interface QuizItem {
   title: string;
   category: string;
   folderName: string;
-  description?: string;
   releaseDate?: string;
   passingScore?: number;
-  bookId?: string;
-  chapterId?: string;
   topic?: string;
   isActive?: boolean;
   showCorrectAnswerAfterSelection?: boolean;
@@ -158,12 +155,9 @@ interface QuizFormValues {
   title: string;
   releaseDate: string;
   releaseTime: string;
-  description: string;
   category: string;
   duration: string;
   passingScore: string;
-  selectedBook: string;
-  selectedChapter: string;
   selectedTopic: string;
   isActive: boolean;
   isLive: boolean;
@@ -200,12 +194,9 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   title: '',
   releaseDate: '',
   releaseTime: '',
-  description: '',
   category: '',
   duration: '30',
   passingScore: '60',
-  selectedBook: '',
-  selectedChapter: '',
   selectedTopic: '',
   isActive: true,
   isLive: false,
@@ -225,8 +216,58 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   allowNegativeScore: false,
 };
 
-const quizSchema = Yup.object({
+function nowLocalTimeStr(): string {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * The same one-minute allowance the API applies, so a form that validated on
+ * the client is never rejected by the server for a few seconds of typing.
+ */
+const RELEASE_GRACE_MS = 60_000;
+
+/**
+ * Turns the two pickers into the ISO moment the quiz is released at.
+ *
+ * A blank time means midnight, which for *today's* date is already hours gone —
+ * an admin picking today and no time means "put it out now", not "reject this
+ * as a past date". So that one case releases immediately; every other
+ * combination is taken literally.
+ */
+function resolveReleaseIso(releaseDate?: string, releaseTime?: string): string {
+  if (!releaseDate) return '';
+  const iso = combineDateAndTime(releaseDate, releaseTime);
+  if (!iso) return '';
+  if (!releaseTime && new Date(iso).getTime() < Date.now()) {
+    return new Date().toISOString();
+  }
+  return iso;
+}
+
+/**
+ * `originalReleaseIso` is the release moment the quiz already carries when the
+ * edit dialog opens. A quiz released last month must stay editable, so the
+ * "not in the past" rule applies only once that value actually changes.
+ */
+const makeQuizSchema = (originalReleaseIso?: string) => Yup.object({
   title: Yup.string().trim().required('Quiz Title is required.'),
+  releaseTime: Yup.string().test(
+    'release-not-in-past',
+    'Release date and time cannot be in the past.',
+    function (releaseTime) {
+      const releaseDate = (this.parent as QuizFormValues).releaseDate;
+      if (!releaseDate) return true;
+
+      const iso = resolveReleaseIso(releaseDate, releaseTime);
+      if (!iso) return true;
+      if (originalReleaseIso && combineDateAndTime(releaseDate, releaseTime) === originalReleaseIso) {
+        return true;
+      }
+
+      return new Date(iso).getTime() >= Date.now() - RELEASE_GRACE_MS;
+    },
+  ),
   duration: Yup.number().typeError('Duration must be a number').positive('Duration must be greater than 0 minutes.').required('Duration is required.'),
   passingScore: Yup.number().typeError('Passing score must be a number').min(0, 'Passing score cannot be negative.').max(100, 'Passing score cannot exceed 100%.').required('Passing score is required.'),
   accessType: Yup.string().oneOf(['FREE', 'PAID'], 'Access Type (Free or Paid) is mandatory. Please select one.').required('Access Type (Free or Paid) is mandatory. Please select one.'),
@@ -260,15 +301,39 @@ const quizSchema = Yup.object({
   }),
   mockTestDate: Yup.string().when('isLive', {
     is: true,
-    then: (schema) => schema.trim().required('Scheduled date is required for a live mock test.'),
+    then: (schema) =>
+      schema
+        .trim()
+        .required('Scheduled date is required for a live mock test.')
+        .test('not-past-date', 'Scheduled date cannot be in the past.', function (date) {
+          if (!date) return true;
+          return date >= todayLocalDateStr();
+        }),
     otherwise: (schema) => schema.notRequired(),
   }),
   mockTestTime: Yup.string().when('isLive', {
     is: true,
-    then: (schema) => schema.trim().required('Scheduled time is required for a live mock test.'),
+    then: (schema) =>
+      schema
+        .trim()
+        .required('Scheduled time is required for a live mock test.')
+        .test(
+          'at-least-1-min-future',
+          'Scheduled date and time must be at least 1 minute after the current time.',
+          function (time) {
+            const date = (this.parent as QuizFormValues).mockTestDate;
+            if (!date || !time) return true;
+            const iso = combineDateAndTime(date, time);
+            if (!iso) return true;
+            const minAllowedTime = Date.now() + 60_000 - 5_000;
+            return new Date(iso).getTime() >= minAllowedTime;
+          },
+        ),
     otherwise: (schema) => schema.notRequired(),
   }),
 });
+
+const DEFAULT_QUIZ_SCHEMA = makeQuizSchema();
 
 const SETTINGS_FIELD_KEYS = ['title', 'duration', 'passingScore', 'accessType', 'price'];
 
@@ -316,6 +381,9 @@ export default function QuizAdminPage() {
   // Quiz Builder Modal State (Quiz Details & Settings Only)
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
+  // Release moment the quiz being edited already had, so re-saving an
+  // already-released quiz isn't blocked by the "no past dates" rule.
+  const [originalReleaseIso, setOriginalReleaseIso] = useState<string | undefined>(undefined);
 
   const [isCreatingNewFolder, setIsCreatingNewFolder] = useState(false);
   const [formSubmitError, setFormSubmitError] = useState('');
@@ -331,11 +399,8 @@ export default function QuizAdminPage() {
       title: apiQuiz.title,
       category: apiQuiz.category || 'General',
       folderName: (!apiQuiz.folderName || apiQuiz.folderName === 'Root / No Folder' || apiQuiz.folderName === 'Root') ? 'Root' : apiQuiz.folderName,
-      description: apiQuiz.description,
       releaseDate: apiQuiz.releaseDate,
       passingScore: apiQuiz.passingMarks,
-      bookId: apiQuiz.bookId,
-      chapterId: apiQuiz.chapterId,
       topic: apiQuiz.topic,
       isActive: apiQuiz.isActive ?? true,
       showCorrectAnswerAfterSelection: apiQuiz.showCorrectAnswerAfterSelection ?? true,
@@ -421,6 +486,13 @@ export default function QuizAdminPage() {
     }
   }, []);
 
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 10_000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     setMounted(true);
     fetchQuizzes();
@@ -454,7 +526,7 @@ export default function QuizAdminPage() {
 
   const formik = useFormik<QuizFormValues>({
     initialValues: DEFAULT_QUIZ_FORM_VALUES,
-    validationSchema: quizSchema,
+    validationSchema: originalReleaseIso ? makeQuizSchema(originalReleaseIso) : DEFAULT_QUIZ_SCHEMA,
     onSubmit: async (values, { setSubmitting }) => {
       // Determine target folder
       let targetFolder = values.selectedFolder;
@@ -466,19 +538,22 @@ export default function QuizAdminPage() {
       }
 
       const numericPrice = values.accessType === 'PAID' ? Number(values.price) || 0 : 0;
-      const fullReleaseIso = combineDateAndTime(values.releaseDate, values.releaseTime);
+      // An unchanged release date is sent back verbatim — the server only
+      // requires a *new* schedule to be in the future.
+      const combinedRelease = combineDateAndTime(values.releaseDate, values.releaseTime);
+      const fullReleaseIso =
+        originalReleaseIso && combinedRelease === originalReleaseIso
+          ? combinedRelease
+          : resolveReleaseIso(values.releaseDate, values.releaseTime);
 
       const apiPayload = {
         title: values.title.trim(),
         category: 'General',
-        description: values.description || '',
         folderName: (!targetFolder || targetFolder === 'Root / No Folder' || targetFolder === 'Root') ? 'Root' : targetFolder,
         accessType: values.accessType || 'FREE',
         isActive: values.isActive,
         showCorrectAnswerAfterSelection: values.showCorrectAnswerAfterSelection,
         releaseDate: fullReleaseIso || undefined,
-        bookId: values.selectedBook || undefined,
-        chapterId: values.selectedChapter || undefined,
         topic: values.selectedTopic || undefined,
         durationMinutes: Number(values.duration) || 30,
         isLiveMock: values.isLive,
@@ -532,6 +607,7 @@ export default function QuizAdminPage() {
   // Open Creation Settings Builder
   const handleOpenCreateModal = () => {
     setEditingQuizId(null);
+    setOriginalReleaseIso(undefined);
     setIsCreatingNewFolder(false);
     setFormSubmitError('');
     formik.resetForm({
@@ -548,6 +624,9 @@ export default function QuizAdminPage() {
     setIsCreatingNewFolder(false);
     setFormSubmitError('');
     const { date: relDate, time: relTime } = splitIsoToDateAndTime(quiz.releaseDate);
+    // Recombined rather than taken raw, so it matches exactly what the form
+    // will submit when the admin leaves the pickers untouched.
+    setOriginalReleaseIso(combineDateAndTime(relDate, relTime) || undefined);
     // Prefill from the session this quiz is already scheduled as, so editing
     // re-times that session instead of creating a duplicate.
     const existingMockTest = mockTestByQuizId[quiz.id];
@@ -557,12 +636,9 @@ export default function QuizAdminPage() {
         title: quiz.title,
         releaseDate: relDate,
         releaseTime: relTime,
-        description: quiz.description || '',
         category: quiz.category || 'General',
         duration: String(quiz.durationMinutes),
         passingScore: quiz.passingScore ? String(quiz.passingScore) : '60',
-        selectedBook: quiz.bookId || '',
-        selectedChapter: quiz.chapterId || '',
         selectedTopic: quiz.topic || '',
         isActive: quiz.isActive !== undefined ? quiz.isActive : true,
         isLive: quiz.isLiveMock,
@@ -610,19 +686,23 @@ export default function QuizAdminPage() {
     if (!formik.values.mockTestTitle.trim()) {
       formik.setFieldValue('mockTestTitle', formik.values.title.trim());
     }
-    if (!formik.values.mockTestDate && formik.values.releaseDate) {
-      formik.setFieldValue('mockTestDate', formik.values.releaseDate);
+    const today = todayLocalDateStr();
+    const minTime = getMinMockTestTime(today) || '10:00';
+    if (!formik.values.mockTestDate) {
+      formik.setFieldValue('mockTestDate', today);
     }
-    if (!formik.values.mockTestTime && formik.values.releaseTime) {
-      formik.setFieldValue('mockTestTime', formik.values.releaseTime);
+    if (!formik.values.mockTestTime) {
+      formik.setFieldValue('mockTestTime', minTime);
     }
   };
 
   const handleDeleteQuiz = async (id: string) => {
+    const previousQuizzes = quizzes;
+    setQuizzes((prev) => prev.filter((q) => q.id !== id));
     try {
       await ApiClient.deleteQuiz(id);
-      await fetchQuizzes();
     } catch (err: any) {
+      setQuizzes(previousQuizzes);
       alert(err.message || 'Failed to delete quiz.');
     }
   };
@@ -844,26 +924,41 @@ export default function QuizAdminPage() {
                       )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
-                      {quiz.isActive !== false ? (
-                        <Badge variant="success" className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2.5 py-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>Active</span>
-                        </Badge>
-                      ) : quiz.questionsCount === 0 ? (
-                        <Badge
-                          variant="outline"
-                          title="Hidden from students until the first question is added — publishes automatically then."
-                          className="font-bold flex items-center w-fit gap-1.5 text-[11px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1"
-                        >
-                          <AlertCircle className="w-3 h-3" />
-                          <span>No Questions</span>
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="font-bold flex items-center w-fit gap-1.5 text-[11px] bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700 px-2.5 py-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                          <span>Draft</span>
-                        </Badge>
-                      )}
+                      {(() => {
+                        const qCount = quiz.questionsCount ?? (quiz.questions?.length ?? 0);
+                        if (quiz.isActive) {
+                          if (qCount === 0) {
+                            return (
+                              <Badge
+                                variant="outline"
+                                title="Active status is checked, but no questions have been added yet."
+                                className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1"
+                              >
+                                <AlertCircle className="w-3 h-3" />
+                                <span>No Questions</span>
+                              </Badge>
+                            );
+                          }
+                          return (
+                            <Badge
+                              variant="success"
+                              className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2.5 py-1"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Active</span>
+                            </Badge>
+                          );
+                        }
+                        return (
+                          <Badge
+                            variant="outline"
+                            className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 px-2.5 py-1"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                            <span>Inactive</span>
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="font-mono font-extrabold text-cyan-600 dark:text-cyan-300 whitespace-nowrap">
                       <Link href={`/admin/quizzes/${quiz.id}/questions`}>
@@ -975,12 +1070,24 @@ export default function QuizAdminPage() {
                 label="Release Date"
                 value={formik.values.releaseDate}
                 onChange={(d) => formik.setFieldValue('releaseDate', d)}
-                minDate={new Date().toISOString().split('T')[0]}
+                minDate={todayLocalDateStr()}
+                helperText="Students see this quiz only from this moment on. Leave empty to release immediately."
               />
               <TimePicker
                 label="Release Time"
                 value={formik.values.releaseTime}
                 onChange={(t) => formik.setFieldValue('releaseTime', t)}
+                // Only today's picks are limited by the clock — any later date
+                // is free to use the full 24 hours.
+                minTime={
+                  formik.values.releaseDate === todayLocalDateStr() ? nowLocalTimeStr() : undefined
+                }
+                error={formik.errors.releaseTime}
+                helperText={
+                  !formik.errors.releaseTime
+                    ? 'Blank = 12:00 AM on that date, or right away if the date is today.'
+                    : undefined
+                }
               />
             </div>
 
@@ -1156,7 +1263,7 @@ export default function QuizAdminPage() {
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:after:border-slate-600 peer-checked:bg-rose-500"></div>
-                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 min-w-[32px]">
+                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 w-8 text-left shrink-0">
                     {formik.values.negativeMarkingEnabled ? 'ON' : 'OFF'}
                   </span>
                 </label>
@@ -1230,7 +1337,7 @@ export default function QuizAdminPage() {
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:after:border-slate-600 peer-checked:bg-rose-500"></div>
-                      <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 min-w-[32px]">
+                      <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 w-8 text-left shrink-0">
                         {formik.values.allowNegativeScore ? 'ON' : 'OFF'}
                       </span>
                     </label>
@@ -1265,7 +1372,7 @@ export default function QuizAdminPage() {
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:after:border-slate-600 peer-checked:bg-cyan-500"></div>
-                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 min-w-[32px]">
+                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 w-8 text-left shrink-0">
                     {formik.values.showCorrectAnswerAfterSelection ? 'ON' : 'OFF'}
                   </span>
                 </label>
@@ -1280,31 +1387,50 @@ export default function QuizAdminPage() {
                     <Eye className="w-4 h-4" />
                   </div>
                   <div>
-                    <label htmlFor="isActive" className={`text-xs sm:text-sm font-bold text-slate-900 dark:text-white block ${isActiveToggleLocked ? '' : 'cursor-pointer'}`}>
-                      Active Status (Visible to Students)
-                    </label>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
-                      {isActiveToggleLocked
-                        ? editingQuizId
-                          ? 'This quiz has no questions yet, so it stays hidden from students. Add a question in the Questions Studio and it publishes automatically.'
-                          : 'New quizzes start hidden — add the first question after creating it and this switches on by itself.'
-                        : 'When ON, this quiz is published and accessible to students.'}
+                    <div className="flex items-center space-x-2 whitespace-nowrap">
+                      <label htmlFor="isActive" className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white cursor-pointer whitespace-nowrap shrink-0">
+                        Active Status (Visible to Students)
+                      </label>
+                      {formik.values.isActive ? (
+                        editingQuizQuestionsCount === 0 ? (
+                          <Badge variant="warning" className="font-extrabold text-[10px] px-2 py-0.5 inline-flex items-center gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap shrink-0">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>No Questions</span>
+                          </Badge>
+                        ) : (
+                          <Badge variant="success" className="font-extrabold text-[10px] px-2 py-0.5 inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 whitespace-nowrap shrink-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>Active</span>
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge variant="outline" className="font-extrabold text-[10px] px-2 py-0.5 inline-flex items-center gap-1 bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 whitespace-nowrap shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          <span>Inactive</span>
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal mt-0.5">
+                      {formik.values.isActive
+                        ? editingQuizQuestionsCount === 0
+                          ? 'When ON, makes quiz visible to students (requires at least 1 question).'
+                          : 'When ON, quiz is published and visible to students.'
+                        : 'When OFF, quiz is hidden from students.'}
                     </p>
                   </div>
                 </div>
 
-                <label className={`relative inline-flex items-center shrink-0 ${isActiveToggleLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                <label className="relative inline-flex items-center shrink-0 cursor-pointer">
                   <input
                     type="checkbox"
                     id="isActive"
-                    checked={isActiveToggleLocked ? false : formik.values.isActive}
-                    disabled={isActiveToggleLocked}
+                    checked={formik.values.isActive}
                     onChange={(e) => formik.setFieldValue('isActive', e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:after:border-slate-600 peer-checked:bg-emerald-500"></div>
-                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 min-w-[32px]">
-                    {isActiveToggleLocked ? 'OFF' : formik.values.isActive ? 'ON' : 'OFF'}
+                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 w-8 text-left shrink-0">
+                    {formik.values.isActive ? 'ON' : 'OFF'}
                   </span>
                 </label>
               </div>
@@ -1336,7 +1462,7 @@ export default function QuizAdminPage() {
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:after:border-slate-600 peer-checked:bg-cyan-500"></div>
-                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 min-w-[32px]">
+                  <span className="ml-2.5 text-xs font-extrabold font-mono text-slate-800 dark:text-slate-200 w-8 text-left shrink-0">
                     {formik.values.isLive ? 'ON' : 'OFF'}
                   </span>
                 </label>
@@ -1374,7 +1500,7 @@ export default function QuizAdminPage() {
                         label="Scheduled Date *"
                         value={formik.values.mockTestDate}
                         onChange={(d) => formik.setFieldValue('mockTestDate', d)}
-                        minDate={new Date().toISOString().split('T')[0]}
+                        minDate={todayLocalDateStr()}
                       />
                       {formik.touched.mockTestDate && formik.errors.mockTestDate && (
                         <p className="text-xs font-semibold text-rose-500">{formik.errors.mockTestDate}</p>
@@ -1385,6 +1511,7 @@ export default function QuizAdminPage() {
                         label="Scheduled Time *"
                         value={formik.values.mockTestTime}
                         onChange={(t) => formik.setFieldValue('mockTestTime', t)}
+                        minTime={getMinMockTestTime(formik.values.mockTestDate)}
                       />
                       {formik.touched.mockTestTime && formik.errors.mockTestTime && (
                         <p className="text-xs font-semibold text-rose-500">{formik.errors.mockTestTime}</p>

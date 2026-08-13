@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCouponDto } from './dto/create-coupon.dto';
+import { UpdateCouponDto } from './dto/update-coupon.dto';
 
 @Injectable()
 export class CouponsService {
@@ -35,6 +36,33 @@ export class CouponsService {
         maxDiscountAmount: data.maxDiscountAmount,
         validTill: new Date(data.validTill),
         isActive: data.isActive ?? true,
+      },
+    });
+  }
+
+  /**
+   * Partial update — also used for the plain enable/disable toggle, which
+   * sends `{ isActive }` alone and relies on every other field being
+   * left untouched.
+   */
+  async update(id: string, data: UpdateCouponDto) {
+    const existing = await this.prisma.coupon.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Coupon not found');
+
+    const nextCode = data.code ? data.code.trim().toUpperCase() : undefined;
+    if (nextCode && nextCode !== existing.code) {
+      const clash = await this.prisma.coupon.findUnique({ where: { code: nextCode } });
+      if (clash) throw new BadRequestException('A coupon with this code already exists');
+    }
+
+    return this.prisma.coupon.update({
+      where: { id },
+      data: {
+        ...(nextCode !== undefined && { code: nextCode }),
+        ...(data.discountPercent !== undefined && { discountPercent: data.discountPercent }),
+        ...(data.maxDiscountAmount !== undefined && { maxDiscountAmount: data.maxDiscountAmount }),
+        ...(data.validTill !== undefined && { validTill: new Date(data.validTill) }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
       },
     });
   }

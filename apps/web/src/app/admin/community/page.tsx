@@ -77,7 +77,6 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 const groupSchema = Yup.object({
   groupName: Yup.string().trim().required('Group name is required'),
   groupDesc: Yup.string().trim().required('Description is required'),
-  groupCategory: Yup.string().required('Category is required'),
 });
 
 const postAnnouncementSchema = Yup.object({
@@ -171,7 +170,10 @@ export default function AdminCommunityPage() {
   };
 
   const groupFormik = useFormik({
-    initialValues: { groupName: '', groupDesc: '', groupCategory: 'Kerala PSC' },
+    // Category is no longer chosen at creation (the picker was removed from
+    // the form), so every new group gets a neutral default rather than
+    // silently defaulting to "Kerala PSC" for groups about anything else.
+    initialValues: { groupName: '', groupDesc: '', groupCategory: 'General' },
     validationSchema: groupSchema,
     onSubmit: async (values, { setSubmitting }) => {
       setGroupFormError('');
@@ -340,7 +342,7 @@ export default function AdminCommunityPage() {
   const handleOpenCreateModal = () => {
     setEditingGroup(null);
     groupFormik.resetForm({
-      values: { groupName: '', groupDesc: '', groupCategory: 'Kerala PSC' },
+      values: { groupName: '', groupDesc: '', groupCategory: 'General' },
     });
     setGroupFormError('');
     setGroupImageFile(null);
@@ -875,22 +877,6 @@ export default function AdminCommunityPage() {
                 )}
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 dark:text-slate-300">Category</label>
-                <select
-                  name="groupCategory"
-                  value={groupFormik.values.groupCategory}
-                  onChange={groupFormik.handleChange}
-                  onBlur={groupFormik.handleBlur}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                >
-                  <option value="Kerala PSC">Kerala PSC</option>
-                  <option value="SSC & UPSC">SSC & UPSC</option>
-                  <option value="Subject Wise">Subject Wise</option>
-                  <option value="General">General</option>
-                </select>
-              </div>
-
               <div className="pt-2 flex items-center justify-end space-x-3">
                 <Button type="button" variant="outline" onClick={() => setIsGroupModalOpen(false)} disabled={groupFormik.isSubmitting}>
                   Cancel
@@ -918,7 +904,7 @@ export default function AdminCommunityPage() {
           <div className="w-full max-w-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-                <Megaphone className="w-5 h-5 text-amber-500" />
+                <Megaphone className="w-5 h-5 text-cyan-500" />
                 <span>Post Admin Announcement & Content</span>
               </h3>
               <button type="button" onClick={() => setIsPostModalOpen(false)} className="text-slate-400">
@@ -961,7 +947,7 @@ export default function AdminCommunityPage() {
                   onBlur={postFormik.handleBlur}
                   placeholder="Write your announcement, instructions, or exam update..."
                   rows={4}
-                  className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                  className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                 />
                 {postFormik.touched.postContent && postFormik.errors.postContent && (
                   <p className="text-xs text-rose-500 font-medium">{postFormik.errors.postContent}</p>
@@ -1000,7 +986,7 @@ export default function AdminCommunityPage() {
                         type="button"
                         onClick={() => postFormik.setFieldValue('attachmentType', 'pdf')}
                         className={`p-2 rounded-lg text-center font-bold text-[11px] border ${
-                          postFormik.values.attachmentType === 'pdf' ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
+                          postFormik.values.attachmentType === 'pdf' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         PDF Document
@@ -1009,7 +995,7 @@ export default function AdminCommunityPage() {
                         type="button"
                         onClick={() => postFormik.setFieldValue('attachmentType', 'image')}
                         className={`p-2 rounded-lg text-center font-bold text-[11px] border ${
-                          postFormik.values.attachmentType === 'image' ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
+                          postFormik.values.attachmentType === 'image' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         Image Note
@@ -1018,7 +1004,7 @@ export default function AdminCommunityPage() {
                         type="button"
                         onClick={() => postFormik.setFieldValue('attachmentType', 'audio')}
                         className={`p-2 rounded-lg text-center font-bold text-[11px] border ${
-                          postFormik.values.attachmentType === 'audio' ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
+                          postFormik.values.attachmentType === 'audio' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         Audio Explanation
@@ -1045,9 +1031,9 @@ export default function AdminCommunityPage() {
                     type="checkbox"
                     checked={postFormik.values.hasPoll}
                     onChange={(e) => postFormik.setFieldValue('hasPoll', e.target.checked)}
-                    className="rounded text-amber-500 focus:ring-amber-500"
+                    className="rounded text-cyan-500 focus:ring-cyan-500"
                   />
-                  <BarChart2 className="w-3.5 h-3.5 text-indigo-500" />
+                  <BarChart2 className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Create Interactive Poll</span>
                 </label>
 
@@ -1107,7 +1093,7 @@ export default function AdminCommunityPage() {
                               `Option ${postFormik.values.pollOptions.length + 1}`,
                             ])
                           }
-                          className="text-amber-500 text-xs font-bold hover:underline inline-block pt-1"
+                          className="text-cyan-600 dark:text-cyan-400 text-xs font-bold hover:underline inline-block pt-1"
                         >
                           + Add Option
                         </button>
@@ -1121,7 +1107,7 @@ export default function AdminCommunityPage() {
                 <Button type="button" variant="outline" onClick={() => setIsPostModalOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" variant="gold" className="font-bold">
+                <Button type="submit" variant="gold" className="font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none">
                   Publish Content
                 </Button>
               </div>
@@ -1230,7 +1216,7 @@ export default function AdminCommunityPage() {
                           onClick={() =>
                             setConfirmAction({ type: 'block-member', userId: m.userId, name: m.user.name })
                           }
-                          className="px-2.5 py-1 rounded-xl bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white transition-all font-bold text-[11px] flex items-center space-x-1"
+                          className="px-2.5 py-1 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-600 hover:text-white transition-all font-bold text-[11px] flex items-center space-x-1"
                         >
                           <Ban className="w-3.5 h-3.5" />
                           <span>Block</span>

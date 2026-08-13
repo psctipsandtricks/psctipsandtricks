@@ -34,6 +34,27 @@ interface QuizQuestion {
   marks: number;
 }
 
+interface SavedQuizProgress {
+  attemptId: string;
+  currentIndex: number;
+  selectedAnswers: Record<string, number>;
+}
+
+const progressStorageKey = (quizId: string) => `quiz-progress-${quizId}`;
+
+function loadSavedProgress(quizId: string, attemptId: string): SavedQuizProgress | null {
+  try {
+    const raw = localStorage.getItem(progressStorageKey(quizId));
+    if (!raw) return null;
+    const saved: SavedQuizProgress = JSON.parse(raw);
+    // Only trust it for the attempt it was saved against — a completed
+    // attempt followed by a fresh one must not inherit stale progress.
+    return saved.attemptId === attemptId ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function QuizTakingPage({ params }: { params: { id: string } }) {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -108,6 +129,17 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
           if (attempt) {
             setAttemptId(attempt.id);
             setAttemptNumber(attempt.attemptNumber || 1);
+
+            // The backend only persists answers on final submit, so the exact
+            // question/answers to resume at are tracked locally per attempt.
+            const saved = loadSavedProgress(params.id, attempt.id);
+            if (saved) {
+              setSelectedAnswers(saved.selectedAnswers);
+              setCurrentIndex(Math.min(saved.currentIndex, Math.max(0, mapped.length - 1)));
+            } else {
+              setCurrentIndex(0);
+              setSelectedAnswers({});
+            }
           }
         } catch (e) {
           console.warn('Could not initialize backend attempt record:', e);
@@ -127,6 +159,13 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearInterval(timer);
   }, [timeLeft, isSubmitted, loading, user]);
+
+  // Track exactly where the student is so a Resume click can land back here.
+  useEffect(() => {
+    if (!attemptId || isSubmitted || loading) return;
+    const progress: SavedQuizProgress = { attemptId, currentIndex, selectedAnswers };
+    localStorage.setItem(progressStorageKey(params.id), JSON.stringify(progress));
+  }, [attemptId, currentIndex, selectedAnswers, isSubmitted, loading, params.id]);
 
   if (loading || authLoading || !user) {
     return <QuizTakingSkeleton />;
@@ -211,6 +250,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
       attemptNumber,
     });
     setIsSubmitted(true);
+    localStorage.removeItem(progressStorageKey(params.id));
 
     // 2. Persist attempt asynchronously to backend in background
     ApiClient.submitQuizAttempt(

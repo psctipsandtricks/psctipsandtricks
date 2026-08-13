@@ -28,14 +28,16 @@ export class OrdersService {
     } else if (data.bookId) {
       const book = await this.prisma.book.findUnique({
         where: { id: data.bookId },
-        select: { price: true, isPremium: true },
+        select: { price: true, finalPrice: true, isPremium: true },
       });
       if (!book) throw new NotFoundException('Book not found');
 
       const isPaidBook = book.isPremium || (book.price ?? 0) > 0;
       if (!isPaidBook) throw new BadRequestException('This book is free — no payment is needed.');
 
-      amount = book.price ?? 0;
+      // `finalPrice` already has the book's own discount applied — charging
+      // `price` here would bill the student more than the listing showed.
+      amount = book.finalPrice ?? book.price ?? 0;
     }
 
     // Apply coupon discount if provided
@@ -49,6 +51,10 @@ export class OrdersService {
           coupon.maxDiscountAmount,
         );
         amount = Math.max(0, Math.round(amount - discountAmount));
+        await this.prisma.coupon.update({
+          where: { id: coupon.id },
+          data: { usageCount: { increment: 1 } },
+        });
       }
     }
 

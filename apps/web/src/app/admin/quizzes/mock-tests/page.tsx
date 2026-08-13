@@ -24,15 +24,36 @@ import {
   Skeleton,
   Pagination,
   ConfirmDialog,
+  getMinMockTestTime,
+  todayLocalDateStr,
 } from '@psc/ui';
-import { Radio, ChevronLeft, Plus, Users, Calendar, Trash2, Edit3, Loader2, Trophy } from 'lucide-react';
+import { Radio, ChevronLeft, Plus, Users, Calendar, Trash2, Edit3, Loader2, Trophy, Search } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
+import { QuizPicker } from './quiz-picker';
 
 const mockTestSchema = Yup.object({
   title: Yup.string().trim().required('Mock test title is required'),
   quizId: Yup.string().required('Please select a quiz'),
-  scheduledDate: Yup.string().required('Scheduled date is required'),
-  scheduledTime: Yup.string().required('Scheduled time is required'),
+  scheduledDate: Yup.string()
+    .required('Scheduled date is required')
+    .test('not-past-date', 'Scheduled date cannot be in the past', function (date) {
+      if (!date) return true;
+      return date >= todayLocalDateStr();
+    }),
+  scheduledTime: Yup.string()
+    .required('Scheduled time is required')
+    .test(
+      'at-least-1-min-future',
+      'Scheduled date and time must be at least 1 minute after the current time.',
+      function (time) {
+        const date = (this.parent as any).scheduledDate;
+        if (!date || !time) return true;
+        const iso = combineDateAndTime(date, time);
+        if (!iso) return true;
+        const minAllowedTime = Date.now() + 60_000 - 5_000;
+        return new Date(iso).getTime() >= minAllowedTime;
+      },
+    ),
 });
 
 export default function AdminMockTestsPage() {
@@ -42,6 +63,7 @@ export default function AdminMockTestsPage() {
   const [quizzes, setQuizzes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'UPCOMING' | 'LIVE' | 'COMPLETED'>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMockTest, setEditingMockTest] = useState<any | null>(null);
@@ -51,6 +73,12 @@ export default function AdminMockTestsPage() {
   const [selectedLeaderboardMockTest, setSelectedLeaderboardMockTest] = useState<any | null>(null);
   const [adminLeaderboard, setAdminLeaderboard] = useState<any[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 10_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!selectedLeaderboardMockTest) return;
@@ -123,7 +151,16 @@ export default function AdminMockTestsPage() {
 
   const handleOpenCreateDialog = () => {
     setEditingMockTest(null);
-    formik.resetForm();
+    const today = todayLocalDateStr();
+    const minTime = getMinMockTestTime(today) || '10:00';
+    formik.resetForm({
+      values: {
+        title: '',
+        quizId: '',
+        scheduledDate: today,
+        scheduledTime: minTime,
+      },
+    });
     setIsDialogOpen(true);
   };
 
@@ -156,13 +193,20 @@ export default function AdminMockTestsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter]);
+  }, [statusFilter, searchTerm]);
 
   // Newest-scheduled first, so a session you just added is at the top of the
   // list. The API orders by scheduledAt ascending for the student-facing
   // "next upcoming" lists, so the admin ordering is applied here instead.
+  const trimmedSearch = searchTerm.trim().toLowerCase();
   const filteredMockTests = mockTests
     .filter((mt) => statusFilter === 'ALL' || mt.status === statusFilter)
+    .filter(
+      (mt) =>
+        !trimmedSearch ||
+        mt.title?.toLowerCase().includes(trimmedSearch) ||
+        mt.quiz?.title?.toLowerCase().includes(trimmedSearch),
+    )
     .sort((a, b) => {
       const createdDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       // Records created in the same batch fall back to the later session first.
@@ -207,22 +251,34 @@ export default function AdminMockTestsPage() {
           </Button>
         </div>
 
-        {/* Status Filter Bar */}
-        <div className="flex items-center space-x-1 bg-slate-200/80 dark:bg-[#091124] p-1 rounded-xl border border-slate-300/80 dark:border-[#1e2e56] self-start w-fit">
-          {(['ALL', 'UPCOMING', 'LIVE', 'COMPLETED'] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                statusFilter === s
-                  ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-cyan-300'
-              }`}
-            >
-              {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()} (
-              {s === 'ALL' ? mockTests.length : mockTests.filter((mt) => mt.status === s).length})
-            </button>
-          ))}
+        {/* Status Filter Bar & Search */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+          <div className="flex items-center space-x-1 bg-slate-200/80 dark:bg-[#091124] p-1 rounded-xl border border-slate-300/80 dark:border-[#1e2e56] self-start w-fit">
+            {(['ALL', 'UPCOMING', 'LIVE', 'COMPLETED'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  statusFilter === s
+                    ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-cyan-300'
+                }`}
+              >
+                {s === 'ALL' ? 'All' : s.charAt(0) + s.slice(1).toLowerCase()} (
+                {s === 'ALL' ? mockTests.length : mockTests.filter((mt) => mt.status === s).length})
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Input
+              placeholder="Search by title or quiz…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
+          </div>
         </div>
       </div>
 
@@ -260,19 +316,26 @@ export default function AdminMockTestsPage() {
                         <Radio className="w-6 h-6" />
                       </div>
                       <div className="space-y-1">
-                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white">No Mock Tests Scheduled</h3>
+                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                          {trimmedSearch ? 'No Matching Mock Tests' : 'No Mock Tests Scheduled'}
+                        </h3>
                         <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                          No live mock tests scheduled matching your selected status filter.
+                          {trimmedSearch
+                            ? `No mock tests match "${searchTerm.trim()}". Try a different title or quiz name.`
+                            : 'No live mock tests scheduled matching your selected status filter.'}
                         </p>
                       </div>
-                      {statusFilter !== 'ALL' && (
+                      {(statusFilter !== 'ALL' || trimmedSearch) && (
                         <Button
                           variant="outline"
                           size="sm"
                           className="text-xs font-bold border-amber-500/40 text-amber-500 hover:bg-amber-500/10 mt-1 cursor-pointer"
-                          onClick={() => setStatusFilter('ALL')}
+                          onClick={() => {
+                            setStatusFilter('ALL');
+                            setSearchTerm('');
+                          }}
                         >
-                          Show All Mock Tests
+                          Clear Filters
                         </Button>
                       )}
                     </div>
@@ -320,8 +383,12 @@ export default function AdminMockTestsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="py-3.5 whitespace-nowrap">
-                        {mt.status === 'LIVE' ? (
-                          <Badge variant="gold" className="text-[10px] font-bold animate-pulse">🔴 LIVE</Badge>
+                        {!mt.quiz?.totalQuestions ? (
+                          <Badge variant="outline" className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                            No Questions
+                          </Badge>
+                        ) : mt.status === 'LIVE' ? (
+                          <Badge variant="success" className="text-[10px] font-bold animate-pulse">🟢 LIVE</Badge>
                         ) : mt.status === 'UPCOMING' ? (
                           <Badge variant="outline" className="text-[10px] text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10 font-bold">
                             UPCOMING
@@ -352,8 +419,9 @@ export default function AdminMockTestsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="p-2 rounded-xl text-cyan-700 dark:text-cyan-300 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all shadow-xs"
-                            title="Edit Mock Test"
+                            disabled={mt.status !== 'UPCOMING'}
+                            className="p-2 rounded-xl text-cyan-700 dark:text-cyan-300 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-cyan-700 dark:disabled:hover:text-cyan-300 disabled:hover:border-transparent disabled:hover:bg-transparent"
+                            title={mt.status === 'UPCOMING' ? 'Edit Mock Test' : `Cannot edit a ${mt.status.toLowerCase()} mock test`}
                             aria-label="Edit Mock Test"
                             onClick={() => handleEdit(mt)}
                           >
@@ -417,44 +485,32 @@ export default function AdminMockTestsPage() {
             onBlur={formik.handleBlur}
             error={formik.touched.title && formik.errors.title ? formik.errors.title : undefined}
           />
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Quiz</label>
-            <select
-              name="quizId"
-              value={formik.values.quizId}
-              onChange={formik.handleChange}
-              onBlur={formik.handleBlur}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/60"
-            >
-              <option value="">Select a quiz…</option>
-              {quizzes.map((q) => (
-                <option key={q.id} value={q.id}>
-                  {q.title} ({q.totalQuestions || q.questions?.length || 0} Qs, {q.durationMinutes} min)
-                </option>
-              ))}
-            </select>
-            {formik.touched.quizId && formik.errors.quizId && (
-              <p className="text-xs text-rose-500 font-medium">{formik.errors.quizId}</p>
-            )}
-          </div>
+          <QuizPicker
+            quizzes={quizzes}
+            value={formik.values.quizId}
+            onChange={(id) => formik.setFieldValue('quizId', id, true)}
+            onBlur={() => formik.setFieldTouched('quizId', true, true)}
+            error={formik.touched.quizId && formik.errors.quizId ? formik.errors.quizId : undefined}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <DatePicker
               label="Scheduled Date"
               value={formik.values.scheduledDate}
               onChange={(d) => {
-                formik.setFieldValue('scheduledDate', d);
-                formik.setFieldTouched('scheduledDate', true);
+                formik.setFieldValue('scheduledDate', d, true);
+                formik.setFieldTouched('scheduledDate', true, false);
               }}
-              minDate={new Date().toISOString().split('T')[0]}
+              minDate={todayLocalDateStr()}
               error={formik.touched.scheduledDate && formik.errors.scheduledDate ? (formik.errors.scheduledDate as string) : undefined}
             />
             <TimePicker
               label="Scheduled Time"
               value={formik.values.scheduledTime}
               onChange={(t) => {
-                formik.setFieldValue('scheduledTime', t);
-                formik.setFieldTouched('scheduledTime', true);
+                formik.setFieldValue('scheduledTime', t, true);
+                formik.setFieldTouched('scheduledTime', true, false);
               }}
+              minTime={getMinMockTestTime(formik.values.scheduledDate)}
               error={formik.touched.scheduledTime && formik.errors.scheduledTime ? (formik.errors.scheduledTime as string) : undefined}
             />
           </div>

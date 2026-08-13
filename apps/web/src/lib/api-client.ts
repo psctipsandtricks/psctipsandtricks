@@ -1,11 +1,16 @@
 import {
   Book,
+  BookSubscriptionType,
+  Chapter,
+  Topic,
+  Subtopic,
   Quiz,
   QuizSubmissionPayload,
   QuizResult,
   LeaderboardEntry,
   Order,
   OrderWithItems,
+  Coupon,
   UserProfile,
   AuthResponse,
   User,
@@ -19,6 +24,24 @@ import {
 } from '@psc/shared-types';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+
+/** Book fields an admin can write. `finalPrice` is intentionally absent — the server derives it from price + discountPercent. */
+export interface BookWritePayload {
+  title: string;
+  author: string;
+  description: string;
+  category: string;
+  price?: number;
+  discountPercent?: number;
+  publicationYear?: number;
+  productId?: string;
+  appleId?: string;
+  basePlanId?: string;
+  subscriptionType?: BookSubscriptionType;
+  isPremium?: boolean;
+  isPublished?: boolean;
+  visibleToGuests?: boolean;
+}
 
 // The admin panel keeps a completely separate session from the student site —
 // separate storage keys, separate refresh/expiry handling — so being logged
@@ -232,6 +255,15 @@ export const ApiClient = {
   login: (data: any) => fetcher<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   register: (data: any) => fetcher<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   getMe: () => fetcher<User>('/auth/me'),
+  getAdminDashboard: () =>
+    fetcher<{
+      totalUsers: number;
+      totalQuizzes: number;
+      totalBooks: number;
+      totalOrders: number;
+      totalRevenue: number;
+      recentSubmissions: any[];
+    }>('/admin/dashboard'),
   getUsers: () => fetcher<User[]>('/users'),
   createUser: (payload: any) => fetcher<User>('/users', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateUser: (id: string, payload: any) =>
@@ -245,6 +277,80 @@ export const ApiClient = {
   // Books
   getBooks: () => fetcher<Book[]>('/books'),
   getBookById: (id: string) => fetcher<Book>(`/books/${id}`),
+  createBook: (payload: BookWritePayload & { coverUrl: string }) =>
+    fetcher<Book>('/books', { method: 'POST', body: JSON.stringify(payload) }),
+  updateBook: (id: string, payload: Partial<BookWritePayload>) =>
+    fetcher<Book>(`/books/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteBook: (id: string) => fetcher<any>(`/books/${id}`, { method: 'DELETE' }),
+  uploadBookCover: (id: string, file: File) => uploadFetcher<Book>(`/books/${id}/cover`, file),
+
+  // Chapters (Admin)
+  getChapters: (bookId: string) => fetcher<Chapter[]>(`/books/${bookId}/chapters`),
+  getChapter: (chapterId: string) => fetcher<Chapter>(`/books/chapters/${chapterId}`),
+  createChapter: (bookId: string, payload: {
+    title: string;
+    description?: string;
+    orderIndex?: number;
+    isActive?: boolean;
+    youtubeUrl?: string;
+  }) => fetcher<Chapter>(`/books/${bookId}/chapters`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateChapter: (chapterId: string, payload: Partial<{
+    title: string;
+    description: string;
+    orderIndex: number;
+    isActive: boolean;
+    youtubeUrl: string;
+  }>) => fetcher<Chapter>(`/books/chapters/${chapterId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteChapter: (chapterId: string) => fetcher<any>(`/books/chapters/${chapterId}`, { method: 'DELETE' }),
+  reorderChapters: (bookId: string, chapters: { id: string; orderIndex: number }[]) =>
+    fetcher<Chapter[]>(`/books/${bookId}/chapters/reorder`, { method: 'PATCH', body: JSON.stringify({ chapters }) }),
+  uploadChapterAudio: (chapterId: string, file: File) => uploadFetcher<Chapter>(`/books/chapters/${chapterId}/audio`, file),
+  uploadChapterPdf: (chapterId: string, file: File) => uploadFetcher<Chapter>(`/books/chapters/${chapterId}/pdf`, file),
+
+  // Topics (Admin)
+  getTopics: (chapterId: string) => fetcher<Topic[]>(`/books/chapters/${chapterId}/topics`),
+  getTopic: (topicId: string) => fetcher<Topic>(`/books/topics/${topicId}`),
+  createTopic: (chapterId: string, payload: {
+    title: string;
+    description?: string;
+    orderIndex?: number;
+    isActive?: boolean;
+    youtubeUrl?: string;
+  }) => fetcher<Topic>(`/books/chapters/${chapterId}/topics`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateTopic: (topicId: string, payload: Partial<{
+    title: string;
+    description: string;
+    orderIndex: number;
+    isActive: boolean;
+    youtubeUrl: string;
+  }>) => fetcher<Topic>(`/books/topics/${topicId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteTopic: (topicId: string) => fetcher<any>(`/books/topics/${topicId}`, { method: 'DELETE' }),
+  reorderTopics: (chapterId: string, topics: { id: string; orderIndex: number }[]) =>
+    fetcher<Topic[]>(`/books/chapters/${chapterId}/topics/reorder`, { method: 'PATCH', body: JSON.stringify({ topics }) }),
+  uploadTopicAudio: (topicId: string, file: File) => uploadFetcher<Topic>(`/books/topics/${topicId}/audio`, file),
+  uploadTopicPdf: (topicId: string, file: File) => uploadFetcher<Topic>(`/books/topics/${topicId}/pdf`, file),
+
+  // Subtopics (Admin)
+  getSubtopics: (topicId: string) => fetcher<Subtopic[]>(`/books/topics/${topicId}/subtopics`),
+  createSubtopic: (topicId: string, payload: {
+    title: string;
+    description?: string;
+    orderIndex?: number;
+    isActive?: boolean;
+    youtubeUrl?: string;
+  }) => fetcher<Subtopic>(`/books/topics/${topicId}/subtopics`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateSubtopic: (subtopicId: string, payload: Partial<{
+    title: string;
+    description: string;
+    orderIndex: number;
+    isActive: boolean;
+    youtubeUrl: string;
+  }>) => fetcher<Subtopic>(`/books/subtopics/${subtopicId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteSubtopic: (subtopicId: string) => fetcher<any>(`/books/subtopics/${subtopicId}`, { method: 'DELETE' }),
+  reorderSubtopics: (topicId: string, subtopics: { id: string; orderIndex: number }[]) =>
+    fetcher<Subtopic[]>(`/books/topics/${topicId}/subtopics/reorder`, { method: 'PATCH', body: JSON.stringify({ subtopics }) }),
+  uploadSubtopicAudio: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/audio`, file),
+  uploadSubtopicPdf: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/pdf`, file),
 
   // Quizzes
   getQuizzes: () => fetcher<Quiz[]>('/quizzes'),
@@ -299,7 +405,33 @@ export const ApiClient = {
     razorpaySignature?: string;
   }) => fetcher<Order>('/orders/verify', { method: 'POST', body: JSON.stringify(payload) }),
   getAllOrders: () => fetcher<any[]>('/orders'),
+  /**
+   * Checks a coupon before checkout. The server is still the authority — it
+   * re-applies the discount when the order is created — so this only exists to
+   * show the student the price they will actually be charged.
+   */
+  validateCoupon: (code: string) =>
+    fetcher<{
+      id: string;
+      code: string;
+      discountPercent: number;
+      maxDiscountAmount: number;
+      validTill: string;
+      isActive: boolean;
+    }>(`/coupons/validate?code=${encodeURIComponent(code)}`),
   getMyOrders: () => fetcher<OrderWithItems[]>('/orders/me'),
+
+  // Coupons (Admin)
+  getCoupons: () => fetcher<Coupon[]>('/coupons'),
+  createCoupon: (payload: { code: string; discountPercent: number; maxDiscountAmount: number; validTill: string; isActive?: boolean }) =>
+    fetcher<Coupon>('/coupons', { method: 'POST', body: JSON.stringify(payload) }),
+  updateCoupon: (
+    id: string,
+    payload: Partial<{ code: string; discountPercent: number; maxDiscountAmount: number; validTill: string; isActive: boolean }>,
+  ) => fetcher<Coupon>(`/coupons/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  setCouponActive: (id: string, isActive: boolean) =>
+    fetcher<Coupon>(`/coupons/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+  deleteCoupon: (id: string) => fetcher<any>(`/coupons/${id}`, { method: 'DELETE' }),
 
   // Community Chat
   getChatGroups: () => fetcher<ChatGroupWithUserState[]>('/chat/groups/mine'),

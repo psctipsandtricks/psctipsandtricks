@@ -39,7 +39,7 @@ export interface StaffPermission {
   updatedAt: string;
 }
 
-export type ContentStatus = 'DRAFT' | 'PUBLISHED';
+export type BookSubscriptionType = 'FULL_TIME_ACCESS' | 'LIMITED_ACCESS' | 'SUBSCRIPTION';
 
 export interface Book {
   id: string;
@@ -49,9 +49,18 @@ export interface Book {
   coverUrl: string;
   pdfUrl?: string;
   price: number;
+  discountPercent: number;
+  /** Effective charged price — always price minus discountPercent, computed server-side. */
+  finalPrice: number;
   category: string;
+  publicationYear?: number | null;
+  productId?: string | null;
+  appleId?: string | null;
+  basePlanId?: string | null;
+  subscriptionType: BookSubscriptionType;
   isPremium: boolean;
   isPublished: boolean;
+  visibleToGuests: boolean;
   downloadCount: number;
   chapters?: Chapter[];
   createdAt: string;
@@ -62,11 +71,42 @@ export interface Chapter {
   id: string;
   bookId: string;
   title: string;
+  description?: string | null;
   orderIndex: number;
+  isActive: boolean;
   textContent?: string | null;
+  youtubeUrl?: string | null;
   audioUrl?: string | null;
   audioDurationSeconds?: number | null;
-  status: ContentStatus;
+  pdfUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Topic {
+  id: string;
+  chapterId: string;
+  title: string;
+  description?: string | null;
+  orderIndex: number;
+  isActive: boolean;
+  youtubeUrl?: string | null;
+  audioUrl?: string | null;
+  pdfUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Subtopic {
+  id: string;
+  topicId: string;
+  title: string;
+  description?: string | null;
+  orderIndex: number;
+  isActive: boolean;
+  youtubeUrl?: string | null;
+  audioUrl?: string | null;
+  pdfUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -109,7 +149,6 @@ export interface Quiz {
   id: string;
   title: string;
   category: string;
-  description: string;
   totalQuestions: number;
   durationMinutes: number;
   isLiveMock: boolean;

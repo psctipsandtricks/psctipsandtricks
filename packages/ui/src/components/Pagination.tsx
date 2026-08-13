@@ -11,6 +11,7 @@ export interface PaginationProps {
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
+  onPageDragOver?: (page: number) => void;
   pageSizeOptions?: number[];
   className?: string;
 }
@@ -22,6 +23,7 @@ export const Pagination: React.FC<PaginationProps> = ({
   pageSize,
   onPageChange,
   onPageSizeChange,
+  onPageDragOver,
   pageSizeOptions = [5, 10, 20, 50],
   className,
 }) => {
@@ -94,6 +96,13 @@ export const Pagination: React.FC<PaginationProps> = ({
         <button
           type="button"
           onClick={() => onPageChange(safeCurrentPage - 1)}
+          onDragOver={(e) => {
+            if (onPageDragOver && safeCurrentPage > 1) {
+              e.preventDefault();
+              onPageDragOver(safeCurrentPage - 1);
+            }
+          }}
+          data-page-target={safeCurrentPage > 1 ? safeCurrentPage - 1 : undefined}
           disabled={safeCurrentPage === 1}
           className="inline-flex items-center justify-center p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] hover:bg-slate-100 dark:hover:bg-[#0c152e] disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-xs"
           title="Previous Page"
@@ -119,6 +128,13 @@ export const Pagination: React.FC<PaginationProps> = ({
                 key={`page-${p}`}
                 type="button"
                 onClick={() => onPageChange(p)}
+                onDragOver={(e) => {
+                  if (onPageDragOver) {
+                    e.preventDefault();
+                    onPageDragOver(p);
+                  }
+                }}
+                data-page-target={p}
                 className={cn(
                   'min-w-[32px] h-8 px-2 rounded-lg text-xs font-bold transition-all',
                   isSelected
@@ -141,6 +157,13 @@ export const Pagination: React.FC<PaginationProps> = ({
         <button
           type="button"
           onClick={() => onPageChange(safeCurrentPage + 1)}
+          onDragOver={(e) => {
+            if (onPageDragOver && safeCurrentPage < safeTotalPages) {
+              e.preventDefault();
+              onPageDragOver(safeCurrentPage + 1);
+            }
+          }}
+          data-page-target={safeCurrentPage < safeTotalPages ? safeCurrentPage + 1 : undefined}
           disabled={safeCurrentPage >= safeTotalPages}
           className="inline-flex items-center justify-center p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
           title="Next Page"

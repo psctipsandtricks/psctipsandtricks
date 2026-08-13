@@ -2,6 +2,8 @@ export * from './utils';
 export * from './components/Button';
 export * from './components/Card';
 export * from './components/Input';
+export * from './components/Checkbox';
+export * from './components/ToggleSwitch';
 export * from './components/DateTimePicker';
 export * from './components/DatePicker';
 export * from './components/TimePicker';

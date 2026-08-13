@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 
 export interface ExportPDFQuestionOption {
-  id: string;
+  id?: string;
   text: string;
   explanation?: string;
 }
@@ -140,29 +140,23 @@ export function generateQuizSolutionsPDF({
       const isCorrect = optIdx === q.correct;
       const isUserChoice = q.userSelection !== undefined && q.userSelection === optIdx;
 
-      // Determine Explanation text for EVERY option
-      let explanationText = optObj.explanation ? optObj.explanation.trim() : '';
-      if (!explanationText) {
-        if (isCorrect) {
-          explanationText = `Option ${optionLetter} is the correct answer for this question.`;
-        } else {
-          explanationText = `Option ${optionLetter} is an incorrect answer choice.`;
-        }
-      }
+      // Determine Explanation text for option (only if explicitly provided)
+      const explanationText = optObj.explanation ? optObj.explanation.trim() : '';
+      const hasOptionExplanation = explanationText.length > 0;
 
       // Calculate heights and spacing
       const textWidth = contentWidth - 55; // Leave room for right status badge
       const optTextLines = doc.splitTextToSize(`${optObj.text}`, textWidth);
       const textHeight = optTextLines.length * 4.5;
 
-      const explLines = doc.splitTextToSize(`Explanation: ${explanationText}`, contentWidth - 30);
-      const explHeight = explLines.length * 4.2;
+      const explLines = hasOptionExplanation ? doc.splitTextToSize(`Explanation: ${explanationText}`, contentWidth - 30) : [];
+      const explHeight = hasOptionExplanation ? explLines.length * 4.2 : 0;
 
       // Total Card Height with generous padding & vertical spacing
       const topPadding = 4;
-      const verticalGap = 4.5;
+      const verticalGap = hasOptionExplanation ? 4.5 : 0;
       const bottomPadding = 4;
-      const totalCardHeight = Math.max(14, topPadding + textHeight + verticalGap + explHeight + bottomPadding);
+      const totalCardHeight = Math.max(12, topPadding + textHeight + verticalGap + explHeight + bottomPadding);
 
       checkAddPage(totalCardHeight + 4);
 
@@ -223,24 +217,26 @@ export function generateQuizSolutionsPDF({
         doc.text('YOUR SELECTION', pageWidth - margin - 17, y + 7.5, { align: 'center' });
       }
 
-      // Option Explanation Sub-Section (Spaced generously below option text)
-      const explY = optTextY + textHeight + 2.5;
+      // Option Explanation Sub-Section (Only if an explanation text is explicitly provided)
+      if (hasOptionExplanation) {
+        const explY = optTextY + textHeight + 2.5;
 
-      // Vertical accent bar on explanation
-      if (isCorrect) doc.setDrawColor(16, 185, 129);
-      else if (isUserChoice) doc.setDrawColor(244, 63, 94);
-      else doc.setDrawColor(203, 213, 225);
+        // Vertical accent bar on explanation
+        if (isCorrect) doc.setDrawColor(16, 185, 129);
+        else if (isUserChoice) doc.setDrawColor(244, 63, 94);
+        else doc.setDrawColor(203, 213, 225);
 
-      doc.setLineWidth(0.8);
-      doc.line(margin + 15, explY - 2.5, margin + 15, explY + explHeight - 3);
+        doc.setLineWidth(0.8);
+        doc.line(margin + 15, explY - 2.5, margin + 15, explY + explHeight - 3);
 
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8.5);
-      if (isCorrect) doc.setTextColor(4, 120, 87); // emerald-700
-      else if (isUserChoice) doc.setTextColor(190, 18, 60); // rose-700
-      else doc.setTextColor(100, 116, 139); // slate-500
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8.5);
+        if (isCorrect) doc.setTextColor(4, 120, 87); // emerald-700
+        else if (isUserChoice) doc.setTextColor(190, 18, 60); // rose-700
+        else doc.setTextColor(100, 116, 139); // slate-500
 
-      doc.text(explLines, margin + 18, explY);
+        doc.text(explLines, margin + 18, explY);
+      }
 
       y += totalCardHeight + 3;
     });
@@ -312,7 +308,17 @@ export function generateQuizSolutionsPDF({
     }
   }
 
-  // Save PDF
+  // Direct Download without triggering browser File System Access API picker modal
   const sanitizedTitle = quizTitle.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-  doc.save(`${sanitizedTitle}_solutions.pdf`);
+  const fileName = `${sanitizedTitle}_solutions.pdf`;
+
+  const blob = doc.output('blob');
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }

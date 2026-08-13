@@ -1,0 +1,32 @@
+{
+  "ranAt": "2026-08-13T07:01:08.836Z",
+  "source": {
+    "quizzes": 190,
+    "questions": 6255,
+    "options": 24984
+  },
+  "imported": {
+    "quizzes": 190,
+    "questions": 6160,
+    "options": 24639
+  },
+  "skipped": {
+    "questionsNullQuizId": 9,
+    "questionsDanglingQuizId": 86,
+    "danglingQuizIds": [
+      "3",
+      "6",
+      "8",
+      "9",
+      "10",
+      "201"
+    ],
+    "optionsForSkippedQuestions": 345
+  },
+  "questionsWithNoCorrectOption": 0,
+  "dbVerified": {
+    "quizzes": 190,
+    "questions": 6160,
+    "options": 24639
+  }
+}

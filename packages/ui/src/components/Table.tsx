@@ -19,11 +19,14 @@ export const TableBody: React.FC<React.HTMLAttributes<HTMLTableSectionElement>> 
   </tbody>
 );
 
-export const TableRow: React.FC<React.HTMLAttributes<HTMLTableRowElement>> = ({ className, children, ...props }) => (
-  <tr className={cn('hover:bg-slate-50/80 dark:hover:bg-[#0f1b3d]/60 transition-colors duration-150', className)} {...props}>
-    {children}
-  </tr>
+export const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTMLTableRowElement>>(
+  ({ className, children, ...props }, ref) => (
+    <tr ref={ref} className={cn('hover:bg-slate-50/80 dark:hover:bg-[#0f1b3d]/60 transition-colors duration-150', className)} {...props}>
+      {children}
+    </tr>
+  ),
 );
+TableRow.displayName = 'TableRow';
 
 export const TableHead: React.FC<React.ThHTMLAttributes<HTMLTableCellElement>> = ({ className, children, ...props }) => (
   <th className={cn('px-4 py-4 text-[11px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider', className)} {...props}>

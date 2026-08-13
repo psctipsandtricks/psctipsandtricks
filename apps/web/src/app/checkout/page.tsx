@@ -80,7 +80,7 @@ function CheckoutFormContent() {
     };
   }, [user, itemId, itemType]);
 
-  const [discountApplied, setDiscountApplied] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; maxDiscountAmount: number } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [payError, setPayError] = useState('');
   const [paymentSuccess, setPaymentSuccess] = useState(false);
@@ -88,13 +88,20 @@ function CheckoutFormContent() {
   const couponFormik = useFormik({
     initialValues: { couponCode: '' },
     validationSchema: couponSchema,
-    onSubmit: (values, { setFieldError, setSubmitting }) => {
-      if (values.couponCode.toUpperCase() === 'PSC2026') {
-        setDiscountApplied(true);
-      } else {
-        setFieldError('couponCode', 'Invalid coupon code. Try PSC2026 for 20% off!');
+    onSubmit: async (values, { setFieldError, setSubmitting }) => {
+      try {
+        const coupon = await ApiClient.validateCoupon(values.couponCode.trim());
+        setAppliedCoupon({
+          code: coupon.code,
+          discountPercent: coupon.discountPercent,
+          maxDiscountAmount: coupon.maxDiscountAmount,
+        });
+      } catch (err: any) {
+        setAppliedCoupon(null);
+        setFieldError('couponCode', err?.message || 'Invalid or expired coupon code.');
+      } finally {
+        setSubmitting(false);
       }
-      setSubmitting(false);
     },
   });
 
@@ -133,7 +140,10 @@ function CheckoutFormContent() {
   }
 
   const basePrice = item.price;
-  const finalPrice = discountApplied ? Math.round(basePrice * 0.8) : basePrice;
+  const discountAmount = appliedCoupon
+    ? Math.min((basePrice * appliedCoupon.discountPercent) / 100, appliedCoupon.maxDiscountAmount)
+    : 0;
+  const finalPrice = appliedCoupon ? Math.max(0, Math.round(basePrice - discountAmount)) : basePrice;
 
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TOgmxfbeSFUgys';
   const isDemoMode =
@@ -153,8 +163,8 @@ function CheckoutFormContent() {
 
       const orderPayload =
         itemType === 'book'
-          ? { bookId: itemId, amount: finalPrice, couponCode: discountApplied ? 'PSC2026' : undefined }
-          : { quizId: itemId, amount: finalPrice, couponCode: discountApplied ? 'PSC2026' : undefined };
+          ? { bookId: itemId, amount: finalPrice, couponCode: appliedCoupon?.code }
+          : { quizId: itemId, amount: finalPrice, couponCode: appliedCoupon?.code };
 
       const order: any = await ApiClient.createOrder(orderPayload);
       if (!order?.id) throw new Error('Could not start the payment. Please try again.');
@@ -191,7 +201,8 @@ function CheckoutFormContent() {
 
             if (settled?.status === 'SUCCESS') {
               setPaymentSuccess(true);
-              setTimeout(() => router.push('/dashboard'), 1500);
+              const destination = itemType === 'quiz' ? `/quizzes/${itemId}` : '/dashboard';
+              setTimeout(() => router.push(destination), 1500);
             } else {
               throw new Error('Payment verification failed.');
             }
@@ -227,7 +238,9 @@ function CheckoutFormContent() {
           <CheckCircle2 className="w-7 h-7" />
         </div>
         <h1 className="text-xl font-black text-slate-900 dark:text-white">Payment Successful!</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Unlocking your content & taking you to your dashboard…</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {itemType === 'quiz' ? 'Unlocking your quiz & taking you there now…' : 'Unlocking your content & taking you to your dashboard…'}
+        </p>
       </div>
     );
   }
@@ -272,7 +285,7 @@ function CheckoutFormContent() {
           <div className="flex-1">
             <Input
               name="couponCode"
-              placeholder="Enter Coupon (e.g. PSC2026)"
+              placeholder="Enter Coupon Code"
               value={couponFormik.values.couponCode}
               onChange={couponFormik.handleChange}
               onBlur={couponFormik.handleBlur}
@@ -283,15 +296,15 @@ function CheckoutFormContent() {
               }
             />
           </div>
-          <Button type="submit" variant="outline" className="font-bold shrink-0">
+          <Button type="submit" variant="outline" className="font-bold shrink-0" isLoading={couponFormik.isSubmitting}>
             Apply
           </Button>
         </form>
 
-        {discountApplied && (
+        {appliedCoupon && (
           <div className="text-xs text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 p-3 rounded-xl flex items-center space-x-1.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>Coupon PSC2026 Applied! 20% Discount saved.</span>
+            <span>Coupon {appliedCoupon.code} Applied! {appliedCoupon.discountPercent}% Discount saved.</span>
           </div>
         )}
 
@@ -300,9 +313,9 @@ function CheckoutFormContent() {
             <span>Subtotal</span>
             <span>₹{basePrice}</span>
           </div>
-          {discountApplied && (
+          {appliedCoupon && (
             <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
-              <span>Coupon Discount (20%)</span>
+              <span>Coupon Discount ({appliedCoupon.discountPercent}%)</span>
               <span>-₹{basePrice - finalPrice}</span>
             </div>
           )}

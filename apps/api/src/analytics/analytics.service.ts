@@ -59,7 +59,7 @@ export class AnalyticsService {
         orderBy: { submittedAt: 'desc' },
       }),
       this.prisma.mockTest.findMany({
-        where: { status: { in: ['UPCOMING', 'LIVE'] } },
+        where: { status: { in: ['UPCOMING', 'LIVE'] }, quiz: { totalQuestions: { gt: 0 } } },
         include: {
           quiz: { select: { title: true, durationMinutes: true, totalMarks: true, totalQuestions: true } },
           _count: { select: { participants: true } },
@@ -113,7 +113,7 @@ export class AnalyticsService {
         wrongAnswers: s.wrongAnswers,
         unattempted: s.unattempted,
         rank: mock?.rank ?? null,
-        passed: s.passed,
+        passed: s.passed || percentage >= (s.quiz?.passingMarks ?? 40),
         timeTakenSeconds: s.timeTakenSeconds,
         submittedAt: s.submittedAt ?? s.createdAt,
       };

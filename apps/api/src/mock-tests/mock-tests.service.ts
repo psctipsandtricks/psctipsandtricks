@@ -193,7 +193,7 @@ export class MockTestsService {
         totalMarks,
         percentage,
         totalQuestions: mockTest.quiz.totalQuestions || mockTest.quiz.questions.length,
-        passed: score >= mockTest.quiz.passingMarks,
+        passed: percentage >= (mockTest.quiz.passingMarks ?? 40) || score >= ((mockTest.quiz.passingMarks ?? 40) <= 100 ? ((mockTest.quiz.passingMarks ?? 40) / 100) * totalMarks : (mockTest.quiz.passingMarks ?? 40)),
         correctAnswers: correctCount,
         wrongAnswers: wrongCount,
         unattempted,

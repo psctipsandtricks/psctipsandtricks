@@ -881,6 +881,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   /* Admin/Staff Moderation: Delete Any Message From Any Group */
   const handleDeleteMessage = (messageId: string) => {
     if (messageId.startsWith('optimistic-')) return;
+    deleteMessageMutation.reset();
     setDeleteTargetMsgId(messageId);
   };
 
@@ -888,8 +889,11 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     if (!deleteTargetMsgId) return;
     deleteMessageMutation.mutate(deleteTargetMsgId, {
       onError: (err: any) => alert(err?.message || 'Failed to delete message'),
+      onSettled: () => {
+        setDeleteTargetMsgId(null);
+        deleteMessageMutation.reset();
+      },
     });
-    setDeleteTargetMsgId(null);
   };
 
   /* Strictly 1 Emoji Reaction Per User Per Message */
@@ -969,13 +973,10 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   };
 
   const filteredGroups = groups.filter((group) => {
-    const matchesSearch =
+    return (
       group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      group.description.toLowerCase().includes(searchQuery.toLowerCase());
-    if (!matchesSearch) return false;
-    if (selectedCategory === 'All') return true;
-    if (selectedCategory === 'Joined') return group.isJoined || isAdmin;
-    return group.category === selectedCategory;
+      group.description.toLowerCase().includes(searchQuery.toLowerCase())
+    );
   });
 
   const pinnedFiltered = filteredGroups
@@ -1002,7 +1003,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     return messages.findIndex((m, i) => i > idx && m.senderId !== user.id);
   })();
 
-  /* Group Row Renderer - WhatsApp Style Right-End Time & Hover Chevron + WhatsApp Green Notification Badge */
+  /* Group Row Renderer - WhatsApp Style (Pin Icon at bottom right for pinned chats, Time + Hover Chevron at top right) */
   const renderGroupRow = (group: (typeof groups)[number]) => {
     const isSelected = group.id === selectedGroupId;
     const joined = group.isJoined || isAdmin;
@@ -1025,7 +1026,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
         onMouseLeave={() => setHoveredGroupId(null)}
         className={`group p-3 flex items-start space-x-3 transition-all cursor-pointer relative rounded-xl mx-1.5 my-1 ${
           isSelected
-            ? 'bg-emerald-500/15 dark:bg-emerald-500/20 border-l-4 border-emerald-500 ring-1 ring-emerald-500/30 shadow-md font-bold'
+            ? 'bg-cyan-500/10 dark:bg-cyan-500/20 border-l-4 border-cyan-500 ring-1 ring-cyan-500/30 shadow-xs font-bold'
             : 'hover:bg-slate-100 dark:hover:bg-slate-900/60 border-l-4 border-transparent'
         }`}
       >
@@ -1042,10 +1043,9 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Top Line: Title + Right End (Time / Hover Chevron) */}
-          <div className="flex items-center justify-between gap-1">
+          {/* Top Line: Title + Right End (Time + Hover Chevron) */}
+          <div className="flex items-center justify-between gap-1.5">
             <div className="flex items-center space-x-1 min-w-0 flex-1">
-              {isPinned && <Pin className="w-2.5 h-2.5 text-emerald-500 shrink-0" />}
               {isMuted && (
                 <span title="Notifications Muted">
                   <BellOff className="w-2.5 h-2.5 text-slate-400 shrink-0" />
@@ -1054,20 +1054,21 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
               <h3
                 className={`text-xs truncate transition-colors ${
                   isSelected
-                    ? 'text-emerald-600 dark:text-emerald-400 font-black'
-                    : 'text-slate-900 dark:text-white font-extrabold group-hover:text-emerald-500'
+                    ? 'text-cyan-700 dark:text-cyan-300 font-black'
+                    : 'text-slate-900 dark:text-white font-extrabold group-hover:text-cyan-500'
                 }`}
               >
                 {group.name}
               </h3>
             </div>
 
-            {/* Right End: WhatsApp-style Time & Hover Down Arrow Chevron */}
-            <div className="shrink-0 relative flex items-center justify-end min-w-[55px] h-5">
-              {/* Time display (hides on hover/menu open like WhatsApp) */}
+            {/* Right End: Time (flush right by default) + Hover Down Arrow Chevron (expands on hover) */}
+            <div className="shrink-0 flex items-center justify-end">
               <span
-                className={`text-[10px] font-mono text-slate-500 dark:text-slate-400 transition-opacity ${
-                  isRowMenuOpen ? 'opacity-0' : 'group-hover:opacity-0 sm:group-hover:opacity-0'
+                className={`text-[10px] font-mono font-bold transition-all duration-200 ${
+                  unread > 0
+                    ? 'text-cyan-600 dark:text-cyan-400 font-extrabold'
+                    : 'text-slate-500 dark:text-slate-400'
                 }`}
               >
                 {group.lastMessageTime
@@ -1075,29 +1076,33 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   : 'Today'}
               </span>
 
-              {/* WhatsApp Down Arrow Hover Trigger */}
-              <div data-row-menu className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setOpenRowMenuGroupId((prev) => (prev === group.id ? null : group.id));
-                  }}
-                  title="Chat options"
-                  className={`p-1 rounded-full shadow-sm transition-all cursor-pointer ${
+              {/* Hover Down Arrow Chevron (w-0 / display: none by default, expands on hover moving time slightly left) */}
+              <div data-row-menu className="relative z-10">
+                <div
+                  className={`transition-all duration-200 overflow-hidden flex items-center justify-end ${
                     isRowMenuOpen
-                      ? 'opacity-100 bg-emerald-500 text-white'
-                      : 'opacity-0 group-hover:opacity-100 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-500 hover:text-white'
+                      ? 'w-5 opacity-100 ml-1'
+                      : 'w-0 opacity-0 group-hover:w-5 group-hover:opacity-100 group-hover:ml-1'
                   }`}
                 >
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setOpenRowMenuGroupId((prev) => (prev === group.id ? null : group.id));
+                    }}
+                    title="Chat options"
+                    className="p-0.5 rounded-full bg-cyan-500 text-slate-950 hover:bg-cyan-400 shadow-sm transition-all cursor-pointer shrink-0"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
                 {isRowMenuOpen && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    className="absolute right-0 top-7 z-50 w-48 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-0.5 animate-in fade-in zoom-in-95"
+                    className="absolute right-0 top-6 z-50 w-48 py-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-0.5 animate-in fade-in zoom-in-95"
                   >
                     <button
                       type="button"
@@ -1109,7 +1114,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     >
                       {isMuted ? (
                         <>
-                          <Bell className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <Bell className="w-4 h-4 text-cyan-500 shrink-0" />
                           <span>Unmute Notifications</span>
                         </>
                       ) : (
@@ -1133,7 +1138,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       >
                         {isPinned ? (
                           <>
-                            <PinOff className="w-4 h-4 text-emerald-500 shrink-0" />
+                            <PinOff className="w-4 h-4 text-cyan-500 shrink-0" />
                             <span>Unpin Chat</span>
                           </>
                         ) : (
@@ -1150,23 +1155,19 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
             </div>
           </div>
 
-          <p className={`text-[11px] truncate mt-0.5 ${isSelected ? 'text-slate-800 dark:text-slate-200 font-semibold' : 'text-slate-600 dark:text-slate-400'}`}>
-            {group.lastMessageSnippet || group.description}
-          </p>
+          {/* Bottom Line: Snippet + Right End (Pin Icon 📌 for Pinned Chats ONLY + Unread Count Badge) */}
+          <div className="flex items-center justify-between mt-1 gap-1">
+            <p className={`text-[11px] truncate flex-1 min-w-0 ${isSelected ? 'text-slate-900 dark:text-slate-100 font-bold' : 'text-slate-600 dark:text-slate-400'}`}>
+              {group.lastMessageSnippet || group.description}
+            </p>
 
-          <div className="flex items-center justify-between mt-1.5">
-            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 flex items-center space-x-0.5">
-              <Users className="w-3 h-3 text-emerald-500 inline mr-0.5" />
-              {group.memberCount.toLocaleString()}
-            </span>
-
-            <div className="flex items-center space-x-1.5">
+            <div className="flex items-center space-x-1.5 shrink-0">
               {!joined && (
                 <button
                   type="button"
                   disabled={isJoiningThisGroup}
                   onClick={(e) => handleToggleJoin(group.id, e)}
-                  className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black shadow-md active:scale-95 transition-all shrink-0 flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                  className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-[10px] font-black shadow-xs active:scale-95 transition-all shrink-0 flex items-center gap-1 cursor-pointer disabled:opacity-60"
                 >
                   {isJoiningThisGroup ? (
                     <>
@@ -1182,9 +1183,14 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 </button>
               )}
 
-              {/* WhatsApp Green Unread Count Badge */}
+              {/* Pin Icon 📌 - Shown ONLY in pinned chat at bottom right */}
+              {isPinned && (
+                <Pin className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0 rotate-45" />
+              )}
+
+              {/* Unread Count Badge */}
               {!isSelected && unread > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center shadow-sm">
+                <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-cyan-500 text-slate-950 text-[9px] font-mono font-black flex items-center justify-center shadow-sm shrink-0">
                   {unread > 99 ? '99+' : unread}
                 </span>
               )}
@@ -1199,13 +1205,13 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     <div className="w-full h-[calc(100vh-64px)] flex flex-col">
       {/* Real-time Notification Banner */}
       {realtimeToast && (
-        <div className="fixed top-20 right-6 z-50 max-w-sm w-full p-4 rounded-2xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xl border border-emerald-500/40 flex items-start space-x-3 transition-all animate-bounce">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm">
+        <div className="fixed top-20 right-6 z-50 max-w-sm w-full p-4 rounded-2xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xl border border-cyan-500/40 flex items-start space-x-3 transition-all animate-bounce">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm">
             {realtimeToast.isAdmin ? '👑' : '💬'}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1">
-              <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 truncate">
+              <span className="text-xs font-black text-cyan-600 dark:text-cyan-400 truncate">
                 {realtimeToast.isAdmin ? '👑 Admin Announcement' : realtimeToast.senderName} in {realtimeToast.groupName}
               </span>
               <button
@@ -1225,7 +1231,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 handleSelectGroup(realtimeToast.groupId);
                 setRealtimeToast(null);
               }}
-              className="mt-2 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] active:scale-95 transition-all inline-flex items-center gap-1 shadow-sm"
+              className="mt-2 px-2.5 py-1 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-black text-[10px] active:scale-95 transition-all inline-flex items-center gap-1 shadow-sm"
             >
               <span>View Message →</span>
             </button>
@@ -1242,7 +1248,10 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
         variant="danger"
         isLoading={deleteMessageMutation.isPending}
         onConfirm={handleConfirmDeleteMessage}
-        onCancel={() => setDeleteTargetMsgId(null)}
+        onCancel={() => {
+          setDeleteTargetMsgId(null);
+          deleteMessageMutation.reset();
+        }}
       />
 
       {/* Poll Composer Modal */}
@@ -1251,7 +1260,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
           <div className="w-full max-w-lg max-h-[92vh] sm:max-h-[85vh] flex flex-col bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
             {/* Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
-              <span className="text-sm font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-2">
+              <span className="text-sm font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400 flex items-center gap-2">
                 <BarChart2 className="w-5 h-5" />
                 <span>Create Study Poll / Question</span>
               </span>
@@ -1281,14 +1290,14 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     }}
                     placeholder="Ask a question or enter quiz item..."
                     rows={3}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/40 placeholder:text-slate-400 resize-none overflow-hidden"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500/40 placeholder:text-slate-400 resize-none overflow-hidden"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-600 dark:text-slate-400 uppercase tracking-wide gap-2">
                     <span className="shrink-0">Poll Options</span>
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono normal-case text-right">
+                    <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-mono normal-case text-right">
                       Mark the correct answer
                     </span>
                   </div>
@@ -1298,37 +1307,30 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       <button
                         type="button"
                         onClick={() => setCorrectOptionId(opt.id)}
-                        title={correctOptionId === opt.id ? 'Correct answer marked' : 'Mark as correct answer'}
-                        className={`mt-1 p-1.5 rounded-lg border text-xs font-bold transition-all shrink-0 flex items-center gap-1 cursor-pointer ${
+                        className={`p-2.5 rounded-xl border transition-all shrink-0 mt-0.5 cursor-pointer ${
                           correctOptionId === opt.id
-                            ? 'bg-emerald-500 text-white border-emerald-600 shadow-sm'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
+                            ? 'bg-emerald-500 text-white border-emerald-500 shadow-md font-bold'
+                            : 'bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                         }`}
+                        title={correctOptionId === opt.id ? 'Correct Answer' : 'Mark as Correct Answer'}
                       >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        <span className="text-[10px] hidden sm:inline">{correctOptionId === opt.id ? 'Correct' : 'Mark'}</span>
+                        <CheckCircle2 className="w-4 h-4" />
                       </button>
-
-                      <textarea
-                        data-autogrow="poll"
+                      <input
+                        type="text"
                         value={opt.text}
-                        onChange={(e) => {
-                          setPollOptions((prev) => prev.map((o) => (o.id === opt.id ? { ...o, text: e.target.value } : o)));
-                          autoGrowTextarea(e.target);
-                        }}
-                        placeholder={`Option ${idx + 1}`}
-                        rows={2}
-                        className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 placeholder:text-slate-400 resize-none overflow-hidden"
+                        onChange={(e) => setPollOptions((prev) => prev.map((o) => (o.id === opt.id ? { ...o, text: e.target.value } : o)))}
+                        placeholder={`Option ${idx + 1}...`}
+                        className="flex-1 min-w-0 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500/40 placeholder:text-slate-400"
                       />
-
                       {pollOptions.length > 2 && (
                         <button
                           type="button"
-                          onClick={() => handleRemovePollOption(opt.id)}
-                          className="mt-1 p-1.5 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer shrink-0"
+                          onClick={() => setPollOptions((prev) => prev.filter((o) => o.id !== opt.id))}
+                          className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0 mt-0.5"
                           title="Remove option"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       )}
                     </div>
@@ -1338,7 +1340,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     <button
                       type="button"
                       onClick={handleAddPollOption}
-                      className="text-xs font-extrabold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      className="text-xs font-extrabold text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer pt-1"
                     >
                       <Plus className="w-3.5 h-3.5" /> Add Option
                     </button>
@@ -1346,13 +1348,13 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 </div>
               </div>
 
-              {/* Footer actions — always visible, never scrolls away */}
-              <div className="p-4 sm:p-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2 shrink-0">
+              {/* Footer */}
+              <div className="p-4 sm:p-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end space-x-3 shrink-0 bg-slate-50/50 dark:bg-slate-950/50">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setShowPollComposer(false)}
-                  className="text-xs h-auto py-2 cursor-pointer"
+                  className="text-xs font-extrabold cursor-pointer"
                 >
                   Cancel
                 </Button>
@@ -1360,9 +1362,9 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   type="submit"
                   variant="gold"
                   disabled={!pollQuestion.trim() || pollOptions.filter((o) => o.text.trim()).length < 2}
-                  className="font-extrabold px-4 py-2 h-auto text-xs cursor-pointer"
+                  className="text-xs font-black cursor-pointer shadow-md bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none"
                 >
-                  <span>Post Poll</span>
+                  Create & Send Poll
                 </Button>
               </div>
             </form>
@@ -1370,21 +1372,24 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
         </div>
       )}
 
-      {/* In-App Document & Image Viewer Modal */}
+      {/* Attachment In-App Modal Preview (PDF, Images, Video) */}
       {activePreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
-            {/* Modal Header */}
-            <div className="p-4 px-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 shrink-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-4xl max-h-[92vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50 dark:bg-slate-950">
               <div className="flex items-center space-x-3 min-w-0 pr-4">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 font-bold">
-                  {activePreview.type === 'image' ? <FileImage className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shrink-0 font-bold">
+                  {activePreview.type === 'pdf' ? '📄' : activePreview.type === 'image' ? '🖼️' : '📁'}
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-black text-white truncate">{activePreview.name}</h3>
-                  <span className="text-[10px] font-mono text-slate-400 uppercase">
-                    In-App Viewer • {activePreview.type} {activePreview.size ? `• ${activePreview.size}` : ''}
-                  </span>
+                  <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white truncate">
+                    {activePreview.name}
+                  </h3>
+                  {activePreview.size && (
+                    <span className="text-[10px] font-mono text-slate-400">
+                      • {activePreview.size}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1394,47 +1399,49 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   download={activePreview.name}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs font-bold flex items-center gap-1.5"
+                  title="Download File"
                 >
-                  <Download className="w-3.5 h-3.5" />
+                  <Download className="w-4 h-4" />
                   <span className="hidden sm:inline">Download</span>
                 </a>
                 <button
                   type="button"
                   onClick={() => setActivePreview(null)}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Modal Content Body */}
-            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-950/40 min-h-[400px]">
+            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-100 dark:bg-slate-950 min-h-[300px]">
               {activePreview.type === 'image' ? (
                 <img
                   src={activePreview.url}
                   alt={activePreview.name}
-                  className="max-w-full max-h-[72vh] object-contain rounded-2xl shadow-xl"
+                  className="max-w-full max-h-[70vh] object-contain rounded-2xl shadow-lg"
                 />
               ) : activePreview.type === 'pdf' ? (
                 <iframe
-                  src={`${activePreview.url}#toolbar=1`}
+                  src={activePreview.url}
                   title={activePreview.name}
-                  className="w-full h-[72vh] rounded-2xl border border-slate-800 bg-white"
+                  className="w-full h-[70vh] rounded-2xl border border-slate-300 dark:border-slate-800 bg-white"
                 />
               ) : (
-                <div className="text-center p-8 space-y-3">
-                  <File className="w-12 h-12 text-amber-500 mx-auto" />
-                  <p className="text-sm font-bold text-white">Document Preview</p>
+                <div className="text-center space-y-3 p-8">
+                  <File className="w-12 h-12 text-cyan-500 mx-auto" />
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    Preview is unavailable for this file format.
+                  </p>
                   <a
                     href={activePreview.url}
+                    download={activePreview.name}
                     target="_blank"
                     rel="noreferrer"
-                    download
-                    className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs inline-flex items-center gap-2"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-black text-xs inline-flex items-center gap-2 hover:from-cyan-400 hover:to-blue-500 transition-all cursor-pointer shadow-md"
                   >
-                    <Download className="w-4 h-4" /> Download File
+                    <Download className="w-4 h-4" /> Download to View File
                   </a>
                 </div>
               )}
@@ -1445,7 +1452,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
       {pinToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-950 dark:bg-white text-white dark:text-slate-900 text-xs font-bold px-4 py-2.5 rounded-full shadow-2xl flex items-center space-x-2 pointer-events-none">
-          <Pin className="w-3.5 h-3.5 text-amber-400 dark:text-amber-600 shrink-0" />
+          <Pin className="w-3.5 h-3.5 text-violet-400 dark:text-violet-600 shrink-0" />
           <span>{pinToast}</span>
         </div>
       )}
@@ -1460,12 +1467,12 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
           <div className="p-3.5 border-b border-slate-200 dark:border-slate-800/80 space-y-2.5 shrink-0 bg-slate-50/80 dark:bg-transparent">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 text-xs font-bold">
+                <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-500 text-xs font-bold">
                   ⚡
                 </div>
                 <h2 className="text-sm font-black text-slate-900 dark:text-white tracking-tight">Community</h2>
               </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
                 {groups.length} Groups
               </span>
             </div>
@@ -1477,25 +1484,8 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 placeholder="Search chats (⌘K)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 text-xs font-semibold text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
               />
-            </div>
-
-            <div className="flex items-center space-x-1 overflow-x-auto pb-0.5 scrollbar-none">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition-all cursor-pointer ${
-                    selectedCategory === cat
-                      ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                      : 'bg-slate-100 dark:bg-slate-900/60 text-slate-700 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-300/70 dark:border-slate-800/50'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
             </div>
           </div>
 
@@ -1573,7 +1563,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       )}
                     </h2>
                     <p className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
-                      {selectedGroup.memberCount.toLocaleString()} members • {selectedGroup.category}
+                      {selectedGroup.memberCount.toLocaleString()} members
                     </p>
                   </div>
                 </div>
@@ -1588,7 +1578,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       isLoading={joiningGroupId === selectedGroup.id}
                       disabled={joiningGroupId === selectedGroup.id}
                       onClick={(e) => handleToggleJoin(selectedGroup.id, e)}
-                      className="text-xs font-extrabold px-4 py-1.5 h-auto cursor-pointer shadow-md"
+                      className="text-xs font-extrabold px-4 py-1.5 h-auto cursor-pointer shadow-md bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none"
                     >
                       <span>{joiningGroupId === selectedGroup.id ? 'Joining…' : 'Join Group'}</span>
                     </Button>
@@ -1601,8 +1591,8 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     title="Group chat options"
                     className={`p-2 rounded-xl transition-all border cursor-pointer ${
                       showGroupMenu
-                        ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-md'
-                        : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-amber-500'
+                        ? 'bg-cyan-500 text-slate-950 border-cyan-500 shadow-md'
+                        : 'bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-cyan-500'
                     }`}
                   >
                     <MoreVertical className="w-4 h-4" />
@@ -1622,7 +1612,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       >
                         {mutedGroupIds.includes(selectedGroup.id) ? (
                           <>
-                            <Bell className="w-4 h-4 text-amber-500 shrink-0" />
+                            <Bell className="w-4 h-4 text-cyan-500 shrink-0" />
                             <span>Unmute Notifications</span>
                           </>
                         ) : (
@@ -1646,7 +1636,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                         >
                           {selectedGroup.isPinned ? (
                             <>
-                              <PinOff className="w-4 h-4 text-amber-500 shrink-0" />
+                              <PinOff className="w-4 h-4 text-cyan-500 shrink-0" />
                               <span>Unpin Group</span>
                             </>
                           ) : (
@@ -1662,7 +1652,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
                       {/* Leave Group Option */}
                       {isAdmin ? (
-                        <div className="px-3.5 py-2 text-[11px] font-mono font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                        <div className="px-3.5 py-2 text-[11px] font-mono font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-1.5">
                           <span>👑 Admin Full Access</span>
                         </div>
                       ) : selectedGroup.isJoined ? (
@@ -1686,18 +1676,18 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
               {/* Pinned Message Bar */}
               {pinnedMessage && (
-                <div className="px-5 py-2 bg-indigo-500/10 border-b border-indigo-500/20 text-indigo-900 dark:text-indigo-200 flex items-center space-x-2 text-xs shrink-0 z-10">
-                  <Pin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                  <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 text-[11px]">Pinned:</span>
-                  <span className="truncate text-[11px]">{pinnedMessage.content}</span>
+                <div className="px-5 py-2 bg-cyan-500/10 border-b border-cyan-500/20 text-cyan-950 dark:text-cyan-200 flex items-center space-x-2 text-xs shrink-0 z-10">
+                  <Pin className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                  <span className="font-bold text-cyan-700 dark:text-cyan-300 shrink-0 text-[11px]">Pinned:</span>
+                  <span className="truncate text-[11px] font-medium">{pinnedMessage.content}</span>
                 </div>
               )}
 
-              {/* Chat Messages Stream */}
+              {/* Chat Messages Stream with Subtle Light Chat Background Pattern */}
               <div
                 ref={chatContainerRef}
                 onScroll={handleChatScroll}
-                className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-4 relative"
+                className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-4 relative bg-[#f8fafc] dark:bg-[#070c18] bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:20px_20px]"
               >
                 {hasOlder && (
                   <div className="flex items-center justify-center">
@@ -1718,7 +1708,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 )}
 
                 <div className="flex items-center justify-center">
-                  <span className="px-3 py-0.5 rounded-full bg-slate-200 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider">
+                  <span className="px-3 py-0.5 rounded-full bg-slate-200/90 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider shadow-2xs">
                     Today
                   </span>
                 </div>
@@ -1754,7 +1744,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                         <div
                           className={`w-7 h-7 rounded-lg font-bold flex items-center justify-center text-xs shrink-0 shadow-sm ${
                             isAdminSender
-                              ? 'bg-amber-500 text-slate-950 font-black'
+                              ? 'bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black'
                               : 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
                           }`}
                         >
@@ -1767,7 +1757,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                           <div className="flex items-center space-x-1.5 text-[10px]">
                             <span className="font-extrabold text-slate-900 dark:text-slate-100">{msg.senderName}</span>
                             {isAdminSender && (
-                              <span className="px-1.5 py-0.2 rounded bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 font-mono font-bold text-[9px]">
+                              <span className="px-1.5 py-0.2 rounded bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-mono font-bold text-[9px] shadow-xs">
                                 👑 Admin
                               </span>
                             )}
@@ -1786,20 +1776,20 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                               ))}
                           </div>
 
-                          {/* Message Bubbles */}
+                          {/* Liquid Glass Message Bubbles */}
                           <div
-                            className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm relative ${
+                            className={`p-3.5 rounded-2xl text-xs leading-relaxed backdrop-blur-md relative transition-all ${
                               isMe
-                                ? 'bg-amber-500/15 dark:bg-slate-800/90 border border-amber-500/40 text-slate-900 dark:text-slate-100 font-medium rounded-tr-none'
+                                ? 'bg-cyan-500/15 dark:bg-cyan-500/20 border border-cyan-500/35 text-slate-900 dark:text-cyan-50 font-semibold rounded-tr-none shadow-xs'
                                 : isAdminSender
-                                ? 'bg-white dark:bg-slate-900 border-2 border-amber-500/40 text-slate-900 dark:text-slate-100 rounded-tl-none shadow-md'
-                                : 'bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 text-slate-900 dark:text-slate-100 rounded-tl-none'
+                                ? 'bg-blue-500/10 dark:bg-blue-500/15 border-2 border-blue-500/40 text-slate-900 dark:text-slate-100 rounded-tl-none shadow-xs font-medium'
+                                : 'bg-white/80 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-800 text-slate-900 dark:text-slate-100 rounded-tl-none shadow-xs font-medium'
                             }`}
                           >
                             {/* Reply Quote */}
                             {msg.replyTo && (
-                              <div className="mb-2 p-2 rounded-lg bg-slate-950/10 dark:bg-slate-950/40 border-l-2 border-amber-600 text-[10px] space-y-0.5 text-left">
-                                <span className="font-bold text-amber-700 dark:text-amber-400 block">
+                              <div className="mb-2 p-2 rounded-lg bg-slate-950/5 dark:bg-slate-950/40 backdrop-blur-xs border-l-2 border-cyan-500 text-[10px] space-y-0.5 text-left">
+                                <span className="font-bold text-cyan-700 dark:text-cyan-300 block">
                                   {msg.replyTo.senderName}
                                 </span>
                                 <span className="text-slate-700 dark:text-slate-300 line-clamp-1">
@@ -1826,7 +1816,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
                                   if (isImg && att.url && !isUploading && !isError) {
                                     return (
-                                      <div key={idx} className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950/5 p-1 max-w-sm">
+                                      <div key={idx} className="rounded-xl overflow-hidden border border-slate-300/80 dark:border-slate-800 bg-white/50 dark:bg-slate-950/40 backdrop-blur-sm p-1 max-w-sm">
                                         <img
                                           src={att.url}
                                           alt={att.name}
@@ -1838,7 +1828,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                           <button
                                             type="button"
                                             onClick={() => setActivePreview({ name: att.name, url: att.url, type: 'image', size: att.size })}
-                                            className="text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer font-extrabold"
+                                            className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer font-extrabold"
                                           >
                                             <Eye className="w-3 h-3" /> View Image
                                           </button>
@@ -1855,12 +1845,12 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                           setActivePreview({ name: att.name, url: att.url, type: isPdf ? 'pdf' : isImg ? 'image' : 'other', size: att.size });
                                         }
                                       }}
-                                      className={`p-3 rounded-xl border transition-all ${
+                                      className={`p-3 rounded-xl border backdrop-blur-sm transition-all ${
                                         isError
                                           ? 'bg-rose-500/10 border-rose-500/40 text-rose-800 dark:text-rose-200'
                                           : isUploading
-                                          ? 'bg-amber-500/10 border-amber-500/40 text-slate-900 dark:text-slate-100'
-                                          : 'bg-slate-100 dark:bg-slate-950 border-slate-300/80 dark:border-slate-800 hover:border-amber-500/60 cursor-pointer'
+                                          ? 'bg-cyan-500/10 border-cyan-500/40 text-slate-900 dark:text-slate-100'
+                                          : 'bg-white/60 dark:bg-slate-950/60 border-slate-300/80 dark:border-slate-800 hover:border-cyan-500/60 cursor-pointer'
                                       }`}
                                     >
                                       <div className="flex items-center justify-between gap-3 text-xs">
@@ -1870,20 +1860,20 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                               isError
                                                 ? 'bg-rose-500/20 text-rose-500 border border-rose-500/40'
                                                 : isUploading
-                                                ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40 animate-pulse'
+                                                ? 'bg-cyan-500/20 text-cyan-500 border border-cyan-500/40 animate-pulse'
                                                 : isPdf
                                                 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
                                                 : isExcel
                                                 ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                                                 : isWord
                                                 ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30'
-                                                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                                : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30'
                                             }`}
                                           >
                                             {isError ? (
                                               <AlertCircle className="w-4 h-4" />
                                             ) : isUploading ? (
-                                              <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                                              <Loader2 className="w-4 h-4 animate-spin text-cyan-500" />
                                             ) : isPdf ? (
                                               <FileText className="w-4 h-4" />
                                             ) : isExcel ? (
@@ -1902,7 +1892,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                               <span>{att.type.toUpperCase()}</span>
                                               {att.size && <span>• {att.size}</span>}
                                               {isUploading && (
-                                                <span className="text-amber-600 dark:text-amber-400 font-bold">
+                                                <span className="text-cyan-600 dark:text-cyan-400 font-bold">
                                                   • Uploading... {progress}%
                                                 </span>
                                               )}
@@ -1916,7 +1906,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                         </div>
 
                                         {isUploading && (
-                                          <div className="shrink-0 flex items-center space-x-1 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                                          <div className="shrink-0 flex items-center space-x-1 text-[11px] font-bold text-cyan-600 dark:text-cyan-400">
                                             <Loader2 className="w-3 h-3 animate-spin" />
                                             <span>{progress}%</span>
                                           </div>
@@ -1943,7 +1933,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                               e.stopPropagation();
                                               setActivePreview({ name: att.name, url: att.url, type: isPdf ? 'pdf' : isImg ? 'image' : 'other', size: att.size });
                                             }}
-                                            className="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-extrabold text-[10px] hover:bg-amber-400 active:scale-95 transition-all shrink-0 flex items-center gap-1 shadow-sm cursor-pointer"
+                                            className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-[10px] active:scale-95 transition-all shrink-0 flex items-center gap-1 shadow-sm cursor-pointer"
                                           >
                                             <Eye className="w-3 h-3" />
                                             <span>{isPdf ? 'Open PDF' : 'Preview'}</span>
@@ -1955,7 +1945,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                       {isUploading && (
                                         <div className="mt-2 w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                                           <div
-                                            className="bg-gradient-to-r from-amber-500 to-amber-400 h-full transition-all duration-200 rounded-full"
+                                            className="bg-gradient-to-r from-cyan-500 to-blue-500 h-full transition-all duration-200 rounded-full"
                                             style={{ width: `${progress}%` }}
                                           />
                                         </div>
@@ -1966,17 +1956,17 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                               </div>
                             )}
 
-                            {/* Poll Card Display (With Author Voting Disabled & Participant Wrong/Correct Badges) */}
+                            {/* Poll Card Display (Liquid Glass Container) */}
                             {msg.poll && (
-                              <div className="mt-1 p-3.5 rounded-2xl bg-slate-100 dark:bg-slate-950 border border-slate-300/80 dark:border-slate-800 space-y-3 text-left shadow-inner">
+                              <div className="mt-1 p-3.5 rounded-2xl bg-white/60 dark:bg-slate-950/60 backdrop-blur-md border border-slate-300/80 dark:border-slate-800 space-y-3 text-left shadow-inner">
                                 <div className="flex flex-col gap-1.5 text-xs font-black text-slate-900 dark:text-white pb-1.5 border-b border-slate-200 dark:border-slate-800/60">
                                   <span className="flex items-start gap-1.5">
-                                    <BarChart2 className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                    <BarChart2 className="w-4 h-4 text-cyan-500 shrink-0 mt-0.5" />
                                     <span className="whitespace-pre-wrap break-words">{msg.poll.question}</span>
                                   </span>
                                   <div className="flex items-center flex-wrap gap-2 pl-[22px]">
                                     {msg.senderId === user.id && (
-                                      <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-400 font-mono font-extrabold text-[9px]">
+                                      <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-700 dark:text-cyan-300 font-mono font-extrabold text-[9px]">
                                         📊 Author View (Voting Disabled)
                                       </span>
                                     )}
@@ -2009,8 +1999,8 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                             : isCorrectOpt && hasVotedAny
                                             ? 'border-emerald-500 bg-emerald-500/10 text-emerald-900 dark:text-emerald-300 font-extrabold ring-1 ring-emerald-500/50'
                                             : hasVotedOpt
-                                            ? 'border-amber-500 bg-amber-500/10 text-amber-800 dark:text-amber-300 font-bold'
-                                            : 'border-slate-300 dark:border-slate-800 hover:border-amber-500/60 text-slate-800 dark:text-slate-200 cursor-pointer'
+                                            ? 'border-cyan-500 bg-cyan-500/10 text-cyan-800 dark:text-cyan-300 font-bold'
+                                            : 'border-slate-300 dark:border-slate-800 hover:border-cyan-500/60 text-slate-800 dark:text-slate-200 cursor-pointer'
                                         }`}
                                       >
                                         <div
@@ -2019,7 +2009,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                               ? 'bg-rose-500/20'
                                               : isCorrectOpt && (hasVotedAny || isAuthor)
                                               ? 'bg-emerald-500/25'
-                                              : 'bg-amber-500/20'
+                                              : 'bg-cyan-500/20'
                                           }`}
                                           style={{ width: `${percent}%` }}
                                         />
@@ -2059,8 +2049,8 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                 {msg.poll.correctOptionId && (
                                   <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px] font-bold">
                                     {msg.senderId === user.id ? (
-                                      <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                                        <BarChart2 className="w-3.5 h-3.5 text-amber-500" />
+                                      <span className="text-cyan-600 dark:text-cyan-400 flex items-center gap-1">
+                                        <BarChart2 className="w-3.5 h-3.5 text-cyan-500" />
                                         <span>📊 Poll Author View • Student votes update in real-time</span>
                                       </span>
                                     ) : msg.poll.options.some((o) => o.votedUserIds?.includes(user.id)) ? (
@@ -2094,7 +2084,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                                   onClick={() => handleToggleReaction(msg.id, r.emoji)}
                                   className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-all cursor-pointer ${
                                     hasReacted
-                                      ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-400 font-bold'
+                                      ? 'bg-cyan-500/20 border-cyan-500 text-cyan-700 dark:text-cyan-300 font-bold'
                                       : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
                                   }`}
                                 >
@@ -2108,7 +2098,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                               type="button"
                               disabled={!isUserMember || isLockedForUser}
                               onClick={() => setActiveReactionMsgId((prev) => (prev === msg.id ? null : msg.id))}
-                              className="px-1.5 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 hover:text-amber-500 cursor-pointer"
+                              className="px-1.5 py-0.5 rounded-full text-[10px] font-bold border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 hover:text-cyan-500 cursor-pointer"
                               title="Add reaction"
                             >
                               +😀
@@ -2132,7 +2122,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                             <button
                               type="button"
                               onClick={() => setReplyingTo({ id: msg.id, senderName: msg.senderName, content: msg.content })}
-                              className="p-1 text-slate-400 hover:text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                               title="Reply to message"
                             >
                               <Reply className="w-3.5 h-3.5" />
@@ -2165,19 +2155,19 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   onClick={scrollToBottom}
                   title="Scroll to bottom"
                   aria-label="Scroll to bottom"
-                  className="absolute bottom-20 right-6 z-30 p-2.5 rounded-full bg-amber-500 text-slate-950 shadow-2xl flex items-center justify-center hover:bg-amber-400 transition-all active:scale-95 cursor-pointer border border-amber-400"
+                  className="absolute bottom-20 right-6 z-30 w-10 h-10 rounded-full bg-slate-900/90 dark:bg-slate-900 text-white shadow-xl border border-slate-700/80 flex items-center justify-center hover:bg-slate-800 dark:hover:bg-slate-800 transition-all active:scale-95 cursor-pointer"
                 >
-                  <ChevronDown className="w-5 h-5 animate-bounce" />
+                  <ChevronDown className="w-5 h-5 text-slate-100" />
                 </button>
               )}
 
               {/* Composer Input Bar */}
               <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-slate-950/90 backdrop-blur-md space-y-2 shrink-0 z-20">
                 {replyingTo && (
-                  <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  <div className="px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-between text-xs font-semibold text-cyan-800 dark:text-cyan-300">
                     <div className="flex items-center space-x-2 truncate">
-                      <Reply className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span className="font-bold text-amber-500 text-[11px]">Replying to {replyingTo.senderName}:</span>
+                      <Reply className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                      <span className="font-bold text-cyan-500 text-[11px]">Replying to {replyingTo.senderName}:</span>
                       <span className="truncate text-slate-700 dark:text-slate-300 text-[11px]">{replyingTo.content}</span>
                     </div>
                     <button type="button" onClick={() => setReplyingTo(null)} className="p-1 hover:text-rose-500 transition-colors cursor-pointer">
@@ -2192,13 +2182,13 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     {pendingAttachments.map((att, idx) => (
                       <div
                         key={idx}
-                        className="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-extrabold flex items-center gap-1.5 shrink-0"
+                        className="px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-800 dark:text-cyan-300 text-xs font-extrabold flex items-center gap-1.5 shrink-0"
                       >
                         {att.type === 'pdf' && <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
                         {att.type === 'excel' && <Table className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
                         {att.type === 'word' && <FileCode className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
                         {att.type === 'image' && <FileImage className="w-3.5 h-3.5 text-indigo-500 shrink-0" />}
-                        {!['pdf', 'excel', 'word', 'image'].includes(att.type) && <File className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                        {!['pdf', 'excel', 'word', 'image'].includes(att.type) && <File className="w-3.5 h-3.5 text-cyan-500 shrink-0" />}
                         <span className="truncate max-w-[140px]">{att.name}</span>
                         <button
                           type="button"
@@ -2264,7 +2254,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       }
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
-                      className="flex-1 min-w-0 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/40 disabled:opacity-50 placeholder:text-slate-400"
+                      className="flex-1 min-w-0 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500/40 disabled:opacity-50 placeholder:text-slate-400"
                     />
 
                     {/* Admin Document Attachment Button */}
@@ -2273,7 +2263,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                         type="button"
                         disabled={uploadingFile}
                         onClick={() => fileInputRef.current?.click()}
-                        className="p-2 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 disabled:opacity-50 cursor-pointer shrink-0"
+                        className="p-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50 cursor-pointer shrink-0"
                         title="Upload Documents & Files (Admin Only)"
                       >
                         <Paperclip className="w-4 h-4" />
@@ -2286,7 +2276,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                         type="button"
                         disabled={!isUserMember || isLockedForUser}
                         onClick={() => setShowPollComposer((v) => !v)}
-                        className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-amber-500 disabled:opacity-50 cursor-pointer shrink-0"
+                        className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-50 cursor-pointer shrink-0"
                         title="Create a poll"
                       >
                         <BarChart2 className="w-4 h-4" />
@@ -2298,7 +2288,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       type="button"
                       disabled={!isUserMember || isLockedForUser}
                       onClick={() => setShowEmojiPicker((v) => !v)}
-                      className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-amber-500 disabled:opacity-50 cursor-pointer shrink-0"
+                      className="p-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-50 cursor-pointer shrink-0"
                       title="Insert Emoji"
                     >
                       <Smile className="w-4 h-4" />
@@ -2312,7 +2302,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                         isLockedForUser ||
                         (!newMessage.trim() && pendingAttachments.length === 0)
                       }
-                      className="font-extrabold flex items-center space-x-1 px-3.5 py-2 h-auto text-xs shrink-0 cursor-pointer"
+                      className="font-extrabold flex items-center space-x-1 px-4 py-2 h-auto text-xs shrink-0 cursor-pointer bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none shadow-md"
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>Send</span>
@@ -2323,7 +2313,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
-              <div className="w-20 h-20 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-3xl shadow-xl">
+              <div className="w-20 h-20 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-3xl shadow-xl">
                 ⚡
               </div>
               <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">Select a chat to start messaging</h3>

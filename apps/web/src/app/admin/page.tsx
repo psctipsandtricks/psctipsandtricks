@@ -1,36 +1,69 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StatsCard, Card, CardTitle, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge } from '@psc/ui';
-import { Users, Zap, BookOpen, IndianRupee, ShoppingCart, TrendingUp } from 'lucide-react';
+import { Users, Zap, IndianRupee, ShoppingCart, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { ApiClient } from '@/lib/api-client';
 
 import { AdminSkeletonHeader, AdminSkeletonKpiGrid, AdminSkeletonTable } from './admin-skeleton';
 
-const REVENUE_DATA = [
-  { month: 'Jan', revenue: 45000, users: 1200 },
-  { month: 'Feb', revenue: 52000, users: 1800 },
-  { month: 'Mar', revenue: 68000, users: 2400 },
-  { month: 'Apr', revenue: 84000, users: 3100 },
-  { month: 'May', revenue: 95000, users: 4200 },
-  { month: 'Jun', revenue: 112000, users: 5600 },
-];
-
-const RECENT_ORDERS = [
-  { id: 'ord_98127341', email: 'student@psctips.com', item: 'Kerala PSC Master Question Bank 2026', amount: '₹299', status: 'SUCCESS', date: 'Just now' },
-  { id: 'ord_98127342', email: 'anandu.k@gmail.com', item: 'Indian Constitution & Polity Guide', amount: '₹199', status: 'SUCCESS', date: '10 mins ago' },
-  { id: 'ord_98127343', email: 'sneha.nair@psctips.com', item: 'Kerala Geography Handbook 2026', amount: '₹149', status: 'SUCCESS', date: '45 mins ago' },
-  { id: 'ord_98127344', email: 'rahul.varma@icloud.com', item: 'VIP Unlimited Subscription', amount: '₹499', status: 'SUCCESS', date: '2 hrs ago' },
-];
+interface OrderItem {
+  id: string;
+  user?: { email?: string; name?: string };
+  book?: { title?: string };
+  quiz?: { title?: string };
+  amount: number;
+  status: 'SUCCESS' | 'PENDING' | 'FAILED' | 'REFUNDED';
+  createdAt: string;
+}
 
 export default function AdminDashboardPage() {
-  const [mounted, setMounted] = React.useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [dashboardStats, setDashboardStats] = useState<{
+    totalUsers: number;
+    totalQuizzes: number;
+    totalBooks: number;
+    totalOrders: number;
+    totalRevenue: number;
+  } | null>(null);
+  const [orders, setOrders] = useState<OrderItem[]>([]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setMounted(true);
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        setLoading(true);
+        const [statsRes, ordersRes] = await Promise.allSettled([
+          ApiClient.getAdminDashboard(),
+          ApiClient.getAllOrders(),
+        ]);
+
+        if (cancelled) return;
+
+        if (statsRes.status === 'fulfilled') {
+          setDashboardStats(statsRes.value);
+        }
+        if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value)) {
+          setOrders(ordersRes.value);
+        }
+      } catch (err) {
+        console.error('Failed to load admin dashboard data:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  if (!mounted) {
+  if (!mounted || loading) {
     return (
       <div className="space-y-8">
         <AdminSkeletonHeader />
@@ -39,6 +72,51 @@ export default function AdminDashboardPage() {
       </div>
     );
   }
+
+  // Calculate live KPI metrics from real backend database data
+  const totalRevenue = orders.length > 0
+    ? orders.filter((o) => o.status === 'SUCCESS').reduce((sum, o) => sum + (o.amount || 0), 0)
+    : (dashboardStats?.totalRevenue ?? 0);
+
+  const totalOrders = orders.length > 0
+    ? orders.length
+    : (dashboardStats?.totalOrders ?? 0);
+
+  const registeredStudents = dashboardStats?.totalUsers ?? 0;
+
+  // Monthly revenue for the current month
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const monthlyRevenue = orders
+    .filter((o) => {
+      if (o.status !== 'SUCCESS' || !o.createdAt) return false;
+      const d = new Date(o.createdAt);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    })
+    .reduce((sum, o) => sum + (o.amount || 0), 0);
+
+  // Revenue trend data for last 6 months computed dynamically from real orders
+  const monthsNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const revenueChartData = Array.from({ length: 6 }).map((_, idx) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - (5 - idx));
+    const mName = monthsNames[d.getMonth()];
+    const mYear = d.getFullYear();
+    const mMonth = d.getMonth();
+
+    const rev = orders
+      .filter((o) => {
+        if (o.status !== 'SUCCESS' || !o.createdAt) return false;
+        const od = new Date(o.createdAt);
+        return od.getMonth() === mMonth && od.getFullYear() === mYear;
+      })
+      .reduce((sum, o) => sum + (o.amount || 0), 0);
+
+    return { month: mName, revenue: rev };
+  });
+
+  const recentOrders = orders.slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -71,29 +149,29 @@ export default function AdminDashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatsCard
             title="Total Revenue"
-            value="₹4,56,000"
-            change="+24.5%"
+            value={`₹${totalRevenue.toLocaleString('en-IN')}`}
+            change={totalRevenue > 0 ? '+100%' : '0%'}
             isPositive
             icon={<TrendingUp className="w-5 h-5 text-cyan-400" />}
           />
           <StatsCard
             title="Total Orders"
-            value="1,845"
-            change="+15.2%"
+            value={totalOrders.toLocaleString('en-IN')}
+            change={totalOrders > 0 ? '+100%' : '0%'}
             isPositive
             icon={<ShoppingCart className="w-5 h-5 text-cyan-400" />}
           />
           <StatsCard
             title="Monthly Revenue"
-            value="₹1,12,000"
-            change="+17.9%"
+            value={`₹${monthlyRevenue.toLocaleString('en-IN')}`}
+            change={monthlyRevenue > 0 ? '+100%' : '0%'}
             isPositive
             icon={<IndianRupee className="w-5 h-5 text-cyan-400" />}
           />
           <StatsCard
             title="Registered Students"
-            value="5,640"
-            change="+18.2%"
+            value={registeredStudents.toLocaleString('en-IN')}
+            change={registeredStudents > 0 ? '+100%' : '0%'}
             isPositive
             icon={<Users className="w-5 h-5 text-cyan-400" />}
           />
@@ -111,65 +189,59 @@ export default function AdminDashboardPage() {
             <div className="flex items-center space-x-2">
               <Zap className="w-5 h-5 text-cyan-400" />
               <CardTitle className="text-slate-900 dark:text-white font-bold text-base">
-                Platform Growth & Revenue Trends (2026)
+                Platform Growth & Revenue Trends ({new Date().getFullYear()})
               </CardTitle>
             </div>
             <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/30">
-              ML Prediction Engine
+              Live Order Analytics
             </span>
           </div>
 
           <div className="h-80 w-full pt-4 min-h-[320px]">
-            {mounted ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={REVENUE_DATA} margin={{ top: 10, right: 30, left: 15, bottom: 5 }}>
-                  <defs>
-                    <linearGradient id="colorRevTwin" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.5} />
-                      <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2e56" opacity={0.5} />
-                  <XAxis
-                    dataKey="month"
-                    stroke="#64748b"
-                    tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    stroke="#64748b"
-                    tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }}
-                    tickLine={false}
-                    tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`}
-                  />
-                  <Tooltip
-                    formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}`, 'Monthly Revenue']}
-                    labelFormatter={(label) => `Month: ${label}`}
-                    contentStyle={{
-                      backgroundColor: '#080f24',
-                      borderColor: '#1e2e56',
-                      borderRadius: '12px',
-                      color: '#f8fafc',
-                      fontWeight: 700,
-                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.7)',
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#38bdf8"
-                    strokeWidth={3.5}
-                    fillOpacity={1}
-                    fill="url(#colorRevTwin)"
-                    activeDot={{ r: 7, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full w-full flex items-center justify-center text-slate-400">
-                Loading analytics chart...
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={revenueChartData} margin={{ top: 10, right: 30, left: 15, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="colorRevTwin" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.5} />
+                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e2e56" opacity={0.5} />
+                <XAxis
+                  dataKey="month"
+                  stroke="#64748b"
+                  tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="#64748b"
+                  tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }}
+                  tickLine={false}
+                  tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}`, 'Monthly Revenue']}
+                  labelFormatter={(label) => `Month: ${label}`}
+                  contentStyle={{
+                    backgroundColor: '#080f24',
+                    borderColor: '#1e2e56',
+                    borderRadius: '12px',
+                    color: '#f8fafc',
+                    fontWeight: 700,
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.7)',
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#38bdf8"
+                  strokeWidth={3.5}
+                  fillOpacity={1}
+                  fill="url(#colorRevTwin)"
+                  activeDot={{ r: 7, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 2 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </Card>
       </div>
@@ -199,18 +271,32 @@ export default function AdminDashboardPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {RECENT_ORDERS.map((order) => (
-                <TableRow key={order.id}>
-                  <TableCell className="font-mono text-xs font-bold text-slate-900 dark:text-white">{order.id}</TableCell>
-                  <TableCell className="text-xs text-slate-700 dark:text-slate-300">{order.email}</TableCell>
-                  <TableCell className="font-medium text-slate-900 dark:text-white text-xs">{order.item}</TableCell>
-                  <TableCell className="font-mono font-extrabold text-cyan-400">{order.amount}</TableCell>
-                  <TableCell className="text-xs text-slate-400 font-mono">{order.date}</TableCell>
-                  <TableCell>
-                    <Badge variant="success">SUCCESS</Badge>
+              {recentOrders.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                    No recent transactions found.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                recentOrders.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-mono text-xs font-bold text-slate-900 dark:text-white">{order.id}</TableCell>
+                    <TableCell className="text-xs text-slate-700 dark:text-slate-300">{order.user?.email || 'N/A'}</TableCell>
+                    <TableCell className="font-medium text-slate-900 dark:text-white text-xs">
+                      {order.book?.title || order.quiz?.title || 'PSC Premium Access'}
+                    </TableCell>
+                    <TableCell className="font-mono font-extrabold text-cyan-400">₹{order.amount}</TableCell>
+                    <TableCell className="text-xs text-slate-400 font-mono">
+                      {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={order.status === 'SUCCESS' ? 'success' : order.status === 'PENDING' ? 'warning' : 'danger'}>
+                        {order.status}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </Card>

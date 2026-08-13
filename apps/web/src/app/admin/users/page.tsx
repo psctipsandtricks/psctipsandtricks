@@ -70,11 +70,11 @@ export default function AdminUsersPage() {
   }, []);
 
   const INITIAL_STUDENTS: StudentUser[] = [
-    { id: 'usr-101', name: 'Anandu Krishnan', email: 'anandu.k@gmail.com', phoneNumber: '', loginMethod: 'Google', registeredAt: '2026-07-28', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 3, quizAttemptsCount: 12 },
-    { id: 'usr-102', name: 'Sneha Nair', email: 'sneha.nair@psctips.com', phoneNumber: '', loginMethod: 'Email', registeredAt: '2026-07-30', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 1, quizAttemptsCount: 5 },
+    { id: 'usr-101', name: 'Anandu Krishnan', email: 'anandu.k@gmail.com', phoneNumber: '', loginMethod: 'Google', registeredAt: '2026-07-28', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 0, quizAttemptsCount: 12 },
+    { id: 'usr-102', name: 'Sneha Nair', email: 'sneha.nair@psctips.com', phoneNumber: '', loginMethod: 'Email', registeredAt: '2026-07-30', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 0, quizAttemptsCount: 5 },
     { id: 'usr-103', name: 'Rahul Varma', email: 'rahul.varma@icloud.com', phoneNumber: '', loginMethod: 'Apple', registeredAt: '2026-08-01', status: 'Active', subscription: 'Free Tier', ordersCount: 0, quizAttemptsCount: 2 },
     { id: 'usr-104', name: 'Divya S. Pillai', email: 'divya.sp@gmail.com', phoneNumber: '', loginMethod: 'Google', registeredAt: '2026-08-02', status: 'Active', subscription: 'Free Tier', ordersCount: 0, quizAttemptsCount: 0 },
-    { id: 'usr-105', name: 'Muhammed Shafi', email: 'shafi.m@gmail.com', phoneNumber: '', loginMethod: 'Email', registeredAt: '2026-08-03', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 2, quizAttemptsCount: 8 },
+    { id: 'usr-105', name: 'Muhammed Shafi', email: 'shafi.m@gmail.com', phoneNumber: '', loginMethod: 'Email', registeredAt: '2026-08-03', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 0, quizAttemptsCount: 8 },
   ];
 
   const determineLoginMethod = (email: string, oauthIdentities?: Array<{ provider: string }>): 'Email' | 'Google' | 'Apple' => {

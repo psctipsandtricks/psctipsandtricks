@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -20,12 +21,24 @@ import {
 } from '@psc/ui';
 import { ApiClient } from '@/lib/api-client';
 import {
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
+  type DragMoveEvent,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import {
   ArrowLeft,
   Plus,
   Trash2,
   Edit3,
-  ArrowUp,
-  ArrowDown,
   Check,
   AlertCircle,
   Sparkles,
@@ -33,12 +46,13 @@ import {
   CheckCircle2,
   HelpCircle,
   Search,
-  Eye,
   GripVertical,
   Award,
+  X,
 } from 'lucide-react';
 
 import { optionLetter, validateQuestionForm, type QuizQuestion } from './question-validation';
+import { SortableQuestionRow, QuestionDragPreviewCard } from './question-row';
 
 /** Shared by the initial load and the post-save reconciliation, so both read a server question the same way. */
 function mapApiQuestionsToLocal(apiQuestions: any[]): QuizQuestion[] {
@@ -49,10 +63,10 @@ function mapApiQuestionsToLocal(apiQuestions: any[]): QuizQuestion[] {
     explanation: q.explanation ?? '',
     options: Array.isArray(q.options)
       ? q.options.map((o: any, idx: number) => ({
-          id: typeof o === 'string' ? `opt-${idx}` : o.id || `opt-${idx}`,
-          text: typeof o === 'string' ? o : o.text || '',
-          explanation: typeof o === 'object' && o ? o.explanation || '' : '',
-        }))
+        id: typeof o === 'string' ? `opt-${idx}` : o.id || `opt-${idx}`,
+        text: typeof o === 'string' ? o : o.text || '',
+        explanation: typeof o === 'object' && o ? o.explanation || '' : '',
+      }))
       : [],
     correctOptionId:
       Array.isArray(q.options) && q.options[q.correctOptionIndex]
@@ -119,11 +133,21 @@ export default function QuizQuestionsStudioPage() {
   // Read-only "View Question" Modal State
   const [viewIndex, setViewIndex] = useState<number | null>(null);
 
-  // Drag-to-Reorder State — indices are into the full `questions` array
-  // (`actualIndex`), not the paginated/filtered view, so a drop always lands
-  // in the right place regardless of search or page.
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // Drag-to-Reorder State — the dragged item's id is tracked, and every swap
+  // is applied to the full `questions` array (never the paginated/filtered
+  // view), so a drop always lands in the right place regardless of search or
+  // page.
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
+  // Snapshot of `questions` at drag-start, used at drag-end to tell whether
+  // the order actually changed (and so is worth persisting) and to restore
+  // it if the drag is cancelled (e.g. Escape).
+  const dragStartOrderRef = useRef<QuizQuestion[] | null>(null);
+  const dragHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragHoverPageRef = useRef<number | null>(null);
+
+  // Custom Move to Position Dialog State
+  const [moveTargetQuestionIndex, setMoveTargetQuestionIndex] = useState<number | null>(null);
+  const [targetPositionInput, setTargetPositionInput] = useState<string>('');
 
   // Page Alerts State
   const [saving, setSaving] = useState(false);
@@ -286,17 +310,24 @@ export default function QuizQuestionsStudioPage() {
       const justPublished = previousQuestions.length === 0 && updatedQuestionsList.length > 0 && updatedQuiz?.isActive;
       const justHidden = previousQuestions.length > 0 && updatedQuestionsList.length === 0;
 
-      if (updatedQuiz) {
+      if (updatedQuiz && Array.isArray(updatedQuiz.questions)) {
         setQuiz(updatedQuiz);
-        setQuestions(mapApiQuestionsToLocal(updatedQuiz.questions || []));
+        const serverMapped = mapApiQuestionsToLocal(updatedQuiz.questions);
+        const reconciled = updatedQuestionsList.map((q, idx) => {
+          if (serverMapped[idx]) {
+            return { ...serverMapped[idx], id: q.id };
+          }
+          return q;
+        });
+        setQuestions(reconciled.length > 0 ? reconciled : serverMapped);
       }
 
       setSuccessMsg(
         justPublished
           ? '🎉 First question added — this quiz is now live and visible to students!'
           : justHidden
-          ? 'Last question removed — this quiz is hidden from students until you add another.'
-          : 'Questions saved successfully!',
+            ? 'Last question removed — this quiz is hidden from students until you add another.'
+            : 'Questions saved successfully!',
       );
       setTimeout(() => setSuccessMsg(''), justPublished || justHidden ? 6000 : 4000);
     } catch (err: any) {
@@ -323,7 +354,7 @@ export default function QuizQuestionsStudioPage() {
     }
 
     let nextQuestions: QuizQuestion[];
-    if (editingIndex !== null) {
+    if (editingIndex !== null && editingIndex >= 0 && editingIndex < questions.length) {
       nextQuestions = questions.map((q, idx) => (idx === editingIndex ? currentForm : q));
     } else {
       nextQuestions = [...questions, currentForm];
@@ -335,6 +366,8 @@ export default function QuizQuestionsStudioPage() {
 
   // Reordering Questions
   const handleMoveQuestion = async (index: number, direction: 'UP' | 'DOWN') => {
+    if (saving) return;
+    if (index < 0 || index >= questions.length) return;
     if ((direction === 'UP' && index === 0) || (direction === 'DOWN' && index === questions.length - 1)) return;
     const targetIndex = direction === 'UP' ? index - 1 : index + 1;
     const nextQuestions = [...questions];
@@ -351,34 +384,132 @@ export default function QuizQuestionsStudioPage() {
   // express a position in the full list.
   const canReorder = !searchTerm.trim();
 
-  const handleDragStart = (actualIndex: number) => (e: React.DragEvent) => {
-    setDragIndex(actualIndex);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(actualIndex));
+  // Mouse needs to actually move a few pixels before a press counts as a
+  // drag (so a plain click still reaches its button); touch gets a short
+  // hold instead, so a swipe-to-scroll on the table isn't hijacked.
+  const dragSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
+
+  const activeQuestion = activeQuestionId ? questions.find((q) => q.id === activeQuestionId) ?? null : null;
+  const activeQuestionIndex = activeQuestion ? questions.findIndex((q) => q.id === activeQuestionId) : -1;
+
+  const clearDragHoverTimer = () => {
+    if (dragHoverTimer.current) {
+      clearTimeout(dragHoverTimer.current);
+      dragHoverTimer.current = null;
+    }
+    dragHoverPageRef.current = null;
   };
 
-  const handleDragOver = (actualIndex: number) => (e: React.DragEvent) => {
-    if (dragIndex === null) return;
-    e.preventDefault();
-    if (dragOverIndex !== actualIndex) setDragOverIndex(actualIndex);
+  const handleDragStart = (event: DragStartEvent) => {
+    dragStartOrderRef.current = questions;
+    setActiveQuestionId(String(event.active.id));
+    document.body.style.cursor = 'grabbing';
+    document.body.classList.add('select-none');
   };
 
-  const handleDrop = (actualIndex: number) => async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOverIndex(null);
-    const fromIndex = dragIndex;
-    setDragIndex(null);
-    if (fromIndex === null || fromIndex === actualIndex) return;
+  // Swap semantics (not shift/insert): hovering the dragged question over
+  // another question exchanges just those two positions — every other row
+  // stays exactly where it was.
+  const handleDragOverSort = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setQuestions((prev) => {
+      const fromIndex = prev.findIndex((q) => q.id === active.id);
+      const toIndex = prev.findIndex((q) => q.id === over.id);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+      return next;
+    });
+  };
+
+  // Cross-page hover switching during drag-to-reorder — hovering the lifted
+  // row over a page number (or Prev/Next) for a beat jumps there, so a
+  // question can be dragged onto a page it isn't currently on.
+  const handleDragMove = (event: DragMoveEvent) => {
+    const rect = event.active.rect.current.translated;
+    if (!rect) return;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const target = document.elementFromPoint(cx, cy)?.closest('[data-page-target]') as HTMLElement | null;
+    const targetPage = target ? Number(target.dataset.pageTarget) : null;
+
+    if (!targetPage || targetPage === currentPage) {
+      clearDragHoverTimer();
+      return;
+    }
+    if (dragHoverPageRef.current === targetPage) return;
+
+    clearDragHoverTimer();
+    dragHoverPageRef.current = targetPage;
+    dragHoverTimer.current = setTimeout(() => {
+      setCurrentPage(targetPage);
+      dragHoverTimer.current = null;
+      dragHoverPageRef.current = null;
+    }, 400);
+  };
+
+  const resetDragUiState = () => {
+    document.body.style.cursor = '';
+    document.body.classList.remove('select-none');
+    clearDragHoverTimer();
+    setActiveQuestionId(null);
+  };
+
+  const handleDragEndSort = async (_event: DragEndEvent) => {
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    resetDragUiState();
+
+    if (!startOrder) return;
+    const changed = startOrder.some((q, idx) => q.id !== questions[idx]?.id);
+    if (!changed) return;
+
+    await saveQuestionsToBackend(questions);
+  };
+
+  const handleDragCancel = () => {
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    resetDragUiState();
+    if (startOrder) setQuestions(startOrder);
+  };
+
+  // Open "Move to Position" Dialog
+  const handleOpenMoveModal = (actualIndex: number) => {
+    setMoveTargetQuestionIndex(actualIndex);
+    setTargetPositionInput(String(actualIndex + 1));
+  };
+
+  // Confirm custom position move
+  const handleConfirmMoveToPosition = async (customPosition?: number) => {
+    if (moveTargetQuestionIndex === null) return;
+    const targetPos = customPosition !== undefined ? customPosition : parseInt(targetPositionInput, 10);
+
+    if (isNaN(targetPos) || targetPos < 1 || targetPos > questions.length) {
+      setPageError(`Please enter a valid position between 1 and ${questions.length}.`);
+      return;
+    }
+
+    const fromIndex = moveTargetQuestionIndex;
+    const toIndex = targetPos - 1;
+
+    setMoveTargetQuestionIndex(null);
+
+    if (fromIndex === toIndex) return;
 
     const nextQuestions = [...questions];
     const [moved] = nextQuestions.splice(fromIndex, 1);
-    nextQuestions.splice(actualIndex, 0, moved);
-    await saveQuestionsToBackend(nextQuestions);
-  };
+    nextQuestions.splice(toIndex, 0, moved);
 
-  const handleDragEnd = () => {
-    setDragIndex(null);
-    setDragOverIndex(null);
+    // Calculate target page so UI navigates directly to where the moved question lands
+    const newTargetPage = Math.ceil(targetPos / pageSize);
+    setCurrentPage(newTargetPage);
+
+    await saveQuestionsToBackend(nextQuestions);
   };
 
   // Delete Question
@@ -455,18 +586,25 @@ export default function QuizQuestionsStudioPage() {
                 {questions.length} Questions
               </Badge>
               {quiz && (
-                quiz.isActive !== false ? (
-                  <Badge className="font-bold text-xs flex items-center gap-1.5 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>Live for Students</span>
-                  </Badge>
+                quiz.isActive ? (
+                  questions.length === 0 ? (
+                    <Badge
+                      title="Active status is checked, but no questions have been added yet."
+                      className="font-bold text-xs flex items-center gap-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30"
+                    >
+                      <AlertCircle className="w-3 h-3" />
+                      <span>No Questions</span>
+                    </Badge>
+                  ) : (
+                    <Badge className="font-bold text-xs flex items-center gap-1.5 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Active</span>
+                    </Badge>
+                  )
                 ) : (
-                  <Badge
-                    title={questions.length === 0 ? 'Add a question to publish it automatically' : 'Manually paused by an admin'}
-                    className="font-bold text-xs flex items-center gap-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30"
-                  >
-                    <AlertCircle className="w-3 h-3" />
-                    <span>{questions.length === 0 ? 'Hidden — No Questions' : 'Hidden — Paused'}</span>
+                  <Badge className="font-bold text-xs flex items-center gap-1.5 bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                    <span>Inactive</span>
                   </Badge>
                 )
               )}
@@ -488,7 +626,7 @@ export default function QuizQuestionsStudioPage() {
               onClick={handleOpenCreateModal}
             >
               <Plus className="w-4 h-4" />
-              <span>+ Add Question</span>
+              <span>Add Question</span>
             </Button>
           </div>
         </div>
@@ -515,204 +653,163 @@ export default function QuizQuestionsStudioPage() {
         </Card>
       </div>
 
-      {/* Page Alert Banners */}
-      {pageError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-rose-500 dark:text-rose-400 text-sm font-bold flex items-center space-x-2.5 shadow-sm shrink-0">
-          <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
-          <span>{pageError}</span>
-        </div>
-      )}
+      {/* Top-Right Floating Toast Notifications */}
+      <div className="fixed top-5 right-5 z-[9999] flex flex-col space-y-2.5 pointer-events-none max-w-sm sm:max-w-md w-full px-4 sm:px-0">
+        {successMsg && (
+          <div className="pointer-events-auto flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-950/95 dark:bg-[#080e1e]/95 border border-emerald-500/40 text-emerald-400 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-extrabold leading-relaxed text-slate-100">{successMsg}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuccessMsg('')}
+              className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800 shrink-0 cursor-pointer"
+              title="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
-      {successMsg && (
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-600 dark:text-emerald-400 text-sm font-bold flex items-center space-x-2.5 shadow-sm shrink-0">
-          <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-          <span>{successMsg}</span>
+        {pageError && (
+          <div className="pointer-events-auto flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-950/95 dark:bg-[#080e1e]/95 border border-rose-500/40 text-rose-400 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-extrabold leading-relaxed text-slate-100">{pageError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPageError('')}
+              className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800 shrink-0 cursor-pointer"
+              title="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Active Drag Status Banner */}
+      {activeQuestionId !== null && activeQuestionIndex >= 0 && (
+        <div className="shrink-0 mb-1 p-3 rounded-2xl bg-cyan-500/10 border-2 border-dashed border-cyan-500/50 text-cyan-700 dark:text-cyan-300 text-xs font-bold flex items-center gap-2 shadow-sm">
+          <GripVertical className="w-4 h-4 text-cyan-400 shrink-0" />
+          <span>
+            Moving <strong>Question #{activeQuestionIndex + 1}</strong> — hover it over another question to swap places, or over a page number to jump pages.
+          </span>
         </div>
       )}
 
       {/* Scrollable Questions Table Container */}
       <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">Q.No</TableHead>
-                <TableHead className="min-w-[260px]">Question Prompt</TableHead>
-                <TableHead className="whitespace-nowrap">Options</TableHead>
-                <TableHead className="min-w-[200px]">Correct Answer</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedQuestions.length === 0 ? (
+          <DndContext
+            sensors={dragSensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOverSort}
+            onDragMove={handleDragMove}
+            onDragEnd={handleDragEndSort}
+            onDragCancel={handleDragCancel}
+          >
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-12">
-                    <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
-                      <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
-                        <ListChecks className="w-6 h-6" />
-                      </div>
-                      <div className="space-y-1">
-                        <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                          {searchTerm ? 'No Matching Questions' : 'No Questions Added Yet'}
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                          {searchTerm
-                            ? 'No questions match your search query. Try clearing the search.'
-                            : 'Click the "+ Add Question" button to create questions for this quiz.'}
-                        </p>
-                      </div>
-                      {!searchTerm ? (
-                        <Button
-                          variant="gold"
-                          size="sm"
-                          className="text-xs font-bold shadow-md shadow-cyan-500/20 mt-2 cursor-pointer"
-                          onClick={handleOpenCreateModal}
-                        >
-                          + Add First Question
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-xs font-bold mt-2 cursor-pointer"
-                          onClick={() => setSearchTerm('')}
-                        >
-                          Clear Search
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
+                  <TableHead className="w-16">Q.No</TableHead>
+                  <TableHead className="min-w-[260px]">Question Prompt</TableHead>
+                  <TableHead className="whitespace-nowrap">Options</TableHead>
+                  <TableHead className="min-w-[200px]">Correct Answer</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Actions</TableHead>
                 </TableRow>
-              ) : (
-                paginatedQuestions.map((q, idx) => {
-                  const actualIndex = questions.indexOf(q);
-                  const correctOptIndex = q.options.findIndex((o) => o.id === q.correctOptionId);
-                  const correctOpt = q.options[correctOptIndex];
-                  const correctLetter = correctOptIndex >= 0 ? String.fromCharCode(65 + correctOptIndex) : 'A';
-
-                  return (
-                    <TableRow
-                      key={q.id || idx}
-                      onDragOver={canReorder ? handleDragOver(actualIndex) : undefined}
-                      onDrop={canReorder ? handleDrop(actualIndex) : undefined}
-                      onDragEnd={canReorder ? handleDragEnd : undefined}
-                      className={
-                        dragOverIndex === actualIndex && dragIndex !== actualIndex
-                          ? 'outline outline-2 outline-cyan-500 -outline-offset-2 bg-cyan-500/5'
-                          : undefined
-                      }
-                    >
-                      <TableCell className="font-mono font-bold text-xs text-cyan-600 dark:text-cyan-400 whitespace-nowrap py-4">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            draggable={canReorder}
-                            onDragStart={canReorder ? handleDragStart(actualIndex) : undefined}
-                            title={canReorder ? 'Drag to reorder' : 'Clear search to reorder'}
-                            className={
-                              canReorder
-                                ? 'text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 cursor-grab active:cursor-grabbing'
-                                : 'text-slate-200 dark:text-slate-700 cursor-not-allowed'
-                            }
-                          >
-                            <GripVertical className="w-3.5 h-3.5" />
-                          </span>
-                          <span>Q{actualIndex + 1}</span>
-                        </div>
-                      </TableCell>
-
-                      <TableCell className="max-w-[320px] lg:max-w-[480px] py-4">
-                        <div className="relative group/qtext">
-                          <span className="block truncate font-bold text-slate-900 dark:text-white text-sm">
-                            {q.text}
-                          </span>
-                          {q.explanation && (
-                            <span className="block truncate text-xs text-slate-400 italic mt-0.5">
-                              Exp: {q.explanation}
-                            </span>
+              </TableHeader>
+              <SortableContext items={paginatedQuestions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
+                <TableBody>
+                  {paginatedQuestions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-12">
+                        <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
+                          <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
+                            <ListChecks className="w-6 h-6" />
+                          </div>
+                          <div className="space-y-1">
+                            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                              {searchTerm ? 'No Matching Questions' : 'No Questions Added Yet'}
+                            </h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                              {searchTerm
+                                ? 'No questions match your search query. Try clearing the search.'
+                                : 'Click the "+ Add Question" button to create questions for this quiz.'}
+                            </p>
+                          </div>
+                          {!searchTerm ? (
+                            <Button
+                              variant="gold"
+                              size="sm"
+                              className="text-xs font-bold shadow-md shadow-cyan-500/20 mt-2 cursor-pointer"
+                              onClick={handleOpenCreateModal}
+                            >
+                              + Add First Question
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs font-bold mt-2 cursor-pointer"
+                              onClick={() => setSearchTerm('')}
+                            >
+                              Clear Search
+                            </Button>
                           )}
-                          <div className="pointer-events-none absolute left-0 bottom-full mb-1.5 hidden group-hover/qtext:block z-[90] w-max max-w-xs sm:max-w-md px-3 py-2 rounded-xl bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white text-xs font-semibold shadow-xl border border-slate-700/80 leading-snug break-words">
-                            {q.text}
-                          </div>
-                        </div>
-                      </TableCell>
-
-                      <TableCell className="whitespace-nowrap py-4">
-                        <Badge variant="outline" className="font-mono text-xs font-bold">
-                          {q.options.length} Choices
-                        </Badge>
-                      </TableCell>
-
-                      <TableCell className="max-w-[220px] py-4">
-                        {correctOpt ? (
-                          <div className="flex items-center space-x-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-xl text-xs font-bold truncate">
-                            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center font-mono text-[10px] shrink-0 font-black">
-                              {correctLetter}
-                            </span>
-                            <span className="truncate">{correctOpt.text}</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-rose-500 italic">Not set</span>
-                        )}
-                      </TableCell>
-
-                      <TableCell className="text-right whitespace-nowrap py-4">
-                        <div className="flex items-center justify-end space-x-1">
-                          <button
-                            type="button"
-                            onClick={() => handleMoveQuestion(actualIndex, 'UP')}
-                            disabled={actualIndex === 0}
-                            className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-20 transition-colors cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                            title="Move Question Up"
-                          >
-                            <ArrowUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleMoveQuestion(actualIndex, 'DOWN')}
-                            disabled={actualIndex === questions.length - 1}
-                            className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-20 transition-colors cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                            title="Move Question Down"
-                          >
-                            <ArrowDown className="w-4 h-4" />
-                          </button>
-
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-400 hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all shadow-2xs ml-1 cursor-pointer"
-                            title="View Question"
-                            onClick={() => setViewIndex(actualIndex)}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/10 transition-all shadow-2xs cursor-pointer"
-                            title="Edit Question"
-                            onClick={() => handleOpenEditModal(actualIndex)}
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </Button>
-
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/10 transition-all shadow-2xs cursor-pointer"
-                            title="Delete Question"
-                            onClick={() => setDeleteIndex(actualIndex)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  );
-                })
+                  ) : (
+                    paginatedQuestions.map((q, idx) => {
+                      const foundIndex = questions.findIndex((item) => item.id === q.id || (item.text && item.text === q.text));
+                      const actualIndex = foundIndex >= 0 ? foundIndex : (currentPage - 1) * pageSize + idx;
+
+                      return (
+                        <SortableQuestionRow
+                          key={q.id || `q-${actualIndex}`}
+                          question={q}
+                          actualIndex={actualIndex}
+                          questionsLength={questions.length}
+                          canReorder={canReorder}
+                          onOpenMoveModal={handleOpenMoveModal}
+                          onMoveUp={(i) => handleMoveQuestion(i, 'UP')}
+                          onMoveDown={(i) => handleMoveQuestion(i, 'DOWN')}
+                          onView={setViewIndex}
+                          onEdit={handleOpenEditModal}
+                          onDelete={setDeleteIndex}
+                        />
+                      );
+                    })
+                  )}
+                </TableBody>
+              </SortableContext>
+            </Table>
+
+            {/* Portaled straight to <body> — the table sits inside a
+                backdrop-blur card, and `backdrop-filter` (like `transform`)
+                creates a new containing block for `position: fixed`
+                descendants, which is exactly what DragOverlay relies on to
+                track the pointer. Left un-portaled, the overlay was
+                positioning itself relative to that blurred card instead of
+                the viewport. */}
+            {typeof document !== 'undefined' &&
+              createPortal(
+                <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.2, 0, 0, 1)' }}>
+                  {activeQuestion ? (
+                    <QuestionDragPreviewCard question={activeQuestion} actualIndex={activeQuestionIndex} />
+                  ) : null}
+                </DragOverlay>,
+                document.body,
               )}
-            </TableBody>
-          </Table>
+          </DndContext>
         </div>
 
         <div className="shrink-0 px-4 py-3 border-t border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#091124]">
@@ -782,11 +879,10 @@ export default function QuizQuestionsStudioPage() {
                   e.target.style.height = `${e.target.scrollHeight}px`;
                 }}
                 rows={3}
-                className={`w-full min-h-[90px] p-3 text-sm rounded-xl border bg-slate-50/70 dark:bg-[#091124] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 resize-none overflow-hidden transition-all font-medium leading-relaxed ${
-                  showFieldErrors && formErrors.text
-                    ? 'border-rose-500 focus:ring-rose-500/50 focus:border-rose-500 bg-rose-500/5'
-                    : 'border-slate-300 dark:border-[#1e2e56] focus:ring-cyan-500/50 focus:border-cyan-500'
-                }`}
+                className={`w-full min-h-[90px] p-3 text-sm rounded-xl border bg-slate-50/70 dark:bg-[#091124] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 resize-none overflow-hidden transition-all font-medium leading-relaxed ${showFieldErrors && formErrors.text
+                  ? 'border-rose-500 focus:ring-rose-500/50 focus:border-rose-500 bg-rose-500/5'
+                  : 'border-slate-300 dark:border-[#1e2e56] focus:ring-cyan-500/50 focus:border-cyan-500'
+                  }`}
               />
               {showFieldErrors && formErrors.text && (
                 <p className="text-xs font-semibold text-rose-500 flex items-center space-x-1">
@@ -823,20 +919,18 @@ export default function QuizQuestionsStudioPage() {
                   return (
                     <div
                       key={opt.id || optIdx}
-                      className={`space-y-2 bg-slate-100/60 dark:bg-[#0c152e]/60 p-3.5 rounded-xl border ${
-                        optionError ? 'border-rose-500/60' : 'border-slate-200 dark:border-[#1e2e56]'
-                      }`}
+                      className={`space-y-2 bg-slate-100/60 dark:bg-[#0c152e]/60 p-3.5 rounded-xl border ${optionError ? 'border-rose-500/60' : 'border-slate-200 dark:border-[#1e2e56]'
+                        }`}
                     >
                       <div className="flex items-start space-x-3">
                         {/* Correct Answer Radio Selector */}
                         <button
                           type="button"
                           onClick={() => handleSetCorrectOption(opt.id)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center font-mono font-extrabold text-xs transition-all shrink-0 cursor-pointer mt-1 ${
-                            isCorrect
-                              ? 'bg-emerald-500 text-white ring-4 ring-emerald-500/20 shadow-sm'
-                              : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'
-                          }`}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center font-mono font-extrabold text-xs transition-all shrink-0 cursor-pointer mt-1 ${isCorrect
+                            ? 'bg-emerald-500 text-white ring-4 ring-emerald-500/20 shadow-sm'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'
+                            }`}
                           title={isCorrect ? 'Correct Answer' : 'Click to Mark as Correct Answer'}
                         >
                           {isCorrect ? <Check className="w-4 h-4 text-white" /> : letter}
@@ -853,11 +947,10 @@ export default function QuizQuestionsStudioPage() {
                             e.target.style.height = 'auto';
                             e.target.style.height = `${e.target.scrollHeight}px`;
                           }}
-                          className={`flex-1 min-h-[42px] py-2 px-3 text-sm rounded-xl border bg-white dark:bg-[#091124] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 resize-none overflow-hidden transition-all font-medium ${
-                            optionError
-                              ? 'border-rose-500 focus:ring-rose-500/50 focus:border-rose-500 bg-rose-500/5'
-                              : 'border-slate-300 dark:border-[#1e2e56] focus:ring-cyan-500/50 focus:border-cyan-500'
-                          }`}
+                          className={`flex-1 min-h-[42px] py-2 px-3 text-sm rounded-xl border bg-white dark:bg-[#091124] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 resize-none overflow-hidden transition-all font-medium ${optionError
+                            ? 'border-rose-500 focus:ring-rose-500/50 focus:border-rose-500 bg-rose-500/5'
+                            : 'border-slate-300 dark:border-[#1e2e56] focus:ring-cyan-500/50 focus:border-cyan-500'
+                            }`}
                         />
 
                         {/* Delete Option */}
@@ -1003,19 +1096,17 @@ export default function QuizQuestionsStudioPage() {
                       return (
                         <div
                           key={opt.id || optIdx}
-                          className={`p-3.5 rounded-xl border space-y-1.5 ${
-                            isCorrect
-                              ? 'border-emerald-500/50 bg-emerald-500/10'
-                              : 'border-slate-200 dark:border-[#1e2e56] bg-slate-100/60 dark:bg-[#0c152e]/60'
-                          }`}
+                          className={`p-3.5 rounded-xl border space-y-1.5 ${isCorrect
+                            ? 'border-emerald-500/50 bg-emerald-500/10'
+                            : 'border-slate-200 dark:border-[#1e2e56] bg-slate-100/60 dark:bg-[#0c152e]/60'
+                            }`}
                         >
                           <div className="flex items-start gap-3">
                             <span
-                              className={`w-7 h-7 rounded-full flex items-center justify-center font-mono font-extrabold text-xs shrink-0 ${
-                                isCorrect
-                                  ? 'bg-emerald-500 text-white'
-                                  : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                              }`}
+                              className={`w-7 h-7 rounded-full flex items-center justify-center font-mono font-extrabold text-xs shrink-0 ${isCorrect
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                }`}
                             >
                               {isCorrect ? <Check className="w-4 h-4" /> : letter}
                             </span>
@@ -1092,6 +1183,81 @@ export default function QuizQuestionsStudioPage() {
         onConfirm={handleDeleteQuestionConfirm}
         onCancel={() => setDeleteIndex(null)}
       />
+
+      {/* Custom Move to Position Dialog */}
+      <Dialog
+        isOpen={moveTargetQuestionIndex !== null}
+        onClose={() => setMoveTargetQuestionIndex(null)}
+        title={
+          moveTargetQuestionIndex !== null
+            ? `Move Question #${moveTargetQuestionIndex + 1} to Custom Position`
+            : undefined
+        }
+        className="max-w-md w-full"
+      >
+        {moveTargetQuestionIndex !== null && (
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Currently at position <strong className="text-slate-900 dark:text-white font-mono">#{moveTargetQuestionIndex + 1}</strong> of <strong className="text-slate-900 dark:text-white font-mono">{questions.length}</strong>. Enter the target position to instantly move this question across pages.
+            </p>
+
+            <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-[#0c152e]/70 border border-slate-200 dark:border-[#1e2e56] text-xs font-semibold text-slate-800 dark:text-slate-200 line-clamp-2">
+              "{questions[moveTargetQuestionIndex]?.text}"
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                Target Position Number (1 to {questions.length})
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={questions.length}
+                value={targetPositionInput}
+                onChange={(e) => setTargetPositionInput(e.target.value)}
+                placeholder={`1 - ${questions.length}`}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleConfirmMoveToPosition(1)}
+                className="flex-1 py-1.5 text-xs font-extrabold rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 cursor-pointer transition-colors"
+              >
+                Top (#1)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmMoveToPosition(questions.length)}
+                className="flex-1 py-1.5 text-xs font-extrabold rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 cursor-pointer transition-colors"
+              >
+                End (#{questions.length})
+              </button>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t border-slate-200 dark:border-[#1e2e56]">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-1/3 font-semibold cursor-pointer"
+                onClick={() => setMoveTargetQuestionIndex(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="gold"
+                className="w-2/3 font-bold shadow-md shadow-cyan-500/20 cursor-pointer"
+                onClick={() => handleConfirmMoveToPosition()}
+              >
+                Move Question
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 export interface NegativeMarkingRules {
-  negativeMarkingEnabled: boolean;
+  negativeMarkingEnabled?: boolean | null;
   /** Deduct `negativeMarkingDeduct` marks for every this-many wrong answers. */
-  negativeMarkingEvery: number;
-  negativeMarkingDeduct: number;
+  negativeMarkingEvery?: number | null;
+  negativeMarkingDeduct?: number | null;
   /** When false (the default), the result is floored at 0. */
-  allowNegativeScore: boolean;
+  allowNegativeScore?: boolean | null;
 }
 
 /**
@@ -13,10 +13,17 @@ export interface NegativeMarkingRules {
  * wrong answers under a "3 wrong = -1" rule) costs nothing yet, matching how
  * this is described to students and admins alike.
  */
-export function computeFinalScore(positiveScore: number, wrongCount: number, rules: NegativeMarkingRules): number {
-  const deduction = rules.negativeMarkingEnabled
-    ? Math.floor(wrongCount / Math.max(1, rules.negativeMarkingEvery)) * rules.negativeMarkingDeduct
-    : 0;
+export function computeFinalScore(
+  positiveScore: number,
+  wrongCount: number,
+  rules?: Partial<NegativeMarkingRules> | null,
+): number {
+  if (!rules || !rules.negativeMarkingEnabled) {
+    return positiveScore;
+  }
+  const every = Math.max(1, rules.negativeMarkingEvery ?? 1);
+  const deduct = rules.negativeMarkingDeduct ?? 0;
+  const deduction = Math.floor(wrongCount / every) * deduct;
   const raw = positiveScore - deduction;
   const bounded = rules.allowNegativeScore ? raw : Math.max(0, raw);
   return Math.round(bounded * 100) / 100;

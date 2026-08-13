@@ -12,6 +12,16 @@ export interface User {
     createdAt: string;
     updatedAt: string;
 }
+/** The signed-in user's own profile, as returned by GET /users/:id. */
+export interface UserProfile extends User {
+    oauthIdentities: {
+        provider: 'GOOGLE' | 'APPLE';
+    }[];
+    ordersCount: number;
+    quizAttemptsCount: number;
+    /** Photo from the user's linked Google account, if any — kept fresh on each Google sign-in. */
+    googleAvatarUrl?: string | null;
+}
 export interface StaffPermission {
     id: string;
     userId: string;
@@ -27,7 +37,7 @@ export interface StaffPermission {
     createdAt: string;
     updatedAt: string;
 }
-export type ContentStatus = 'DRAFT' | 'PUBLISHED';
+export type BookSubscriptionType = 'FULL_TIME_ACCESS' | 'LIMITED_ACCESS' | 'SUBSCRIPTION';
 export interface Book {
     id: string;
     title: string;
@@ -36,9 +46,18 @@ export interface Book {
     coverUrl: string;
     pdfUrl?: string;
     price: number;
+    discountPercent: number;
+    /** Effective charged price — always price minus discountPercent, computed server-side. */
+    finalPrice: number;
     category: string;
+    publicationYear?: number | null;
+    productId?: string | null;
+    appleId?: string | null;
+    basePlanId?: string | null;
+    subscriptionType: BookSubscriptionType;
     isPremium: boolean;
     isPublished: boolean;
+    visibleToGuests: boolean;
     downloadCount: number;
     chapters?: Chapter[];
     createdAt: string;
@@ -48,11 +67,40 @@ export interface Chapter {
     id: string;
     bookId: string;
     title: string;
+    description?: string | null;
     orderIndex: number;
+    isActive: boolean;
     textContent?: string | null;
+    youtubeUrl?: string | null;
     audioUrl?: string | null;
     audioDurationSeconds?: number | null;
-    status: ContentStatus;
+    pdfUrl?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+export interface Topic {
+    id: string;
+    chapterId: string;
+    title: string;
+    description?: string | null;
+    orderIndex: number;
+    isActive: boolean;
+    youtubeUrl?: string | null;
+    audioUrl?: string | null;
+    pdfUrl?: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+export interface Subtopic {
+    id: string;
+    topicId: string;
+    title: string;
+    description?: string | null;
+    orderIndex: number;
+    isActive: boolean;
+    youtubeUrl?: string | null;
+    audioUrl?: string | null;
+    pdfUrl?: string | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -89,14 +137,18 @@ export interface Quiz {
     id: string;
     title: string;
     category: string;
-    description: string;
     totalQuestions: number;
     durationMinutes: number;
     isLiveMock: boolean;
     isPremium: boolean;
     showCorrectAnswerAfterSelection?: boolean;
     price: number;
-    negativeMarkingValue: number;
+    /** "For every N wrong answers, deduct M marks" — disabled by default. */
+    negativeMarkingEnabled: boolean;
+    negativeMarkingEvery: number;
+    negativeMarkingDeduct: number;
+    /** When false (the default), the final score is floored at 0. */
+    allowNegativeScore: boolean;
     passingMarks: number;
     totalMarks: number;
     questions?: Question[];
@@ -185,6 +237,71 @@ export interface MockTestParticipant {
     submittedAt?: string | null;
     createdAt: string;
 }
+/** Payload of GET /analytics/me/dashboard — the student's personal study dashboard. */
+export interface StudentDashboardAttempt {
+    id: string;
+    quizId: string;
+    title: string;
+    category: string;
+    isMockTest: boolean;
+    mockTestId: string | null;
+    score: number;
+    totalMarks: number;
+    percentage: number;
+    accuracy: number;
+    correctAnswers: number;
+    wrongAnswers: number;
+    unattempted: number;
+    rank: number | null;
+    passed: boolean;
+    timeTakenSeconds: number;
+    submittedAt: string;
+}
+export interface StudentDashboard {
+    stats: {
+        totalAttempts: number;
+        mockTestsTaken: number;
+        attemptsThisWeek: number;
+        averagePercent: number;
+        averagePercentThisWeek: number;
+        averagePercentLastWeek: number;
+        accuracyPercent: number;
+        bestRank: number | null;
+        previousBestRank: number | null;
+        rankedAttempts: number;
+        studyHours: number;
+        studyHoursThisWeek: number;
+        passedCount: number;
+        streakDays: number;
+    };
+    trend: {
+        label: string;
+        date: string;
+        percentage: number;
+        accuracy: number;
+    }[];
+    recentAttempts: StudentDashboardAttempt[];
+    subjects: {
+        category: string;
+        attempts: number;
+        averagePercent: number;
+        accuracyPercent: number | null;
+    }[];
+    upcomingMockTests: {
+        id: string;
+        title: string;
+        quizTitle: string | null;
+        scheduledAt: string;
+        status: MockTestStatus;
+        durationMinutes: number | null;
+        totalQuestions: number | null;
+        totalMarks: number | null;
+        participantCount: number;
+        joined: boolean;
+        submitted: boolean;
+    }[];
+    generatedAt: string;
+}
 export type OrderStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
 export interface Order {
     id: string;
@@ -198,6 +315,19 @@ export interface Order {
     razorpayPaymentId?: string | null;
     createdAt: string;
     updatedAt: string;
+}
+/** An order with the purchased item's display details attached — used for "My Orders". */
+export interface OrderWithItems extends Order {
+    book?: {
+        id: string;
+        title: string;
+        coverUrl: string;
+    } | null;
+    quiz?: {
+        id: string;
+        title: string;
+        isLiveMock: boolean;
+    } | null;
 }
 export interface Coupon {
     id: string;
@@ -313,5 +443,14 @@ export interface RazorpayOrderResponse {
     id: string;
     amount: number;
     currency: string;
-    key: string;
+    key?: string;
+    keyId?: string;
+    mode?: string;
+    isSimulated?: boolean;
+}
+export interface VerifyPaymentPayload {
+    orderId: string;
+    paymentId: string;
+    razorpayOrderId?: string;
+    razorpaySignature?: string;
 }

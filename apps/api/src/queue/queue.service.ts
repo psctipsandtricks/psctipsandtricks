@@ -29,7 +29,18 @@ export class SupabaseQueueService implements OnModuleInit {
 
   async ensureQueue(queueName: string): Promise<void> {
     if (this.ensuredQueues.has(queueName)) return;
-    await this.prisma.$executeRaw`select pgmq.create(${queueName});`;
+    try {
+      await this.prisma.$executeRaw`select pgmq.create(${queueName});`;
+    } catch (err) {
+      // pgmq.create() isn't idempotent when the pgmq extension was created
+      // with CASCADE after the queue's table/sequence already existed —
+      // Postgres reports the sequence as already owned by the extension even
+      // though the queue itself is fully functional. Anything else is a real
+      // failure and must still surface (e.g. so send() doesn't silently
+      // enqueue against a queue that was never created).
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes('already a member of extension')) throw err;
+    }
     this.ensuredQueues.add(queueName);
   }
 

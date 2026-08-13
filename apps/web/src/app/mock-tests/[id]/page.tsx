@@ -4,16 +4,23 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, Button, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@psc/ui';
-import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle } from 'lucide-react';
+import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { QuizPaywall } from '@/app/quiz-paywall';
 import { QuizTakingSkeleton } from '../../skeletons/page-skeletons';
+import { generateQuizSolutionsPDF } from '@/lib/pdf-exporter';
+
+interface QuizQuestionOption {
+  id?: string;
+  text: string;
+  explanation?: string;
+}
 
 interface QuizQuestion {
   id: string;
   text: string;
-  options: string[];
+  options: (string | QuizQuestionOption)[];
   correct: number;
   explanation?: string;
   marks: number;
@@ -21,6 +28,24 @@ interface QuizQuestion {
 
 const LEADERBOARD_POLL_MS = 4000;
 const STATUS_POLL_MS = 15_000;
+
+interface SavedMockProgress {
+  currentIndex: number;
+  selectedAnswers: Record<string, number>;
+}
+
+// A live mock test is one-shot per user (no re-attempts), so unlike the
+// regular quiz flow this doesn't need to be scoped to an attempt id.
+const mockProgressStorageKey = (mockTestId: string) => `mock-test-progress-${mockTestId}`;
+
+function loadSavedMockProgress(mockTestId: string): SavedMockProgress | null {
+  try {
+    const raw = localStorage.getItem(mockProgressStorageKey(mockTestId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function MockTestPage({ params }: { params: { id: string } }) {
   const { user, isLoading: authLoading } = useAuth();
@@ -37,6 +62,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitResult, setSubmitResult] = useState<any>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const joinedRef = useRef(false);
@@ -59,7 +85,11 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         return {
           id: q.id,
           text: q.text,
-          options: opts.map((o: any) => (typeof o === 'string' ? o : o.text)),
+          options: opts.map((o: any) =>
+            typeof o === 'string'
+              ? { id: `opt-${Math.random()}`, text: o }
+              : { id: o.id || `opt-${Math.random()}`, text: o.text || '', explanation: o.explanation || undefined }
+          ),
           correct: q.correctOptionIndex ?? 0,
           explanation: q.explanation || '',
           marks: q.marks ?? 1,
@@ -125,8 +155,24 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     joinedRef.current = true;
     quizStartRef.current = Date.now();
     setTimeLeft((mockTest.quiz.durationMinutes || 15) * 60);
+
+    // Submissions only reach the server on final submit, so where the
+    // student stopped is tracked locally and restored on Resume.
+    const saved = loadSavedMockProgress(params.id);
+    if (saved) {
+      setSelectedAnswers(saved.selectedAnswers);
+      setCurrentIndex(Math.min(saved.currentIndex, Math.max(0, questions.length - 1)));
+    }
+
     ApiClient.joinMockTest(params.id).catch((err) => console.warn('Join failed (may already be joined):', err));
-  }, [showQuizView, mockTest, params.id]);
+  }, [showQuizView, mockTest, params.id, questions.length]);
+
+  // Persist progress on every change so a Resume click lands back here.
+  useEffect(() => {
+    if (!showQuizView || isSubmitted || questions.length === 0) return;
+    const progress: SavedMockProgress = { currentIndex, selectedAnswers };
+    localStorage.setItem(mockProgressStorageKey(params.id), JSON.stringify(progress));
+  }, [showQuizView, isSubmitted, questions.length, currentIndex, selectedAnswers, params.id]);
 
   useEffect(() => {
     if (!showQuizView || isSubmitted || timeLeft <= 0) return;
@@ -203,6 +249,12 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   }
 
   const handleSubmit = async () => {
+    // The button disables the instant isSubmitting flips true, but a second
+    // click can still queue up before that render lands — this stops it from
+    // firing a duplicate submit.
+    if (isSubmitting || isSubmitted) return;
+    setIsSubmitting(true);
+
     const answerPayload = questions.map((q) => {
       const selected = selectedAnswers[q.id];
       return selected === undefined ? { questionId: q.id } : { questionId: q.id, selectedOptionIndex: selected };
@@ -217,6 +269,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       });
       setSubmitResult(result);
       setIsSubmitted(true);
+      localStorage.removeItem(mockProgressStorageKey(params.id));
     } catch (err: any) {
       const message: string = err?.message || '';
 
@@ -226,6 +279,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       // only button can never succeed.
       if (/already submitted/i.test(message)) {
         setIsSubmitted(true);
+        localStorage.removeItem(mockProgressStorageKey(params.id));
         try {
           setMockTest(await ApiClient.getMockTestById(params.id));
         } catch (refreshErr) {
@@ -236,7 +290,32 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
 
       console.error('Failed to submit mock test:', err);
       alert(message || 'Failed to submit — please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const handleExportPDF = () => {
+    if (!questions || questions.length === 0) {
+      alert('No questions available to download PDF.');
+      return;
+    }
+    const exportQuestions = questions.map((q) => ({
+      id: q.id,
+      text: q.text,
+      options: q.options,
+      correct: q.correct,
+      explanation: q.explanation,
+      marks: q.marks,
+      userSelection: selectedAnswers[q.id],
+    }));
+
+    generateQuizSolutionsPDF({
+      quizTitle: mockTest?.title || mockTest?.quiz?.title || 'Live Mock Test Solutions',
+      score: submitResult?.score ?? myParticipant?.score,
+      totalMarks: mockTest?.quiz?.totalMarks,
+      questions: exportQuestions,
+    });
   };
 
   if (showCountdownView) {
@@ -244,7 +323,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   }
 
   if (showMissedView) {
-    return <MissedTestView mockTest={mockTest} joined={!!myParticipant} />;
+    return <MissedTestView mockTest={mockTest} joined={!!myParticipant} onExportPDF={handleExportPDF} />;
   }
 
   if (showLeaderboardView) {
@@ -255,6 +334,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         userId={user.id}
         myScore={submitResult?.score ?? myParticipant?.score}
         myRank={submitResult?.rank ?? myParticipant?.rank}
+        onExportPDF={handleExportPDF}
       />
     );
   }
@@ -292,9 +372,25 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
               {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
             </span>
           </div>
-          <Button variant="gold" size="sm" onClick={handleSubmit} className="font-bold flex items-center space-x-1 py-1.5 px-3 text-xs shadow-sm cursor-pointer shrink-0">
-            <Send className="w-3.5 h-3.5" />
-            <span>Submit</span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportPDF}
+            className="font-bold flex items-center space-x-1 py-1.5 px-2.5 text-xs cursor-pointer shrink-0 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+            title="Download Questions & Solutions PDF"
+          >
+            <Download className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">PDF</span>
+          </Button>
+          <Button
+            variant="gold"
+            size="sm"
+            onClick={handleSubmit}
+            isLoading={isSubmitting}
+            className="font-bold flex items-center space-x-1 py-1.5 px-3 text-xs shadow-sm cursor-pointer shrink-0"
+          >
+            {!isSubmitting && <Send className="w-3.5 h-3.5" />}
+            <span>{isSubmitting ? 'Submitting…' : 'Submit'}</span>
           </Button>
         </div>
       </div>
@@ -317,6 +413,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         <div className="space-y-2.5 sm:space-y-3">
           {currentQ.options.map((opt, idx) => {
             const isSelected = selectedAnswers[currentQ.id] === idx;
+            const optText = typeof opt === 'string' ? opt : opt.text;
             return (
               <button
                 key={idx}
@@ -335,7 +432,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
                   >
                     {String.fromCharCode(65 + idx)}
                   </span>
-                  <span className="text-left leading-snug">{opt}</span>
+                  <span className="text-left leading-snug">{optText}</span>
                 </div>
                 {isSelected && <CheckCircle2 className="w-5 h-5 text-amber-500 shrink-0" />}
               </button>
@@ -350,9 +447,14 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
           </Button>
 
           {currentIndex === questions.length - 1 ? (
-            <Button variant="gold" className="font-bold flex items-center space-x-2" onClick={handleSubmit}>
-              <Send className="w-4 h-4" />
-              <span>Submit Mock Test</span>
+            <Button
+              variant="gold"
+              className="font-bold flex items-center space-x-2"
+              onClick={handleSubmit}
+              isLoading={isSubmitting}
+            >
+              {!isSubmitting && <Send className="w-4 h-4" />}
+              <span>{isSubmitting ? 'Submitting…' : 'Submit Mock Test'}</span>
             </Button>
           ) : (
             <Button variant="gold" className="flex items-center space-x-2" onClick={() => setCurrentIndex((i) => i + 1)}>
@@ -417,7 +519,7 @@ function CountdownGate({ mockTest }: { mockTest: any }) {
  * (`joined`) or never took part at all. Either way there is no score or rank
  * to show, so this offers a way to at least practice the quiz instead.
  */
-function MissedTestView({ mockTest, joined }: { mockTest: any; joined: boolean }) {
+function MissedTestView({ mockTest, joined, onExportPDF }: { mockTest: any; joined: boolean; onExportPDF?: () => void }) {
   const canPractice = mockTest.quiz?.isActive !== false;
 
   return (
@@ -444,14 +546,26 @@ function MissedTestView({ mockTest, joined }: { mockTest: any; joined: boolean }
         </p>
       </div>
 
-      {canPractice && (
-        <Link href={`/quizzes/${mockTest.quizId}`}>
-          <Button variant="gold" className="font-bold flex items-center justify-center space-x-2 mx-auto px-6 py-3 cursor-pointer">
-            <span>Go to Attempt Test</span>
-            <ChevronRight className="w-4 h-4" />
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+        {onExportPDF && (
+          <Button
+            variant="outline"
+            onClick={onExportPDF}
+            className="font-bold flex items-center justify-center space-x-2 px-6 py-3 cursor-pointer border-cyan-500/40 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/10"
+          >
+            <Download className="w-4 h-4 text-cyan-500" />
+            <span>Download Solutions PDF</span>
           </Button>
-        </Link>
-      )}
+        )}
+        {canPractice && (
+          <Link href={`/quizzes/${mockTest.quizId}`}>
+            <Button variant="gold" className="font-bold flex items-center justify-center space-x-2 px-6 py-3 cursor-pointer">
+              <span>Go to Attempt Test</span>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </Link>
+        )}
+      </div>
 
       <div className="pt-1">
         <Link href="/mock-tests/completed" className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline">
@@ -468,12 +582,14 @@ function LeaderboardView({
   userId,
   myScore,
   myRank,
+  onExportPDF,
 }: {
   mockTest: any;
   leaderboard: any[];
   userId: string;
   myScore?: number;
   myRank?: number;
+  onExportPDF?: () => void;
 }) {
   const isCompleted = mockTest.status === 'COMPLETED';
   return (
@@ -483,10 +599,21 @@ function LeaderboardView({
           <Trophy className="w-7 h-7" />
         </div>
         <h1 className="text-xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">{mockTest.title}</h1>
-        <div className="flex justify-center">
+        <div className="flex justify-center items-center gap-2 flex-wrap">
           <Badge variant={isCompleted ? 'success' : 'gold'} className={`font-bold text-xs ${isCompleted ? '' : 'animate-pulse'}`}>
             {isCompleted ? 'Final Rank List' : 'Live Rank List — updating…'}
           </Badge>
+          {onExportPDF && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onExportPDF}
+              className="font-bold flex items-center space-x-1.5 text-xs border-cyan-500/40 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/10 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-cyan-500" />
+              <span>Download Solutions PDF</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -571,8 +698,18 @@ function LeaderboardView({
         )}
       </Card>
 
-      <div className="pt-3">
-        <Link href="/quizzes" className="block">
+      <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {onExportPDF && (
+          <Button
+            variant="outline"
+            onClick={onExportPDF}
+            className="w-full flex items-center justify-center space-x-2 border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 font-bold py-3 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-cyan-500" />
+            <span>Download Solutions PDF</span>
+          </Button>
+        )}
+        <Link href="/quizzes" className={onExportPDF ? '' : 'sm:col-span-2'}>
           <Button variant="gold" className="w-full flex items-center justify-center space-x-2 cursor-pointer font-bold py-3 shadow-md shadow-cyan-500/20">
             <ChevronLeft className="w-4 h-4" />
             <span>Back to Quiz Hub</span>

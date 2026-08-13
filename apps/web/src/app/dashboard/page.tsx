@@ -552,7 +552,7 @@ export default function DashboardPage() {
                         {formatDuration(attempt.timeTakenSeconds)}
                       </TableCell>
                       <TableCell>
-                        {attempt.passed ? (
+                        {attempt.passed || (attempt.percentage !== undefined && attempt.percentage >= 40) ? (
                           <Badge variant="success">Passed</Badge>
                         ) : (
                           <Badge variant="danger" className="font-medium">
@@ -580,7 +580,7 @@ export default function DashboardPage() {
                         {attempt.category} • {formatRelative(attempt.submittedAt, now)}
                       </p>
                     </div>
-                    {attempt.passed ? (
+                    {attempt.passed || (attempt.percentage !== undefined && attempt.percentage >= 40) ? (
                       <Badge variant="success" className="shrink-0">
                         Passed
                       </Badge>

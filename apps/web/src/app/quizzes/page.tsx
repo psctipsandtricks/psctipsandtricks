@@ -34,16 +34,33 @@ function useCountdown(target: string) {
   }, [target]);
 
   const diffMs = new Date(target).getTime() - now;
-  if (diffMs <= 0) return 'Starting now…';
-  const totalSeconds = Math.floor(diffMs / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (days > 0) return `Starts in ${days}d ${hours}h`;
-  if (hours > 0) return `Starts in ${hours}h ${minutes}m`;
-  if (minutes > 0) return `Starts in ${minutes}m ${seconds}s`;
-  return `Starts in ${seconds}s`;
+  const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+  return {
+    days: Math.floor(totalSeconds / 86400),
+    hours: Math.floor((totalSeconds % 86400) / 3600),
+    minutes: Math.floor((totalSeconds % 3600) / 60),
+    seconds: totalSeconds % 60,
+    isStartingNow: diffMs <= 0,
+    // Under 5 minutes: switch the display to an amber "about to start" state.
+    isUrgent: diffMs > 0 && totalSeconds < 300,
+  };
+}
+
+function CountdownUnit({ value, label, urgent }: { value: number; label: string; urgent: boolean }) {
+  return (
+    <div className="flex flex-col items-center min-w-[32px] sm:min-w-[36px]">
+      <span
+        className={`text-lg sm:text-xl font-black font-mono tabular-nums leading-none ${
+          urgent ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'
+        }`}
+      >
+        {value.toString().padStart(2, '0')}
+      </span>
+      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">
+        {label}
+      </span>
+    </div>
+  );
 }
 
 export default function QuizzesPage() {
@@ -166,7 +183,7 @@ export default function QuizzesPage() {
   // ones. Finished tests live in My Attempt History instead of taking up space
   // here with a button that cannot be used.
   const highlightedMockTests = mockTests
-    .filter((mt) => mt.status === 'LIVE' || mt.status === 'UPCOMING')
+    .filter((mt) => (mt.status === 'LIVE' || mt.status === 'UPCOMING') && !!mt.quiz?.totalQuestions)
     .sort((a, b) => {
       const rank = (s: string) => (s === 'LIVE' ? 0 : 1);
       const rankDiff = rank(a.status) - rank(b.status);
@@ -631,8 +648,10 @@ function MockTestCard({
     hour: '2-digit',
     minute: '2-digit',
   });
+  const isJoined = !!myAttempt;
   const hasSubmitted = !!myAttempt?.submittedAt;
   const isLocked = mockTest.access?.isPaid && !mockTest.access?.hasAccess;
+  const canResume = isJoined && !hasSubmitted;
 
   const handleClick = () => {
     const targetUrl = `/mock-tests/${mockTest.id}`;
@@ -643,13 +662,30 @@ function MockTestCard({
     }
   };
 
+  const isLive = mockTest.status === 'LIVE';
+  const isUpcoming = mockTest.status === 'UPCOMING';
+
   return (
-    <Card hoverEffect className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-sky-50/60 dark:bg-none dark:bg-[#0c152e] border border-cyan-500/30 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(6,182,212,0.08)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.2)] hover:border-cyan-400 transition-all duration-300 p-5 rounded-2xl">
+    <Card
+      hoverEffect
+      className={`relative overflow-hidden flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-sky-50/60 dark:bg-none dark:bg-[#0c152e] border-cyan-500/30 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(6,182,212,0.08)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.2)] hover:border-cyan-400 transition-all duration-300 p-5 rounded-2xl ${
+        isLive
+          ? 'ring-1 ring-emerald-500/50 dark:ring-emerald-500/40'
+          : isUpcoming
+            ? 'ring-1 ring-cyan-500/30 dark:ring-cyan-500/20'
+            : ''
+      }`}
+    >
+      {isLive && <span className="absolute inset-y-0 left-0 w-1.5 bg-emerald-500" aria-hidden="true" />}
+      {isUpcoming && <span className="absolute inset-y-0 left-0 w-1.5 bg-cyan-500" aria-hidden="true" />}
       <div className="space-y-3">
         <div className="flex justify-between items-center gap-2">
-          {mockTest.status === 'LIVE' ? (
-            <Badge variant="gold" className="font-bold flex items-center gap-1 animate-pulse">
-              <Radio className="w-3 h-3" />
+          {isLive ? (
+            <Badge className="font-bold flex items-center gap-1.5 bg-emerald-500 text-white border-emerald-500 dark:bg-emerald-500 dark:text-white dark:border-emerald-500 shadow-[0_0_12px_-2px_rgba(16,185,129,0.6)]">
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+              </span>
               <span>LIVE NOW</span>
             </Badge>
           ) : mockTest.status === 'UPCOMING' ? (
@@ -664,14 +700,14 @@ function MockTestCard({
             </Badge>
           )}
           {myAttempt ? (
-            <Badge variant="success" className="text-[10px] font-bold flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              <span>{hasSubmitted ? (myAttempt.rank ? `Rank #${myAttempt.rank}` : 'Attended') : 'Joined'}</span>
+            <Badge variant={hasSubmitted ? 'success' : 'warning'} className="text-[10px] font-bold flex items-center gap-1">
+              {hasSubmitted ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+              <span>{hasSubmitted ? (myAttempt.rank ? `Rank #${myAttempt.rank}` : 'Attended') : 'In Progress'}</span>
             </Badge>
           ) : isLocked ? (
             <Badge variant="gold" className="text-[10px] font-bold flex items-center gap-1">
               <Lock className="w-3 h-3" />
-              <span>₹{mockTest.access.price} Premium</span>
+              <span>₹{mockTest.access?.price ?? 0} Premium</span>
             </Badge>
           ) : (
             <Badge variant="outline" className="text-[10px] font-bold">Not Attempted</Badge>
@@ -687,12 +723,37 @@ function MockTestCard({
           <span>{scheduledFormatted}</span>
         </div>
 
-        {mockTest.status === 'UPCOMING' && (
-          <div className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30">
-            <Clock className="w-4 h-4 text-cyan-500 shrink-0 animate-pulse" />
-            <span className="text-sm sm:text-base font-black font-mono text-cyan-700 dark:text-cyan-300 tracking-wide">
-              {countdown}
-            </span>
+        {isUpcoming && (
+          <div
+            className={`rounded-xl border p-3 transition-colors ${
+              countdown.isUrgent
+                ? 'bg-amber-500/10 border-amber-500/40'
+                : 'bg-gradient-to-br from-cyan-500/10 to-blue-500/5 border-cyan-500/30'
+            }`}
+          >
+            <div className="flex items-center justify-center gap-1.5 mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">
+              <Clock className={`w-3 h-3 ${countdown.isUrgent ? 'text-amber-500 animate-pulse' : 'text-cyan-500'}`} />
+              <span>{countdown.isStartingNow ? 'Starting Now' : 'Starts In'}</span>
+            </div>
+            {countdown.isStartingNow ? (
+              <p className="text-center text-sm font-black text-emerald-600 dark:text-emerald-400 animate-pulse">
+                Refresh to join…
+              </p>
+            ) : (
+              <div className="flex items-center justify-center gap-1.5">
+                {countdown.days > 0 && (
+                  <>
+                    <CountdownUnit value={countdown.days} label="Days" urgent={countdown.isUrgent} />
+                    <span className="text-slate-300 dark:text-slate-700 font-black pb-3">:</span>
+                  </>
+                )}
+                <CountdownUnit value={countdown.hours} label="Hrs" urgent={countdown.isUrgent} />
+                <span className="text-slate-300 dark:text-slate-700 font-black pb-3">:</span>
+                <CountdownUnit value={countdown.minutes} label="Min" urgent={countdown.isUrgent} />
+                <span className="text-slate-300 dark:text-slate-700 font-black pb-3">:</span>
+                <CountdownUnit value={countdown.seconds} label="Sec" urgent={countdown.isUrgent} />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -722,13 +783,15 @@ function MockTestCard({
               {mockTest.status === 'LIVE'
                 ? hasSubmitted
                   ? 'View Live Rank List'
-                  : isLocked
-                    ? 'Buy & Start Test'
-                    : 'Join & Start'
+                  : canResume
+                    ? 'Resume Test'
+                    : isLocked
+                      ? `Unlock & Start (₹${mockTest.access?.price ?? 0})`
+                      : 'Join & Start'
                 : mockTest.status === 'COMPLETED'
                   ? 'View Final Rank List'
                   : isLocked
-                    ? 'Buy & Unlock'
+                    ? `Unlock Test (₹${mockTest.access?.price ?? 0})`
                     : 'View Details'}
             </span>
             <ArrowRight className="w-3.5 h-3.5 ml-1" />
