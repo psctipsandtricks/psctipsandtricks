@@ -40,8 +40,10 @@ Thumbs.db
 # Prisma
 apps/api/prisma/migrations/
 
-# Audio pipeline models (downloaded at build time, see nixpacks.toml)
+# Audio pipeline models + whisper.cpp source/binary (fetched/built at
+# install/build time, see apps/api/package.json's "prebuild" script)
 apps/api/models/
+apps/api/whisper.cpp/
 
 # pdfjs-dist worker (copied at install/build time, see apps/web/scripts/copy-pdf-worker.js)
 apps/web/public/pdf.worker.min.mjs

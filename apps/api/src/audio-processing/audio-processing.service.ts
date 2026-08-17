@@ -88,7 +88,7 @@ export class AudioProcessingService {
       const denoisedPath = path.join(tmpDir, 'denoised.wav');
       await denoiseAudio(inputPath, denoisedPath, {
         ffmpegPath: this.configService.get<string>('FFMPEG_PATH') || 'ffmpeg',
-        rnnoiseModelPath: this.resolveModelPath(this.configService.get<string>('RNNOISE_MODEL_PATH')),
+        rnnoiseModelPath: this.resolveLocalPath(this.configService.get<string>('RNNOISE_MODEL_PATH')),
       });
 
       const processedBuffer = await fs.readFile(denoisedPath);
@@ -135,8 +135,8 @@ export class AudioProcessingService {
       const groundTruth = await extractPdfGroundTruth(pdfBuffer);
 
       const whisperWords = await transcribeWithWhisper(denoisedAudioPath, {
-        binaryPath: this.configService.get<string>('WHISPER_CPP_BINARY_PATH') || 'whisper-cli',
-        modelPath: this.resolveModelPath(this.configService.get<string>('WHISPER_MODEL_PATH')),
+        binaryPath: this.resolveLocalPath(this.configService.get<string>('WHISPER_CPP_BINARY_PATH')),
+        modelPath: this.resolveLocalPath(this.configService.get<string>('WHISPER_MODEL_PATH')),
       });
 
       return buildAudioSyncSegments(groundTruth, whisperWords);
@@ -148,11 +148,10 @@ export class AudioProcessingService {
     }
   }
 
-  private resolveModelPath(configured: string | undefined): string {
+  /** Resolves a model/binary path (RNNoise model, whisper model, whisper.cpp binary) against apps/api's cwd if relative, matching where the prebuild scripts put them. */
+  private resolveLocalPath(configured: string | undefined): string {
     const value = configured || '';
     if (path.isAbsolute(value)) return value;
-    // Relative paths (the .env.example default) resolve against apps/api's
-    // cwd, matching where scripts/setup-audio-models.sh downloads them.
     return path.resolve(process.cwd(), value);
   }
 

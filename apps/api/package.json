@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "prebuild": "prisma generate",
+    "prebuild": "prisma generate && bash scripts/setup-audio-models.sh && bash scripts/build-whisper-cpp.sh",
     "postinstall": "prisma generate",
     "build": "prisma generate && nest build",
     "dev": "nest start --watch",

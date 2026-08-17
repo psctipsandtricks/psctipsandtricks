@@ -22,7 +22,7 @@ export const configValidationSchema = Joi.object({
   RAZORPAY_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   RAZORPAY_MODE: Joi.string().valid('test', 'live', 'demo').default('test'),
   FFMPEG_PATH: Joi.string().default('ffmpeg'),
-  WHISPER_CPP_BINARY_PATH: Joi.string().default('whisper-cli'),
+  WHISPER_CPP_BINARY_PATH: Joi.string().default('./whisper.cpp/build/bin/whisper-cli'),
   RNNOISE_MODEL_PATH: Joi.string().default('./models/rnnoise-model.rnnn'),
   WHISPER_MODEL_PATH: Joi.string().default('./models/ggml-small.bin'),
 });
