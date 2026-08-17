@@ -32,6 +32,7 @@ export class AuthService {
         phoneNumber: dto.phoneNumber,
         role: UserRole.STUDENT,
       },
+      include: { staffPermission: true },
     });
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -45,6 +46,7 @@ export class AuthService {
   async login(dto: LoginDto) {
     let user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
+      include: { staffPermission: true },
     });
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
@@ -59,6 +61,7 @@ export class AuthService {
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { role: UserRole.ADMIN },
+        include: { staffPermission: true },
       });
     }
 
@@ -68,6 +71,7 @@ export class AuthService {
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { password: hashedPassword },
+        include: { staffPermission: true },
       });
     } else {
       const isValid = await bcrypt.compare(dto.password, user.password);
@@ -97,13 +101,16 @@ export class AuthService {
     const normEmail = email.toLowerCase();
     const existingIdentity = await this.prisma.oAuthIdentity.findUnique({
       where: { provider_providerAccountId: { provider, providerAccountId } },
-      include: { user: true },
+      include: { user: { include: { staffPermission: true } } },
     });
 
     let user = existingIdentity?.user;
 
     if (!user) {
-      const existingUser = await this.prisma.user.findUnique({ where: { email: normEmail } });
+      const existingUser = await this.prisma.user.findUnique({
+        where: { email: normEmail },
+        include: { staffPermission: true },
+      });
       if (existingUser) {
         await this.prisma.oAuthIdentity.create({
           data: { provider, providerAccountId, userId: existingUser.id },
@@ -119,6 +126,7 @@ export class AuthService {
             role: isAdmin ? UserRole.ADMIN : UserRole.STUDENT,
             oauthIdentities: { create: { provider, providerAccountId } },
           },
+          include: { staffPermission: true },
         });
       }
     }
@@ -136,11 +144,13 @@ export class AuthService {
           googleAvatarUrl: avatarUrl,
           avatarUrl: user.avatarUrl ?? avatarUrl,
         },
+        include: { staffPermission: true },
       });
     } else if (avatarUrl && !user.avatarUrl) {
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { avatarUrl },
+        include: { staffPermission: true },
       });
     }
 
@@ -152,6 +162,7 @@ export class AuthService {
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { role: UserRole.ADMIN },
+        include: { staffPermission: true },
       });
     }
 

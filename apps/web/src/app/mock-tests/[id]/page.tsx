@@ -63,6 +63,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitResult, setSubmitResult] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
 
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const joinedRef = useRef(false);
@@ -295,7 +296,8 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
+    if (isExportingPDF) return;
     if (!questions || questions.length === 0) {
       alert('No questions available to download PDF.');
       return;
@@ -310,12 +312,20 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       userSelection: selectedAnswers[q.id],
     }));
 
-    generateQuizSolutionsPDF({
-      quizTitle: mockTest?.title || mockTest?.quiz?.title || 'Live Mock Test Solutions',
-      score: submitResult?.score ?? myParticipant?.score,
-      totalMarks: mockTest?.quiz?.totalMarks,
-      questions: exportQuestions,
-    });
+    setIsExportingPDF(true);
+    try {
+      await generateQuizSolutionsPDF({
+        quizTitle: mockTest?.title || mockTest?.quiz?.title || 'Live Mock Test Solutions',
+        score: submitResult?.score ?? myParticipant?.score,
+        totalMarks: mockTest?.quiz?.totalMarks,
+        questions: exportQuestions,
+      });
+    } catch (err) {
+      console.error('Failed to generate solutions PDF', err);
+      alert('Could not generate the solutions PDF. Please try again.');
+    } finally {
+      setIsExportingPDF(false);
+    }
   };
 
   if (showCountdownView) {
@@ -376,6 +386,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
             variant="outline"
             size="sm"
             onClick={handleExportPDF}
+            isLoading={isExportingPDF}
             className="font-bold flex items-center space-x-1 py-1.5 px-2.5 text-xs cursor-pointer shrink-0 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
             title="Download Questions & Solutions PDF"
           >

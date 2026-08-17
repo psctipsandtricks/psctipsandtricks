@@ -11,7 +11,27 @@ export class UpdatePermissionsDto {
 
   @IsOptional()
   @IsBoolean()
+  manageVideos?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  managePdfs?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  manageUsers?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   manageChat?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  viewOrders?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  manageOrders?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -23,7 +43,11 @@ export class UpdatePermissionsDto {
 
   @IsOptional()
   @IsBoolean()
-  viewOrders?: boolean;
+  manageAnnouncements?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  manageStaff?: boolean;
 
   @IsOptional()
   @IsBoolean()

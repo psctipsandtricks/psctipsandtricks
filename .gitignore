@@ -40,6 +40,9 @@ Thumbs.db
 # Prisma
 apps/api/prisma/migrations/
 
+# Audio pipeline models (downloaded at build time, see nixpacks.toml)
+apps/api/models/
+
 # Flutter / Dart
 mobile/.dart_tool/
 mobile/.idea/

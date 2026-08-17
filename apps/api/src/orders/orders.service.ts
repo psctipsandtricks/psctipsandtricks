@@ -2,7 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
+import { CreateManualOrderDto } from './dto/create-manual-order.dto';
 import { RazorpayService } from './razorpay.service';
+
+/** Marks an order as admin-granted rather than paid through Razorpay — the admin orders table reads this prefix to show a "Manual" badge. */
+export const MANUAL_ORDER_TAG = 'MANUAL_GRANT';
 
 @Injectable()
 export class OrdersService {
@@ -98,6 +102,56 @@ export class OrdersService {
     };
   }
 
+  /** Grants a book/quiz to a user without going through Razorpay — for support/testing use, admin- or manageOrders-staff-only. */
+  async createManualOrder(grantedByUserId: string, dto: CreateManualOrderDto) {
+    if (!dto.bookId && !dto.quizId) {
+      throw new BadRequestException('Provide either a bookId or a quizId.');
+    }
+    if (dto.bookId && dto.quizId) {
+      throw new BadRequestException('Provide only one of bookId or quizId, not both.');
+    }
+
+    const targetUser = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    if (!targetUser) throw new NotFoundException('User not found');
+
+    let amount = dto.amount;
+    if (dto.bookId) {
+      const book = await this.prisma.book.findUnique({
+        where: { id: dto.bookId },
+        select: { finalPrice: true, price: true },
+      });
+      if (!book) throw new NotFoundException('Book not found');
+      if (amount === undefined) amount = book.finalPrice ?? book.price ?? 0;
+    } else if (dto.quizId) {
+      const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId }, select: { price: true } });
+      if (!quiz) throw new NotFoundException('Quiz not found');
+      if (amount === undefined) amount = quiz.price ?? 0;
+    }
+
+    const notePart = dto.note ? `_${dto.note.slice(0, 60).replace(/\s+/g, '_')}` : '';
+    const order = await this.prisma.order.create({
+      data: {
+        userId: dto.userId,
+        bookId: dto.bookId || null,
+        quizId: dto.quizId || null,
+        amount: amount ?? 0,
+        currency: 'INR',
+        status: 'SUCCESS',
+        razorpayOrderId: MANUAL_ORDER_TAG,
+        razorpayPaymentId: `granted_by_${grantedByUserId}${notePart}`,
+      },
+      include: {
+        user: { select: { name: true, email: true } },
+        book: { select: { title: true } },
+        quiz: { select: { title: true } },
+      },
+    });
+
+    await this.prisma.user.update({ where: { id: dto.userId }, data: { isPremium: true } });
+
+    return order;
+  }
+
   async verifyPayment(userId: string, dto: VerifyPaymentDto) {
     const { orderId, paymentId, razorpayOrderId, razorpaySignature } = dto;
 
@@ -171,15 +225,155 @@ export class OrdersService {
     }
   }
 
-  async findAll() {
+  async findAll(query?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: string;
+    type?: string;
+    startDate?: string;
+    endDate?: string;
+  }) {
+    const where: any = {};
+
+    if (query?.status && query.status !== 'ALL') {
+      where.status = query.status;
+    }
+
+    if (query?.type && query.type !== 'ALL') {
+      if (query.type === 'BOOK') {
+        where.bookId = { not: null };
+      } else if (query.type === 'QUIZ') {
+        where.quizId = { not: null };
+      }
+    }
+
+    if (query?.startDate || query?.endDate) {
+      where.createdAt = {};
+      if (query.startDate) {
+        where.createdAt.gte = new Date(query.startDate);
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    if (query?.search && query.search.trim()) {
+      const s = query.search.trim();
+      where.OR = [
+        { id: { contains: s, mode: 'insensitive' } },
+        { razorpayPaymentId: { contains: s, mode: 'insensitive' } },
+        { razorpayOrderId: { contains: s, mode: 'insensitive' } },
+        { legacyOrderNumber: { contains: s, mode: 'insensitive' } },
+        { user: { name: { contains: s, mode: 'insensitive' } } },
+        { user: { email: { contains: s, mode: 'insensitive' } } },
+        { user: { phoneNumber: { contains: s, mode: 'insensitive' } } },
+        { book: { title: { contains: s, mode: 'insensitive' } } },
+        { quiz: { title: { contains: s, mode: 'insensitive' } } },
+      ];
+    }
+
+    if (query?.page || query?.limit) {
+      const page = Math.max(1, Number(query.page) || 1);
+      const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
+      const skip = (page - 1) * limit;
+
+      const [total, data, statusGroups] = await Promise.all([
+        this.prisma.order.count({ where }),
+        this.prisma.order.findMany({
+          where,
+          include: {
+            user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },
+            book: { select: { title: true } },
+            quiz: { select: { title: true } },
+          },
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.order.groupBy({
+          by: ['status'],
+          where,
+          _count: { _all: true },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      let successCount = 0;
+      let pendingCount = 0;
+      let refundedCount = 0;
+      let cancelledCount = 0;
+      let failedCount = 0;
+      let revenue = 0;
+
+      for (const item of statusGroups) {
+        if (item.status === 'SUCCESS') {
+          successCount = item._count._all;
+          revenue = item._sum.amount || 0;
+        } else if (item.status === 'PENDING') {
+          pendingCount = item._count._all;
+        } else if (item.status === 'REFUNDED') {
+          refundedCount = item._count._all;
+        } else if (item.status === 'CANCELLED') {
+          cancelledCount = item._count._all;
+        } else if (item.status === 'FAILED') {
+          failedCount = item._count._all;
+        }
+      }
+
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        metrics: {
+          total,
+          successCount,
+          pendingCount,
+          refundedCount,
+          cancelledCount,
+          failedCount,
+          revenue,
+        },
+      };
+    }
+
     return this.prisma.order.findMany({
+      where,
       include: {
-        user: { select: { name: true, email: true } },
+        user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },
         book: { select: { title: true } },
         quiz: { select: { title: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async updateOrder(id: string, dto: { status?: any; amount?: number; description?: string; razorpayPaymentId?: string }) {
+    const existing = await this.prisma.order.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException(`Order with ID ${id} not found`);
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.razorpayPaymentId !== undefined ? { razorpayPaymentId: dto.razorpayPaymentId } : {}),
+      },
+      include: {
+        user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },
+        book: { select: { title: true } },
+        quiz: { select: { title: true } },
+      },
+    });
+
+    return updated;
   }
 
   /** A student's own purchase history — "My Orders" on the public site. */
@@ -189,6 +383,24 @@ export class OrdersService {
       include: {
         book: { select: { id: true, title: true, coverUrl: true } },
         quiz: { select: { id: true, title: true, isLiveMock: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Completed orders for a user (Admin/Staff view) */
+  async findUserOrders(userIdOrEmail: string) {
+    return this.prisma.order.findMany({
+      where: {
+        status: 'SUCCESS',
+        OR: [
+          { userId: userIdOrEmail },
+          { user: { email: { equals: userIdOrEmail, mode: 'insensitive' } } },
+        ],
+      },
+      include: {
+        book: { select: { id: true, title: true, coverUrl: true, price: true, finalPrice: true } },
+        quiz: { select: { id: true, title: true, isLiveMock: true, price: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

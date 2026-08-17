@@ -4,9 +4,9 @@ import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, ToggleSwitch, Badge, Pagination, Skeleton } from '@psc/ui';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, ToggleSwitch, Badge, Pagination, Skeleton, Select } from '@psc/ui';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
-import { Edit3, Trash2, BookOpen, Library, ImagePlus, Eye, Gift, Globe } from 'lucide-react';
+import { Edit3, Trash2, BookOpen, Library, ImagePlus, Eye, Gift, Globe, CheckCircle2, UploadCloud, X, ExternalLink } from 'lucide-react';
 import { Book } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
 
@@ -66,21 +66,38 @@ export default function AdminBooksPage() {
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Book | null>(null);
 
+  const [searchTerm, setSearchTerm] = useState('');
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const fetchBooks = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await ApiClient.getBooks();
+      const res = await ApiClient.getBooks({
+        page: currentPage,
+        limit: pageSize,
+        search: searchTerm.trim() || undefined,
+      });
+      const data = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      const total = typeof res?.total === 'number' ? res.total : data.length;
       setBooks(data);
+      setTotalCount(total);
     } catch (err) {
       console.error('Failed to fetch books:', err);
+      setBooks([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentPage, pageSize, searchTerm]);
 
   useEffect(() => {
     setMounted(true);
-    fetchBooks();
+    const timer = setTimeout(() => {
+      fetchBooks();
+    }, 250);
+    return () => clearTimeout(timer);
   }, [fetchBooks]);
 
   const formik = useFormik({
@@ -166,8 +183,17 @@ export default function AdminBooksPage() {
     setIsDialogOpen(true);
   };
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const handleDeleteBook = async (id: string) => {
+    const previousBooks = books;
+    setBooks((prev) => prev.filter((b) => b.id !== id));
+    try {
+      await ApiClient.deleteBook(id);
+      fetchBooks();
+    } catch (err: any) {
+      setBooks(previousBooks);
+      alert(err.message || 'Failed to delete book.');
+    }
+  };
 
   if (!mounted) {
     return (
@@ -178,20 +204,9 @@ export default function AdminBooksPage() {
     );
   }
 
-  const handleDeleteBook = async (id: string) => {
-    const previousBooks = books;
-    setBooks((prev) => prev.filter((b) => b.id !== id));
-    try {
-      await ApiClient.deleteBook(id);
-    } catch (err: any) {
-      setBooks(previousBooks);
-      alert(err.message || 'Failed to delete book.');
-    }
-  };
-
-  const totalItems = books.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
-  const paginatedBooks = books.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalItems = totalCount;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+  const paginatedBooks = Array.isArray(books) ? books : [];
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
@@ -201,9 +216,21 @@ export default function AdminBooksPage() {
           <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">E-Book Content Management</h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 leading-relaxed">Upload and manage PSC PDF handbooks and question banks.</p>
         </div>
-        <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 w-full sm:w-auto shrink-0" onClick={handleOpenCreateDialog}>
-          + Add New Book
-        </Button>
+        <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <div className="w-full sm:w-64">
+            <Input
+              placeholder="Search books..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
+          <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 shrink-0" onClick={handleOpenCreateDialog}>
+            + Add New Book
+          </Button>
+        </div>
       </div>
 
       {/* Scrollable Table */}
@@ -212,12 +239,13 @@ export default function AdminBooksPage() {
           <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-12"><span className="sr-only">Cover</span></TableHead>
+              <TableHead className="w-16">Cover</TableHead>
               <TableHead>Book Title</TableHead>
               <TableHead>Author</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Price</TableHead>
-              <TableHead>Downloads</TableHead>
+              <TableHead className="whitespace-nowrap">Orders</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -225,10 +253,11 @@ export default function AdminBooksPage() {
             {loading ? (
               Array.from({ length: 5 }).map((_, idx) => (
                 <TableRow key={`skeleton-${idx}`} className="border-b border-slate-200/80 dark:border-slate-800/60">
-                  <TableCell className="py-4 w-12"><Skeleton className="h-9 w-9 rounded-xl" /></TableCell>
+                  <TableCell className="py-3 w-16"><Skeleton className="h-16 w-12 rounded-xl" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-48 rounded-lg" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-32 rounded-lg" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-24 rounded-lg" /></TableCell>
+                  <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
                   <TableCell className="py-4"><Skeleton className="h-5 w-20 rounded-lg" /></TableCell>
                   <TableCell className="py-4 text-right"><Skeleton className="h-8 w-20 rounded-xl ml-auto" /></TableCell>
@@ -236,7 +265,7 @@ export default function AdminBooksPage() {
               ))
             ) : paginatedBooks.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                     <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
                       <BookOpen className="w-6 h-6" />
@@ -253,21 +282,63 @@ export default function AdminBooksPage() {
             ) : (
               paginatedBooks.map((book) => (
                 <TableRow key={book.id}>
-                  <TableCell className="w-12">
+                  <TableCell className="w-16 py-3">
                     {book.coverUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={book.coverUrl} alt="" className="w-9 h-9 rounded-xl object-cover border border-slate-200 dark:border-[#1e2e56]" />
+                      <div className="relative group/cover w-12 h-16 rounded-xl overflow-hidden border border-slate-200/90 dark:border-[#1e2e56] shadow-sm bg-slate-100 dark:bg-[#091124] shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={book.coverUrl}
+                          alt={book.title}
+                          className="w-full h-full object-cover object-top transition-transform duration-200 group-hover/cover:scale-110"
+                        />
+                      </div>
                     ) : (
-                      <div className="w-9 h-9 bg-slate-100 dark:bg-[#091124] rounded-xl flex items-center justify-center text-cyan-400 border border-slate-200 dark:border-[#1e2e56]">
-                        <BookOpen className="w-4 h-4" />
+                      <div className="w-12 h-16 bg-slate-100 dark:bg-[#091124] rounded-xl flex flex-col items-center justify-center text-cyan-400 border border-slate-200 dark:border-[#1e2e56] shrink-0">
+                        <BookOpen className="w-5 h-5 opacity-60" />
+                        <span className="text-[9px] font-mono text-slate-400 mt-1">No Cover</span>
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="font-bold text-slate-900 dark:text-white">{book.title}</TableCell>
+                  <TableCell className="py-3">
+                    <div className="space-y-1.5 max-w-xs sm:max-w-md">
+                      <span className="font-bold text-slate-900 dark:text-white block leading-snug">{book.title}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Link
+                          href={`/admin/books/${book.id}/chapters`}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-extrabold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono hover:border-cyan-500/50 transition-colors shadow-2xs cursor-pointer group"
+                          title="Manage Chapters"
+                        >
+                          <Library className="w-3 h-3 text-cyan-500" />
+                          <span>{book.chaptersCount ?? 0} {book.chaptersCount === 1 ? 'Chapter' : 'Chapters'}</span>
+                        </Link>
+                        <Link
+                          href={`/admin/books/${book.id}/chapters`}
+                          className="inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-extrabold bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border border-cyan-500/25 font-mono hover:bg-cyan-500/20 transition-colors shadow-2xs cursor-pointer"
+                          title="View Topics"
+                        >
+                          <span>{book.topicsCount ?? 0} {book.topicsCount === 1 ? 'Topic' : 'Topics'}</span>
+                        </Link>
+                      </div>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{book.author}</TableCell>
                   <TableCell><Badge variant="gold">{book.category}</Badge></TableCell>
-                  <TableCell className="font-mono text-cyan-400 font-extrabold">₹{book.price}</TableCell>
-                  <TableCell className="font-mono text-slate-700 dark:text-slate-300">{book.downloadCount.toLocaleString()}</TableCell>
+                  <TableCell>
+                    <Badge variant={book.isPublished ? 'success' : 'default'}>
+                      {book.isPublished ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono font-extrabold">
+                    <span className="text-cyan-400">₹{book.finalPrice}</span>
+                    {book.discountPercent > 0 && (
+                      <span className="ml-1.5 text-slate-400 dark:text-slate-500 line-through font-medium">₹{book.price}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-mono shadow-2xs">
+                      {book.ordersCount ?? (book as any)._count?.orders ?? 0}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-2">
                       <Link href={`/admin/books/${book.id}/chapters`}>
@@ -449,31 +520,84 @@ export default function AdminBooksPage() {
               onBlur={formik.handleBlur}
               error={formik.touched.publicationYear && formik.errors.publicationYear ? formik.errors.publicationYear : undefined}
             />
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">Subscription Type</label>
-              <select
-                name="subscriptionType"
-                value={formik.values.subscriptionType}
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                className="h-11 w-full px-3 rounded-xl border border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/60 cursor-pointer"
-              >
-                {SUBSCRIPTION_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Subscription Type"
+              name="subscriptionType"
+              value={formik.values.subscriptionType}
+              onChange={(val) => formik.setFieldValue('subscriptionType', val)}
+              options={SUBSCRIPTION_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+            />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-              Cover Image {editingBook ? '(leave blank to keep current)' : ''}
-            </label>
-            <label className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#091124] text-sm cursor-pointer hover:border-cyan-500/50 transition-colors">
-              <ImagePlus className="w-4 h-4 text-cyan-500 shrink-0" />
-              <span className="text-slate-600 dark:text-slate-300 truncate">{coverFile ? coverFile.name : 'Choose a cover image…'}</span>
+          <div className="space-y-2 p-3 rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <ImagePlus className="w-3.5 h-3.5 text-cyan-500" />
+                <span>Cover Image (Optional)</span>
+              </label>
+              <span className="text-[10px] text-slate-400 font-semibold">JPG, PNG, WEBP · Max 5MB</span>
+            </div>
+
+            {/* Current Active Cover Image Preview */}
+            {editingBook?.coverUrl && !coverFile && (
+              <div className="flex items-center gap-3 p-2.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 dark:bg-cyan-500/[0.07]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={editingBook.coverUrl}
+                  alt={editingBook.title}
+                  className="w-10 h-14 object-cover rounded-lg border border-cyan-500/30 shadow-xs shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse shrink-0" />
+                    <p className="text-xs font-bold text-cyan-800 dark:text-cyan-300 truncate">Current Book Cover Active</p>
+                  </div>
+                  <p className="text-[10px] text-cyan-600 dark:text-cyan-400 truncate">Visible on book catalog & reader</p>
+                </div>
+                <a
+                  href={editingBook.coverUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-700 dark:text-cyan-300 font-bold shrink-0 transition-colors text-[11px]"
+                >
+                  <span>View</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+
+            {/* Newly Selected Cover Image Preview */}
+            {coverFile && (
+              <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{coverFile.name}</p>
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                      {(coverFile.size / (1024 * 1024)).toFixed(2)} MB · Ready to upload
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCoverFile(null)}
+                  className="text-slate-400 hover:text-rose-500 p-1 rounded transition-colors cursor-pointer"
+                  title="Remove selection"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all">
+              <UploadCloud className="w-3.5 h-3.5 text-cyan-500" />
+              <span>
+                {coverFile
+                  ? 'Change cover image…'
+                  : editingBook?.coverUrl
+                    ? 'Upload new cover to replace current…'
+                    : 'Choose a cover image…'}
+              </span>
               <input
                 type="file"
                 accept="image/*"

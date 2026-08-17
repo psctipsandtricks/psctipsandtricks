@@ -62,7 +62,7 @@ function CheckoutFormContent() {
         if (itemType === 'book') {
           const book = await ApiClient.getBookById(itemId);
           if (cancelled) return;
-          setItem({ title: book.title, subtitle: `by ${book.author}`, price: book.price ?? 0 });
+          setItem({ title: book.title, subtitle: `by ${book.author}`, price: book.finalPrice ?? book.price ?? 0 });
         } else {
           const quiz = await ApiClient.getQuizById(itemId);
           if (cancelled) return;
@@ -201,7 +201,7 @@ function CheckoutFormContent() {
 
             if (settled?.status === 'SUCCESS') {
               setPaymentSuccess(true);
-              const destination = itemType === 'quiz' ? `/quizzes/${itemId}` : '/dashboard';
+              const destination = itemType === 'quiz' ? `/quizzes/${itemId}` : `/books/${itemId}`;
               setTimeout(() => router.push(destination), 1500);
             } else {
               throw new Error('Payment verification failed.');
@@ -239,7 +239,7 @@ function CheckoutFormContent() {
         </div>
         <h1 className="text-xl font-black text-slate-900 dark:text-white">Payment Successful!</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          {itemType === 'quiz' ? 'Unlocking your quiz & taking you there now…' : 'Unlocking your content & taking you to your dashboard…'}
+          {itemType === 'quiz' ? 'Unlocking your quiz & taking you there now…' : 'Unlocking your book & taking you there now…'}
         </p>
       </div>
     );

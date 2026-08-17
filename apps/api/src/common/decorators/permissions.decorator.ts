@@ -7,8 +7,11 @@ export type StaffPermissionKey =
   | 'manageCoupons'
   | 'manageNotifications'
   | 'viewOrders'
+  | 'manageOrders'
   | 'viewAnalytics'
-  | 'manageUsers';
+  | 'manageUsers'
+  | 'manageVideos'
+  | 'managePdfs';
 
 export const PERMISSIONS_KEY = 'permissions';
 export const RequirePermissions = (...permissions: StaffPermissionKey[]) =>

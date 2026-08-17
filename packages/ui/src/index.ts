@@ -17,3 +17,4 @@ export * from './components/Navbar';
 export * from './components/Sidebar';
 export * from './components/Skeleton';
 export * from './components/Pagination';
+export * from './components/Select';

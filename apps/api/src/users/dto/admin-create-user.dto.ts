@@ -5,9 +5,10 @@ export class AdminCreateUserDto {
   @IsEmail()
   email: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(6)
-  password: string;
+  password?: string;
 
   @IsString()
   name: string;

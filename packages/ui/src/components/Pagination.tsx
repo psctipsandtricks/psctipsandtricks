@@ -3,6 +3,7 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../utils';
+import { Select } from './Select';
 
 export interface PaginationProps {
   currentPage: number;
@@ -75,17 +76,15 @@ export const Pagination: React.FC<PaginationProps> = ({
         {onPageSizeChange && (
           <div className="flex items-center space-x-1.5 ml-2">
             <span className="hidden md:inline">Per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 text-xs font-semibold rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 cursor-pointer"
-            >
-              {pageSizeOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+            <div className="w-20">
+              <Select
+                value={String(pageSize)}
+                onChange={(val: string) => onPageSizeChange(Number(val))}
+                options={pageSizeOptions.map((opt) => ({ value: String(opt), label: String(opt) }))}
+                triggerClassName="h-8 py-1 px-2 text-xs rounded-lg border-slate-200 dark:border-[#1e2e56]"
+                dropdownClassName="w-20 min-w-0"
+              />
+            </div>
           </div>
         )}
       </div>

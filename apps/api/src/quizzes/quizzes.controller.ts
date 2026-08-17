@@ -21,9 +21,29 @@ export class QuizzesController {
   @ApiQuery({ name: 'publishedOnly', required: false, type: Boolean })
   @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async findAll(@Request() req: any, @Query('publishedOnly') publishedOnly?: string) {
+  async findAll(
+    @Request() req: any,
+    @Query('publishedOnly') publishedOnly?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('folder') folder?: string,
+    @Query('access') access?: string,
+    @Query('status') status?: string,
+  ) {
     const isPublishedOnly = publishedOnly === 'true' || publishedOnly === '1';
-    return this.quizzesService.findAll(isPublishedOnly, req.user);
+    return this.quizzesService.findAll(
+      {
+        publishedOnly: isPublishedOnly,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        search,
+        folder,
+        access,
+        status,
+      },
+      req.user,
+    );
   }
 
   @ApiOperation({ summary: 'Get quiz details by ID with questions' })

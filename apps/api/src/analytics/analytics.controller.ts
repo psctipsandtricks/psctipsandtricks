@@ -23,6 +23,12 @@ export class AnalyticsController {
     return this.analyticsService.getUsageStats();
   }
 
+  @ApiOperation({ summary: 'Admin high-performance dashboard summary and KPIs' })
+  @Get('admin/summary')
+  async getAdminDashboardSummary() {
+    return this.analyticsService.getAdminDashboardSummary();
+  }
+
   @ApiOperation({ summary: 'Subject-wise quiz performance breakdown' })
   @Get('subject-performance')
   async getSubjectPerformance() {

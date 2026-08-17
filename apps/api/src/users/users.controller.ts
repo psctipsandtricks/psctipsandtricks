@@ -11,6 +11,7 @@ import {
   UploadedFile,
   Request,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
@@ -36,8 +37,18 @@ export class UsersController {
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageUsers')
   @Get()
-  async findAll() {
-    return this.usersService.findAll();
+  async findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('provider') provider?: string,
+  ) {
+    return this.usersService.findAll({
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      search,
+      provider,
+    });
   }
 
   @ApiOperation({ summary: 'Create a student account (Admin / Staff with manage_users)' })
@@ -105,5 +116,15 @@ export class UsersController {
   @Patch(':id/admin')
   async adminUpdate(@Param('id') id: string, @Body() dto: AdminUpdateUserDto) {
     return this.usersService.adminUpdate(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete user account (Admin / Staff with manage_users)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageUsers')
+  @Delete(':id')
+  async delete(@Request() req: any, @Param('id') id: string) {
+    return this.usersService.deleteUser(id, req.user?.id);
   }
 }

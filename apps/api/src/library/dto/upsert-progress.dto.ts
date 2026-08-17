@@ -8,6 +8,10 @@ export class UpsertProgressDto {
   @IsString()
   chapterId?: string;
 
+  @IsOptional()
+  @IsString()
+  topicId?: string;
+
   @IsNumber()
   @Min(0)
   @Max(100)

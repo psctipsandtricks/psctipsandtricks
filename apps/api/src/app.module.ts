@@ -18,6 +18,8 @@ import { LibraryModule } from './library/library.module';
 import { StaffModule } from './staff/staff.module';
 import { MockTestsModule } from './mock-tests/mock-tests.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { VideosModule } from './videos/videos.module';
+import { PdfsModule } from './pdfs/pdfs.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { AnalyticsModule } from './analytics/analytics.module';
     StaffModule,
     MockTestsModule,
     AnalyticsModule,
+    VideosModule,
+    PdfsModule,
   ],
 })
 export class AppModule {}

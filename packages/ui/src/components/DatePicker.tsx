@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../utils';
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 export interface DatePickerProps {
   label?: string;
@@ -75,13 +77,13 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
   const [isOpen, setIsOpen] = useState(false);
   const [viewDate, setViewDate] = useState<Date>(parsedValue || new Date());
-  const [position, setPosition] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 280 });
+  const [position, setPosition] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const updatePosition = useCallback(() => {
-    if (!triggerRef.current) return;
+  const computePosition = useCallback(() => {
+    if (!triggerRef.current) return null;
     const rect = triggerRef.current.getBoundingClientRect();
     const width = Math.max(rect.width, 270);
     const left = Math.max(PANEL_MARGIN, Math.min(rect.left, window.innerWidth - width - PANEL_MARGIN));
@@ -93,12 +95,30 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         ? Math.max(PANEL_MARGIN, rect.top - ESTIMATED_PANEL_HEIGHT - PANEL_MARGIN)
         : rect.bottom + PANEL_MARGIN;
 
-    setPosition({ top, left, width });
+    return { top, left, width };
   }, []);
+
+  const handleOpen = () => {
+    const pos = computePosition();
+    if (pos) setPosition(pos);
+    setViewDate(parsedValue || new Date());
+    setIsOpen(true);
+  };
+
+  useIsomorphicLayoutEffect(() => {
+    if (isOpen) {
+      const pos = computePosition();
+      if (pos) setPosition(pos);
+    }
+  }, [isOpen, computePosition]);
 
   useEffect(() => {
     if (!isOpen) return;
-    updatePosition();
+
+    const handleUpdate = () => {
+      const pos = computePosition();
+      if (pos) setPosition(pos);
+    };
 
     const handleOutside = (e: MouseEvent) => {
       if (
@@ -113,22 +133,17 @@ export const DatePicker: React.FC<DatePickerProps> = ({
       if (e.key === 'Escape') setIsOpen(false);
     };
 
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', handleUpdate, true);
+    window.addEventListener('resize', handleUpdate);
     document.addEventListener('mousedown', handleOutside);
     document.addEventListener('keydown', handleKey);
     return () => {
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', handleUpdate, true);
+      window.removeEventListener('resize', handleUpdate);
       document.removeEventListener('mousedown', handleOutside);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [isOpen, updatePosition]);
-
-  const handleOpen = () => {
-    setViewDate(parsedValue || new Date());
-    setIsOpen(true);
-  };
+  }, [isOpen, computePosition]);
 
   const handleSelectDay = (day: Date) => {
     onChange(formatDateStr(day));

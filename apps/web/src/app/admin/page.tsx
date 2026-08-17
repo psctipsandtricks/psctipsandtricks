@@ -21,14 +21,14 @@ interface OrderItem {
 export default function AdminDashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [dashboardStats, setDashboardStats] = useState<{
-    totalUsers: number;
-    totalQuizzes: number;
-    totalBooks: number;
-    totalOrders: number;
+  const [data, setData] = useState<{
     totalRevenue: number;
+    totalOrders: number;
+    monthlyRevenue: number;
+    registeredStudents: number;
+    revenueChartData: { month: string; revenue: number }[];
+    recentOrders: any[];
   } | null>(null);
-  const [orders, setOrders] = useState<OrderItem[]>([]);
 
   useEffect(() => {
     setMounted(true);
@@ -37,19 +37,9 @@ export default function AdminDashboardPage() {
     async function loadData() {
       try {
         setLoading(true);
-        const [statsRes, ordersRes] = await Promise.allSettled([
-          ApiClient.getAdminDashboard(),
-          ApiClient.getAllOrders(),
-        ]);
-
+        const res = await ApiClient.getAdminDashboard();
         if (cancelled) return;
-
-        if (statsRes.status === 'fulfilled') {
-          setDashboardStats(statsRes.value);
-        }
-        if (ordersRes.status === 'fulfilled' && Array.isArray(ordersRes.value)) {
-          setOrders(ordersRes.value);
-        }
+        setData(res);
       } catch (err) {
         console.error('Failed to load admin dashboard data:', err);
       } finally {
@@ -73,50 +63,12 @@ export default function AdminDashboardPage() {
     );
   }
 
-  // Calculate live KPI metrics from real backend database data
-  const totalRevenue = orders.length > 0
-    ? orders.filter((o) => o.status === 'SUCCESS').reduce((sum, o) => sum + (o.amount || 0), 0)
-    : (dashboardStats?.totalRevenue ?? 0);
-
-  const totalOrders = orders.length > 0
-    ? orders.length
-    : (dashboardStats?.totalOrders ?? 0);
-
-  const registeredStudents = dashboardStats?.totalUsers ?? 0;
-
-  // Monthly revenue for the current month
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const monthlyRevenue = orders
-    .filter((o) => {
-      if (o.status !== 'SUCCESS' || !o.createdAt) return false;
-      const d = new Date(o.createdAt);
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    })
-    .reduce((sum, o) => sum + (o.amount || 0), 0);
-
-  // Revenue trend data for last 6 months computed dynamically from real orders
-  const monthsNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const revenueChartData = Array.from({ length: 6 }).map((_, idx) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - (5 - idx));
-    const mName = monthsNames[d.getMonth()];
-    const mYear = d.getFullYear();
-    const mMonth = d.getMonth();
-
-    const rev = orders
-      .filter((o) => {
-        if (o.status !== 'SUCCESS' || !o.createdAt) return false;
-        const od = new Date(o.createdAt);
-        return od.getMonth() === mMonth && od.getFullYear() === mYear;
-      })
-      .reduce((sum, o) => sum + (o.amount || 0), 0);
-
-    return { month: mName, revenue: rev };
-  });
-
-  const recentOrders = orders.slice(0, 5);
+  const totalRevenue = data?.totalRevenue ?? 0;
+  const totalOrders = data?.totalOrders ?? 0;
+  const registeredStudents = data?.registeredStudents ?? 0;
+  const monthlyRevenue = data?.monthlyRevenue ?? 0;
+  const revenueChartData = data?.revenueChartData ?? [];
+  const recentOrders = data?.recentOrders ?? [];
 
   return (
     <div className="space-y-8">

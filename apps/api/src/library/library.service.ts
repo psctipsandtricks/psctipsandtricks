@@ -21,10 +21,12 @@ export class LibraryService {
         userId,
         bookId: dto.bookId,
         chapterId: dto.chapterId,
+        topicId: dto.topicId,
         progressPercent: dto.progressPercent,
       },
       update: {
         chapterId: dto.chapterId,
+        topicId: dto.topicId,
         progressPercent: dto.progressPercent,
         lastReadAt: new Date(),
       },

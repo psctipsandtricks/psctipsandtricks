@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Clock,
   Download,
+  MinusCircle,
+  Scale,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
@@ -74,8 +76,20 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [attemptNumber, setAttemptNumber] = useState<number>(1);
   const [isPremiumQuiz, setIsPremiumQuiz] = useState(false);
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
   const [access, setAccess] = useState<QuizAccessState | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [negativeMarkingRules, setNegativeMarkingRules] = useState<{
+    enabled: boolean;
+    every: number;
+    deduct: number;
+    allowNegative: boolean;
+  }>({
+    enabled: false,
+    every: 3,
+    deduct: 1,
+    allowNegative: false,
+  });
 
   // Require login to take quiz
   useEffect(() => {
@@ -94,6 +108,12 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         setQuizTitle(quiz.title);
         setIsPremiumQuiz(Boolean(quiz.isPremium || quiz.accessType === 'PAID' || (quiz.price && quiz.price > 0)));
         setAccess(quiz.access ?? null);
+        setNegativeMarkingRules({
+          enabled: Boolean(quiz.negativeMarkingEnabled),
+          every: Number(quiz.negativeMarkingEvery) || 3,
+          deduct: Number(quiz.negativeMarkingDeduct) || 1,
+          allowNegative: Boolean(quiz.allowNegativeScore),
+        });
 
         // The server withholds questions and refuses attempts for a premium
         // quiz until it is paid for, so stop here and let the paywall render.
@@ -210,7 +230,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   };
 
   const handleSubmit = () => {
-    let score = 0;
+    let positiveMarks = 0;
     let correct = 0;
     let wrong = 0;
     let unattempted = 0;
@@ -223,15 +243,26 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         unattempted++;
         answerPayload.push({ questionId: q.id });
       } else if (selected === q.correct) {
-        score += q.marks;
+        positiveMarks += (q.marks ?? 1);
         correct++;
         answerPayload.push({ questionId: q.id, selectedOptionIndex: selected });
       } else {
-        score -= 0.33;
         wrong++;
         answerPayload.push({ questionId: q.id, selectedOptionIndex: selected });
       }
     });
+
+    let negativeMarks = 0;
+    if (negativeMarkingRules.enabled) {
+      const every = Math.max(1, negativeMarkingRules.every);
+      const deduct = negativeMarkingRules.deduct;
+      negativeMarks = Math.floor(wrong / every) * deduct;
+    }
+
+    const netScore = positiveMarks - negativeMarks;
+    const finalScore = negativeMarkingRules.allowNegative
+      ? Math.round(netScore * 100) / 100
+      : Math.max(0, Math.round(netScore * 100) / 100);
 
     const elapsedSeconds = Math.max(0, quizDuration - timeLeft);
     const takenMin = Math.floor(elapsedSeconds / 60);
@@ -240,8 +271,13 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
 
     // 1. Immediately open result modal for instant UI responsiveness
     setResult({
-      score: Math.max(0, Math.round(score * 100) / 100),
-      totalMarks: questions.reduce((sum, q) => sum + q.marks, 0),
+      score: finalScore,
+      positiveMarks,
+      negativeMarks: Math.round(negativeMarks * 100) / 100,
+      negativeMarkingEnabled: negativeMarkingRules.enabled,
+      negativeMarkingEvery: negativeMarkingRules.every,
+      negativeMarkingDeduct: negativeMarkingRules.deduct,
+      totalMarks: questions.reduce((sum, q) => sum + (q.marks ?? 1), 0),
       correct,
       wrong,
       unattempted,
@@ -271,7 +307,8 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     router.push('/quizzes');
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
+    if (isDownloadingPDF) return;
     const exportQuestions = questions.map((q) => ({
       id: q.id,
       text: q.text,
@@ -282,12 +319,20 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
       userSelection: selectedAnswers[q.id],
     }));
 
-    generateQuizSolutionsPDF({
-      quizTitle: quizTitle || 'PSC Quiz Solutions',
-      score: result?.score,
-      totalMarks: result?.totalMarks,
-      questions: exportQuestions,
-    });
+    setIsDownloadingPDF(true);
+    try {
+      await generateQuizSolutionsPDF({
+        quizTitle: quizTitle || 'PSC Quiz Solutions',
+        score: result?.score,
+        totalMarks: result?.totalMarks,
+        questions: exportQuestions,
+      });
+    } catch (err) {
+      console.error('Failed to generate solutions PDF', err);
+      alert('Could not generate the solutions PDF. Please try again.');
+    } finally {
+      setIsDownloadingPDF(false);
+    }
   };
 
   const minutes = Math.floor(timeLeft / 60);
@@ -340,6 +385,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
                 variant="outline"
                 size="sm"
                 onClick={handleDownloadPDF}
+                isLoading={isDownloadingPDF}
                 className="font-bold flex items-center space-x-1 text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
                 title="Download Premium PDF Solutions"
               >
@@ -429,13 +475,10 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
           })}
         </div>
 
-        {/* Immediate Feedback Explanation Box */}
+        {/* Explanation */}
         {showCorrectAnswerAfterSelection && selectedAnswers[currentQ.id] !== undefined && currentQ.explanation && (
-          <div className="p-4 rounded-xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 space-y-1.5 animate-fadeIn">
-            <div className="flex items-center space-x-1.5 text-amber-600 dark:text-amber-400 text-xs font-bold uppercase tracking-wider">
-              <HelpCircle className="w-4 h-4" />
-              <span>Overall Explanation</span>
-            </div>
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1 animate-in fade-in duration-200">
+            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 block">Explanation</span>
             <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
               {currentQ.explanation}
             </p>
@@ -488,6 +531,11 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
                 <span className="text-3xl font-extrabold text-amber-600 dark:text-amber-400 block">
                   {result.score} / {result.totalMarks}
                 </span>
+                {result.negativeMarkingEnabled && result.negativeMarks > 0 && (
+                  <span className="inline-block text-[10px] font-bold text-rose-500 bg-rose-500/10 dark:bg-rose-950/40 px-2 py-0.5 rounded-full border border-rose-500/20">
+                    Gross: +{result.positiveMarks} | Negative: -{result.negativeMarks}
+                  </span>
+                )}
               </div>
               <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1">
                 <div className="flex items-center justify-center space-x-1.5 text-slate-500 dark:text-slate-400 text-xs">
@@ -513,21 +561,39 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                   <span>Correct Answers:</span>
                 </span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold">{result.correct}</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono">
+                  {result.correct} {result.negativeMarkingEnabled ? `(+${result.positiveMarks} marks)` : ''}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="flex items-center space-x-2 text-xs font-semibold">
                   <XCircle className="w-4 h-4 text-rose-500" />
                   <span>Wrong Answers:</span>
                 </span>
-                <span className="text-rose-600 dark:text-rose-400 font-bold">{result.wrong}</span>
+                <span className="text-rose-600 dark:text-rose-400 font-bold font-mono">{result.wrong}</span>
               </div>
+
+              {result.negativeMarkingEnabled && (
+                <div className="flex justify-between items-center bg-rose-500/10 dark:bg-rose-950/30 -mx-1 px-2.5 py-1.5 rounded-lg border border-rose-500/25 animate-in fade-in duration-200">
+                  <span className="flex items-center space-x-2 text-xs font-bold text-rose-700 dark:text-rose-400">
+                    <MinusCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>Negative Marks Deducted:</span>
+                    <span className="text-[10px] font-normal text-rose-500/80 hidden sm:inline">
+                      (-{result.negativeMarkingDeduct} per {result.negativeMarkingEvery} wrong)
+                    </span>
+                  </span>
+                  <span className="text-rose-600 dark:text-rose-400 font-black font-mono text-sm">
+                    -{result.negativeMarks}
+                  </span>
+                </div>
+              )}
+
               <div className="flex justify-between items-center">
                 <span className="flex items-center space-x-2 text-xs font-semibold">
                   <AlertCircle className="w-4 h-4 text-slate-400" />
                   <span>Unattempted:</span>
                 </span>
-                <span className="text-slate-500 dark:text-slate-400 font-bold">{result.unattempted}</span>
+                <span className="text-slate-500 dark:text-slate-400 font-bold font-mono">{result.unattempted}</span>
               </div>
             </div>
 
@@ -536,6 +602,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
                 <Button
                   variant="gold"
                   onClick={handleDownloadPDF}
+                  isLoading={isDownloadingPDF}
                   className="flex-1 flex items-center justify-center space-x-2 cursor-pointer font-bold shadow-md shadow-amber-500/20"
                 >
                   <Download className="w-4 h-4" />

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { ApiClient } from '@/lib/api-client';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton, DatePicker, TimePicker, combineDateAndTime, splitIsoToDateAndTime, getMinMockTestTime, todayLocalDateStr } from '@psc/ui';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, Badge, Pagination, Skeleton, DatePicker, TimePicker, combineDateAndTime, splitIsoToDateAndTime, getMinMockTestTime, todayLocalDateStr, Select } from '@psc/ui';
 import {
   Folder,
   Lock,
@@ -37,6 +37,9 @@ import {
   History,
   Radio,
   MinusCircle,
+  ChevronDown,
+  Loader2,
+  X,
 } from 'lucide-react';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 
@@ -77,79 +80,7 @@ export interface QuizItem {
   questions: QuizQuestion[];
 }
 
-const DEFAULT_FOLDERS = [
-  'Root',
-  'LDC Preparation 2026',
-  'Polity & Constitution',
-  'Kerala History & Culture',
-];
 
-const INITIAL_SAMPLE_QUIZZES: QuizItem[] = [
-  {
-    id: 'q-1',
-    title: 'Kerala PSC LDC Mega Mock 2026',
-    category: 'LDC / Tenth Level',
-    folderName: 'LDC Preparation 2026',
-    questionsCount: 2,
-    durationMinutes: 75,
-    isLiveMock: true,
-    accessType: 'PAID',
-    price: 199,
-    questions: [
-      {
-        id: 'quest-101',
-        text: 'Who was the founder of the Atma Vidya Sangham in Kerala?',
-        marks: 1,
-        explanation: 'Vagbhatananda established Atma Vidya Sangham in 1917 for social reform.',
-        options: [
-          { id: 'opt-1', text: 'Sree Narayana Guru' },
-          { id: 'opt-2', text: 'Vagbhatananda' },
-          { id: 'opt-3', text: 'Chattampi Swamikal' },
-          { id: 'opt-4', text: 'Ayyankali' },
-        ],
-        correctOptionId: 'opt-2',
-      },
-      {
-        id: 'quest-102',
-        text: 'Which river is known as the Lifeline of Kerala?',
-        marks: 1,
-        explanation: 'Periyar River is the longest river in Kerala, stretching 244 km.',
-        options: [
-          { id: 'opt-1', text: 'Bharathapuzha' },
-          { id: 'opt-2', text: 'Pamba River' },
-          { id: 'opt-3', text: 'Periyar River' },
-          { id: 'opt-4', text: 'Chaliyar River' },
-        ],
-        correctOptionId: 'opt-3',
-      },
-    ],
-  },
-  {
-    id: 'q-2',
-    title: 'Indian Constitution Special',
-    category: 'Polity',
-    folderName: 'Polity & Constitution',
-    questionsCount: 1,
-    durationMinutes: 20,
-    isLiveMock: false,
-    accessType: 'FREE',
-    questions: [
-      {
-        id: 'quest-201',
-        text: 'Which Article of the Indian Constitution abolishes Untouchability?',
-        marks: 1,
-        explanation: 'Article 17 prohibits the practice of untouchability in any form.',
-        options: [
-          { id: 'opt-a', text: 'Article 14' },
-          { id: 'opt-b', text: 'Article 17' },
-          { id: 'opt-c', text: 'Article 21' },
-          { id: 'opt-d', text: 'Article 32' },
-        ],
-        correctOptionId: 'opt-b',
-      },
-    ],
-  },
-];
 
 interface QuizFormValues {
   title: string;
@@ -356,12 +287,182 @@ function getFirstFormikError(errors: any): string | null {
   return null;
 }
 
+interface FolderComboboxProps {
+  currentFolder: string;
+  folders: string[];
+  isUpdating: boolean;
+  onSelect: (folderName: string) => void;
+  onDeleteFolder?: (folderName: string) => void;
+}
+
+function FolderCombobox({ currentFolder, folders, isUpdating, onSelect, onDeleteFolder }: FolderComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  const displayFolder = (!currentFolder || currentFolder === 'Root / No Folder' || currentFolder === 'Root') ? 'Root' : currentFolder;
+
+  // Filter folder options
+  const filtered = folders.filter((f) => {
+    const name = f === 'Root / No Folder' ? 'Root' : f;
+    return name.toLowerCase().includes(search.toLowerCase());
+  });
+
+  const hasExactMatch = folders.some(
+    (f) => (f === 'Root / No Folder' ? 'Root' : f).toLowerCase() === search.trim().toLowerCase()
+  );
+
+  return (
+    <div className="relative inline-block text-left" ref={popoverRef}>
+      {isUpdating ? (
+        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-900 dark:text-amber-300 border border-amber-500/25 shadow-2xs">
+          <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+          <span>Updating...</span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          title="Click to select or search folder assignment"
+          className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-500/25 hover:border-amber-500/50 shadow-2xs cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+        >
+          <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span className="max-w-[140px] truncate">{displayFolder}</span>
+          <ChevronDown className="w-3 h-3 text-amber-500/80 shrink-0" />
+        </button>
+      )}
+
+      {isOpen && (
+        <div className="absolute left-0 mt-1.5 w-64 z-[999] bg-white dark:bg-[#0c162d] border border-slate-200 dark:border-[#1e2e56] rounded-2xl shadow-2xl overflow-hidden p-2 animate-in fade-in zoom-in-95 duration-150">
+          <div className="relative mb-2">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Type to search or create folder..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && search.trim()) {
+                  e.preventDefault();
+                  onSelect(search.trim());
+                  setIsOpen(false);
+                  setSearch('');
+                }
+              }}
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-[#091124] border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/40 font-semibold"
+            />
+          </div>
+
+          <div className="max-h-48 overflow-y-auto space-y-0.5 custom-scrollbar">
+            {filtered.map((f) => {
+              const folderName = (!f || f === 'Root / No Folder' || f === 'Root') ? 'Root' : f;
+              const isSelected = folderName === displayFolder;
+              const isRoot = folderName === 'Root';
+              return (
+                <div
+                  key={f}
+                  className={`w-full group/item flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                    isSelected
+                      ? 'bg-amber-500/15 text-amber-900 dark:text-amber-300'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelect(folderName);
+                      setIsOpen(false);
+                      setSearch('');
+                    }}
+                    className="flex-1 text-left flex items-center space-x-2 truncate min-w-0 cursor-pointer"
+                  >
+                    <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    <span className="truncate">{folderName}</span>
+                  </button>
+
+                  <div className="flex items-center space-x-1 shrink-0 ml-1">
+                    {isSelected && <Check className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                    {!isRoot && onDeleteFolder && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteFolder(folderName);
+                        }}
+                        title={`Delete folder "${folderName}"`}
+                        className="opacity-0 group-hover/item:opacity-100 hover:bg-rose-500/15 text-slate-400 hover:text-rose-500 p-1 rounded-lg transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {filtered.length === 0 && !search.trim() && (
+              <div className="text-center py-3 text-xs text-slate-400">No folders found</div>
+            )}
+
+            {search.trim() && !hasExactMatch && (
+              <button
+                type="button"
+                onClick={() => {
+                  const newFolder = search.trim();
+                  onSelect(newFolder);
+                  setIsOpen(false);
+                  setSearch('');
+                }}
+                className="w-full text-left flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-bold text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-colors cursor-pointer mt-1"
+              >
+                <div className="flex items-center space-x-2 truncate min-w-0">
+                  <Plus className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                  <span className="truncate">Create & Assign "{search.trim()}"</span>
+                </div>
+                <span className="text-[10px] text-cyan-500/70 ml-2 font-mono shrink-0">↵ Enter</span>
+              </button>
+            )}
+          </div>
+
+          {!search.trim() && (
+            <div className="pt-1.5 mt-1.5 border-t border-slate-200/80 dark:border-slate-800/80 px-1">
+              <p className="text-[10px] text-slate-400 text-center font-medium">
+                💡 Type any new name in the search box above to create a folder
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function QuizAdminPage() {
   const router = useRouter();
 
   // Data state
   const [quizzes, setQuizzes] = useState<QuizItem[]>([]);
-  const [folders, setFolders] = useState<string[]>(DEFAULT_FOLDERS);
+  const [folders, setFolders] = useState<string[]>(['Root']);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   // Scheduled live sessions keyed by quiz, so the form can tell whether a quiz
@@ -391,6 +492,20 @@ export default function QuizAdminPage() {
   // Inspector Modal State
   const [inspectQuiz, setInspectQuiz] = useState<QuizItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QuizItem | null>(null);
+  const [folderDeleteTarget, setFolderDeleteTarget] = useState<string | null>(null);
+
+  // Quick Inline Edit State
+  const [updatingFolderQuizId, setUpdatingFolderQuizId] = useState<string | null>(null);
+  const [updatingStatusQuizId, setUpdatingStatusQuizId] = useState<string | null>(null);
+
+  // Floating Toast Notification State
+  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!toastMsg) return;
+    const timer = setTimeout(() => setToastMsg(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toastMsg]);
 
   // Helper to map API response to local QuizItem format
   const mapApiQuizToLocal = useCallback((apiQuiz: any): QuizItem => {
@@ -432,24 +547,46 @@ export default function QuizAdminPage() {
     };
   }, []);
 
-  // Fetch quizzes from the API on mount
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Fetch quizzes from the API with server-side pagination and filters
   const fetchQuizzes = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await ApiClient.getQuizzes();
-      const mapped = (data as any[]).map(mapApiQuizToLocal);
+      const res = await ApiClient.getQuizzes({
+        page: currentPage,
+        limit: pageSize,
+        search: searchTerm.trim() || undefined,
+        folder: selectedFolderFilter !== 'ALL' ? selectedFolderFilter : undefined,
+        access: selectedAccessFilter !== 'ALL' ? selectedAccessFilter : undefined,
+        status: selectedStatusFilter !== 'ALL' ? selectedStatusFilter : undefined,
+      });
+
+      const data = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+      const total = typeof res?.total === 'number' ? res.total : data.length;
+      setTotalCount(total);
+
+      const mapped = data.map(mapApiQuizToLocal);
       setQuizzes(mapped);
 
       // Build folder list from API data
-      const apiFolders = mapped.map((q) => q.folderName).filter((f) => f && f !== 'Root / No Folder' && f !== 'Root');
-      const uniqueFolders = Array.from(new Set([...DEFAULT_FOLDERS, ...apiFolders]));
-      setFolders(uniqueFolders);
+      const apiFolders = mapped.map((q: QuizItem) => q.folderName).filter((f: string | null | undefined): f is string => Boolean(f && f !== 'Root / No Folder' && f !== 'Root'));
+      const uniqueFolders = Array.from(new Set(['Root', ...apiFolders]));
+      setFolders((prev) => Array.from(new Set([...prev, ...uniqueFolders])));
     } catch (err) {
       console.error('Failed to fetch quizzes:', err);
     } finally {
       setLoading(false);
     }
-  }, [mapApiQuizToLocal]);
+  }, [currentPage, pageSize, searchTerm, selectedFolderFilter, selectedAccessFilter, selectedStatusFilter, mapApiQuizToLocal]);
+
+  useEffect(() => {
+    setMounted(true);
+    const timer = setTimeout(() => {
+      fetchQuizzes();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [fetchQuizzes]);
 
   const fetchMockTests = useCallback(async () => {
     try {
@@ -701,9 +838,104 @@ export default function QuizAdminPage() {
     setQuizzes((prev) => prev.filter((q) => q.id !== id));
     try {
       await ApiClient.deleteQuiz(id);
+      setToastMsg({ type: 'success', text: 'Quiz deleted successfully.' });
     } catch (err: any) {
       setQuizzes(previousQuizzes);
-      alert(err.message || 'Failed to delete quiz.');
+      setToastMsg({ type: 'error', text: err.message || 'Failed to delete quiz.' });
+    }
+  };
+
+  const confirmDeleteFolder = async (folderToDelete: string) => {
+    if (!folderToDelete || folderToDelete === 'Root' || folderToDelete === 'Root / No Folder') {
+      setToastMsg({ type: 'warning', text: 'Root folder cannot be deleted.' });
+      return;
+    }
+
+    const quizzesInFolder = quizzes.filter((q) => q.folderName === folderToDelete);
+
+    // 1. Remove folder from local folders state
+    setFolders((prev) => prev.filter((f) => f !== folderToDelete));
+
+    // 2. If filter was selected to this folder, reset filter to 'ALL'
+    if (selectedFolderFilter === folderToDelete) {
+      setSelectedFolderFilter('ALL');
+    }
+
+    // 3. Move all quizzes in this folder to 'Root'
+    if (quizzesInFolder.length > 0) {
+      const previousQuizzes = quizzes;
+      setQuizzes((prev) =>
+        prev.map((q) => (q.folderName === folderToDelete ? { ...q, folderName: 'Root' } : q))
+      );
+
+      try {
+        await Promise.all(
+          quizzesInFolder.map((q) => ApiClient.updateQuiz(q.id, { folderName: 'Root' }))
+        );
+        setToastMsg({
+          type: 'success',
+          text: `Folder "${folderToDelete}" deleted. ${quizzesInFolder.length} quiz(zes) moved to Root.`,
+        });
+      } catch (err: any) {
+        setQuizzes(previousQuizzes);
+        setFolders((prev) => Array.from(new Set([...prev, folderToDelete])));
+        setToastMsg({ type: 'error', text: err.message || 'Failed to reassign quizzes to Root.' });
+      }
+    } else {
+      setToastMsg({ type: 'success', text: `Folder "${folderToDelete}" deleted.` });
+    }
+  };
+
+  const handleQuickUpdateFolder = async (quiz: QuizItem, newFolder: string) => {
+    const targetFolder = (!newFolder || newFolder === 'Root / No Folder' || newFolder === 'Root') ? 'Root' : newFolder;
+    if (quiz.folderName === targetFolder) return;
+
+    const previousQuizzes = quizzes;
+    setQuizzes((prev) =>
+      prev.map((q) => (q.id === quiz.id ? { ...q, folderName: targetFolder } : q))
+    );
+    setUpdatingFolderQuizId(quiz.id);
+
+    try {
+      await ApiClient.updateQuiz(quiz.id, { folderName: targetFolder });
+      setToastMsg({ type: 'success', text: `Folder updated to "${targetFolder}"` });
+    } catch (err: any) {
+      setQuizzes(previousQuizzes);
+      setToastMsg({ type: 'error', text: err.message || 'Failed to update folder assignment.' });
+    } finally {
+      setUpdatingFolderQuizId(null);
+    }
+  };
+
+  const handleQuickToggleActive = async (quiz: QuizItem) => {
+    const qCount = quiz.questionsCount ?? (quiz.questions?.length ?? 0);
+    const nextIsActive = !quiz.isActive;
+
+    if (nextIsActive && qCount === 0) {
+      setToastMsg({
+        type: 'warning',
+        text: 'Cannot activate a quiz with 0 questions. Please add questions first.',
+      });
+      return;
+    }
+
+    const previousQuizzes = quizzes;
+    setQuizzes((prev) =>
+      prev.map((q) => (q.id === quiz.id ? { ...q, isActive: nextIsActive } : q))
+    );
+    setUpdatingStatusQuizId(quiz.id);
+
+    try {
+      await ApiClient.updateQuiz(quiz.id, { isActive: nextIsActive });
+      setToastMsg({
+        type: 'success',
+        text: `Status updated to ${nextIsActive ? 'Active' : 'Inactive'}`,
+      });
+    } catch (err: any) {
+      setQuizzes(previousQuizzes);
+      setToastMsg({ type: 'error', text: err.message || 'Failed to update quiz active status.' });
+    } finally {
+      setUpdatingStatusQuizId(null);
     }
   };
 
@@ -726,9 +958,9 @@ export default function QuizAdminPage() {
     return matchesSearch && matchesFolder && matchesAccess && matchesStatus;
   });
 
-  const totalItems = filteredQuizzes.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
-  const paginatedQuizzes = filteredQuizzes.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalItems = totalCount;
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+  const paginatedQuizzes = Array.isArray(quizzes) ? quizzes : [];
 
   // The backend refuses to activate a quiz with zero questions (and
   // auto-publishes it the instant the first one is added) — this mirrors
@@ -780,52 +1012,43 @@ export default function QuizAdminPage() {
             </div>
 
             {/* Folder Filter */}
-            <div className="flex items-center space-x-2">
-              <Folder className="w-4 h-4 text-cyan-500" />
-              <select
-                value={selectedFolderFilter}
-                onChange={(e) => setSelectedFolderFilter(e.target.value)}
-                className="w-full h-11 bg-white/90 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3.5 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 shadow-2xs hover:border-slate-400 dark:hover:border-[#2a3e70] transition-all cursor-pointer"
-              >
-                <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Folders & Root</option>
-                <option value="ROOT" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Root Level Only</option>
-                {folders
+            <Select
+              value={selectedFolderFilter}
+              onChange={(val) => setSelectedFolderFilter(val)}
+              icon={<Folder className="w-4 h-4 text-cyan-500" />}
+              searchable
+              options={[
+                { value: 'ALL', label: 'All Folders & Root' },
+                { value: 'ROOT', label: 'Root Level Only' },
+                ...folders
                   .filter((f) => f !== 'Root / No Folder' && f !== 'Root')
-                  .map((folder) => (
-                    <option key={folder} value={folder} className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">
-                      {folder}
-                    </option>
-                  ))}
-              </select>
-            </div>
+                  .map((folder) => ({ value: folder, label: folder })),
+              ]}
+            />
 
             {/* Access Type Filter */}
-            <div className="flex items-center space-x-2">
-              <Filter className="w-4 h-4 text-cyan-500" />
-              <select
-                value={selectedAccessFilter}
-                onChange={(e) => setSelectedAccessFilter(e.target.value)}
-                className="w-full h-11 bg-white/90 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3.5 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 shadow-2xs hover:border-slate-400 dark:hover:border-[#2a3e70] transition-all cursor-pointer"
-              >
-                <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Access Types (Free & Paid)</option>
-                <option value="FREE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Free Quizzes Only</option>
-                <option value="PAID" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">Paid / Premium Quizzes Only</option>
-              </select>
-            </div>
+            <Select
+              value={selectedAccessFilter}
+              onChange={(val) => setSelectedAccessFilter(val)}
+              icon={<Filter className="w-4 h-4 text-cyan-500" />}
+              options={[
+                { value: 'ALL', label: 'All Access Types (Free & Paid)' },
+                { value: 'FREE', label: 'Free Quizzes Only' },
+                { value: 'PAID', label: 'Paid / Premium Quizzes Only' },
+              ]}
+            />
 
             {/* Active Status Filter */}
-            <div className="flex items-center space-x-2">
-              <CheckCircle2 className="w-4 h-4 text-cyan-500" />
-              <select
-                value={selectedStatusFilter}
-                onChange={(e) => setSelectedStatusFilter(e.target.value)}
-                className="w-full h-11 bg-white/90 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3.5 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 shadow-2xs hover:border-slate-400 dark:hover:border-[#2a3e70] transition-all cursor-pointer"
-              >
-                <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Statuses (Active & Draft)</option>
-                <option value="ACTIVE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">🟢 Active Only (Visible to Students)</option>
-                <option value="INACTIVE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">⚪ Draft / Hidden Only</option>
-              </select>
-            </div>
+            <Select
+              value={selectedStatusFilter}
+              onChange={(val) => setSelectedStatusFilter(val)}
+              icon={<CheckCircle2 className="w-4 h-4 text-cyan-500" />}
+              options={[
+                { value: 'ALL', label: 'All Statuses (Active & Draft)' },
+                { value: 'ACTIVE', label: '🟢 Active Only (Visible to Students)' },
+                { value: 'INACTIVE', label: '⚪ Draft / Hidden Only' },
+              ]}
+            />
           </div>
         </Card>
       </div>
@@ -905,10 +1128,13 @@ export default function QuizAdminPage() {
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
-                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-900 dark:text-amber-300 border border-amber-500/25 shadow-2xs">
-                        <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        <span>{(!quiz.folderName || quiz.folderName === 'Root / No Folder' || quiz.folderName === 'Root') ? 'Root' : quiz.folderName}</span>
-                      </span>
+                      <FolderCombobox
+                        currentFolder={quiz.folderName}
+                        folders={folders}
+                        isUpdating={updatingFolderQuizId === quiz.id}
+                        onSelect={(newFolder) => handleQuickUpdateFolder(quiz, newFolder)}
+                        onDeleteFolder={(folder) => setFolderDeleteTarget(folder)}
+                      />
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {quiz.accessType === 'FREE' ? (
@@ -926,37 +1152,71 @@ export default function QuizAdminPage() {
                     <TableCell className="whitespace-nowrap">
                       {(() => {
                         const qCount = quiz.questionsCount ?? (quiz.questions?.length ?? 0);
-                        if (quiz.isActive) {
-                          if (qCount === 0) {
-                            return (
-                              <Badge
-                                variant="outline"
-                                title="Active status is checked, but no questions have been added yet."
-                                className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1"
-                              >
-                                <AlertCircle className="w-3 h-3" />
-                                <span>No Questions</span>
-                              </Badge>
-                            );
-                          }
+                        const isUpdating = updatingStatusQuizId === quiz.id;
+
+                        if (isUpdating) {
                           return (
-                            <Badge
-                              variant="success"
-                              className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2.5 py-1"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              <span>Active</span>
+                            <Badge variant="outline" className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-slate-500/10 text-slate-600 dark:text-slate-300 border border-slate-500/30 px-2.5 py-1">
+                              <Loader2 className="w-3 h-3 animate-spin text-cyan-500" />
+                              <span>Updating...</span>
                             </Badge>
                           );
                         }
+
+                        if (quiz.isActive) {
+                          if (qCount === 0) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickToggleActive(quiz)}
+                                title="Click to toggle status (Warning: No questions added)"
+                                className="cursor-pointer transition-all hover:scale-105 active:scale-95 focus:outline-none"
+                              >
+                                <Badge
+                                  variant="outline"
+                                  className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 px-2.5 py-1 hover:border-amber-500/60"
+                                >
+                                  <AlertCircle className="w-3 h-3" />
+                                  <span>No Questions</span>
+                                  <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                                </Badge>
+                              </button>
+                            );
+                          }
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleQuickToggleActive(quiz)}
+                              title="Click to toggle status to Inactive"
+                              className="cursor-pointer transition-all hover:scale-105 active:scale-95 focus:outline-none"
+                            >
+                              <Badge
+                                variant="success"
+                                className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2.5 py-1 hover:bg-emerald-500/25 hover:border-emerald-500/50"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>Active</span>
+                                <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                              </Badge>
+                            </button>
+                          );
+                        }
                         return (
-                          <Badge
-                            variant="outline"
-                            className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 px-2.5 py-1"
+                          <button
+                            type="button"
+                            onClick={() => handleQuickToggleActive(quiz)}
+                            title="Click to toggle status to Active"
+                            className="cursor-pointer transition-all hover:scale-105 active:scale-95 focus:outline-none"
                           >
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                            <span>Inactive</span>
-                          </Badge>
+                            <Badge
+                              variant="outline"
+                              className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/30 px-2.5 py-1 hover:bg-rose-500/20 hover:border-rose-500/50"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              <span>Inactive</span>
+                              <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                            </Badge>
+                          </button>
                         );
                       })()}
                     </TableCell>
@@ -1122,25 +1382,24 @@ export default function QuizAdminPage() {
                 <span>Folder Placement</span>
               </label>
               {!isCreatingNewFolder ? (
-                <div className="flex gap-2">
-                  <select
-                    name="selectedFolder"
-                    value={formik.values.selectedFolder}
-                    onChange={formik.handleChange}
-                    className="w-full h-11 bg-slate-100 dark:bg-[#091124] border border-slate-400 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/50"
-                  >
-                    {folders.map((f) => (
-                      <option key={f} value={f} className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">
-                        {f === 'Root / No Folder' || f === 'Root' ? 'Root' : f}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex gap-2 items-center">
+                  <div className="flex-1 min-w-0">
+                    <Select
+                      value={formik.values.selectedFolder}
+                      onChange={(val) => formik.setFieldValue('selectedFolder', val)}
+                      searchable
+                      options={folders.map((f) => ({
+                        value: f,
+                        label: f === 'Root / No Folder' || f === 'Root' ? 'Root' : f,
+                      }))}
+                    />
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setIsCreatingNewFolder(true)}
-                    className="whitespace-nowrap font-bold flex items-center space-x-1"
+                    className="whitespace-nowrap font-bold flex items-center space-x-1 h-11"
                   >
                     <Plus className="w-4 h-4" />
                     <span>New Folder</span>
@@ -1617,6 +1876,61 @@ export default function QuizAdminPage() {
         }}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      <ConfirmDialog
+        isOpen={folderDeleteTarget !== null}
+        title="Delete Folder"
+        description={
+          folderDeleteTarget
+            ? `Are you sure you want to delete folder "${folderDeleteTarget}"? Any quizzes inside this folder will automatically be moved to "Root".`
+            : undefined
+        }
+        confirmLabel="Delete Folder"
+        variant="danger"
+        onConfirm={() => {
+          if (folderDeleteTarget) confirmDeleteFolder(folderDeleteTarget);
+          setFolderDeleteTarget(null);
+        }}
+        onCancel={() => setFolderDeleteTarget(null)}
+      />
+
+      {/* Top-Right Floating Toast Notifications */}
+      {toastMsg && (
+        <div className="fixed top-5 right-5 z-[9999] flex flex-col space-y-2.5 pointer-events-none max-w-sm sm:max-w-md w-full px-4 sm:px-0">
+          <div className={`pointer-events-auto flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-950/95 dark:bg-[#080e1e]/95 border ${
+            toastMsg.type === 'success'
+              ? 'border-emerald-500/40 text-emerald-400'
+              : toastMsg.type === 'warning'
+              ? 'border-amber-500/40 text-amber-400'
+              : 'border-rose-500/40 text-rose-400'
+          } shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-300`}>
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                toastMsg.type === 'success'
+                  ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
+                  : toastMsg.type === 'warning'
+                  ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
+                  : 'bg-rose-500/20 border border-rose-500/30 text-rose-400'
+              }`}>
+                {toastMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  <AlertCircle className="w-4 h-4" />
+                )}
+              </div>
+              <span className="text-xs font-extrabold leading-relaxed text-slate-100">{toastMsg.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToastMsg(null)}
+              className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800 shrink-0 cursor-pointer"
+              title="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

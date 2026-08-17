@@ -15,13 +15,19 @@ const sharedCouponFields = {
   maxDiscount: Yup.number().typeError('Must be a number').positive('Must be greater than 0').required('Max discount amount is required'),
 };
 
-// A new coupon must expire in the future. An existing one may already have
-// passed its date — the admin can still edit its other fields (or use the
-// date field itself to expire it immediately) without being forced to first
-// push the date forward.
+const startOfToday = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// A new coupon must not be in the past.
 const createCouponSchema = Yup.object({
   ...sharedCouponFields,
-  validTill: Yup.date().typeError('Enter a valid date').min(new Date(), 'Valid-till date must be in the future').required('Valid-till date is required'),
+  validTill: Yup.date()
+    .typeError('Enter a valid date')
+    .min(startOfToday(), 'Valid-till date cannot be in the past')
+    .required('Valid-till date is required'),
 });
 const editCouponSchema = Yup.object({
   ...sharedCouponFields,
@@ -29,14 +35,31 @@ const editCouponSchema = Yup.object({
 });
 
 /** `Coupon.validTill` comes back as a full ISO timestamp; the date picker only wants the date part. */
-function toDateInputValue(iso: string) {
+function toDateInputValue(iso?: string) {
+  if (!iso) return '';
   return iso.slice(0, 10);
+}
+
+function formatDate(dateStr?: string | null) {
+  if (!dateStr) return 'N/A';
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function getDefaultFutureDate(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 3);
+  return d.toISOString().split('T')[0];
 }
 
 export default function AdminCouponsPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
@@ -45,10 +68,14 @@ export default function AdminCouponsPage() {
   const fetchCoupons = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await ApiClient.getCoupons();
-      setCoupons(data);
-    } catch (err) {
+      const list = Array.isArray(data) ? data : (data as any)?.data || [];
+      setCoupons(list);
+    } catch (err: any) {
       console.error('Failed to fetch coupons:', err);
+      setError(err?.message || 'Failed to fetch coupons.');
+      setCoupons([]);
     } finally {
       setLoading(false);
     }
@@ -60,14 +87,18 @@ export default function AdminCouponsPage() {
   }, [fetchCoupons]);
 
   const formik = useFormik({
-    initialValues: { code: '', discountPercent: '20', maxDiscount: '100', validTill: '2027-12-31' },
+    initialValues: { code: '', discountPercent: '20', maxDiscount: '100', validTill: getDefaultFutureDate() },
     validationSchema: editingCoupon ? editCouponSchema : createCouponSchema,
     onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
+      const validTillIso = values.validTill.includes('T')
+        ? values.validTill
+        : new Date(`${values.validTill}T23:59:59.999Z`).toISOString();
+
       const payload = {
         code: values.code.trim().toUpperCase(),
         discountPercent: Number(values.discountPercent),
         maxDiscountAmount: Number(values.maxDiscount),
-        validTill: values.validTill,
+        validTill: validTillIso,
       };
       try {
         if (editingCoupon) {
@@ -90,7 +121,7 @@ export default function AdminCouponsPage() {
   const handleOpenCreateDialog = () => {
     setEditingCoupon(null);
     formik.resetForm({
-      values: { code: '', discountPercent: '20', maxDiscount: '100', validTill: '2027-12-31' },
+      values: { code: '', discountPercent: '20', maxDiscount: '100', validTill: getDefaultFutureDate() },
     });
     setIsDialogOpen(true);
   };
@@ -102,23 +133,11 @@ export default function AdminCouponsPage() {
         code: coupon.code,
         discountPercent: String(coupon.discountPercent),
         maxDiscount: String(coupon.maxDiscountAmount),
-        validTill: toDateInputValue(coupon.validTill),
+        validTill: toDateInputValue(coupon.validTill) || getDefaultFutureDate(),
       },
     });
     setIsDialogOpen(true);
   };
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-
-  if (!mounted) {
-    return (
-      <div className="space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={4} colsCount={7} />
-      </div>
-    );
-  }
 
   const handleToggleStatus = async (coupon: Coupon) => {
     const nextActive = !coupon.isActive;
@@ -152,9 +171,24 @@ export default function AdminCouponsPage() {
     setConfirmTarget(null);
   };
 
-  const totalItems = coupons.length;
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <AdminSkeletonHeader />
+        <AdminSkeletonTable rowsCount={4} colsCount={7} />
+      </div>
+    );
+  }
+
+  const filteredCoupons = coupons.filter(
+    (c) =>
+      !searchTerm.trim() ||
+      c.code.toLowerCase().includes(searchTerm.toLowerCase().trim())
+  );
+
+  const totalItems = filteredCoupons.length;
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
-  const paginatedCoupons = coupons.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedCoupons = filteredCoupons.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
@@ -164,10 +198,30 @@ export default function AdminCouponsPage() {
           <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">Coupon Code Management</h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 leading-relaxed">Create and manage discount codes for courses and e-books.</p>
         </div>
-        <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 w-full sm:w-auto shrink-0" onClick={handleOpenCreateDialog}>
-          + Create Coupon
-        </Button>
+        <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <div className="w-full sm:w-64">
+            <Input
+              placeholder="Search coupon code..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
+          <Button variant="gold" className="font-bold shadow-md shadow-amber-500/20 shrink-0" onClick={handleOpenCreateDialog}>
+            + Create Coupon
+          </Button>
+        </div>
       </div>
+
+      {/* Error alert */}
+      {error && (
+        <div className="shrink-0 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <Button size="sm" variant="outline" onClick={fetchCoupons}>Retry</Button>
+        </div>
+      )}
 
       {/* Scrollable Table */}
       <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
@@ -219,7 +273,7 @@ export default function AdminCouponsPage() {
                 <TableCell className="font-mono font-bold text-cyan-400">{coupon.code}</TableCell>
                 <TableCell className="font-bold">{coupon.discountPercent}%</TableCell>
                 <TableCell className="font-mono font-semibold">₹{coupon.maxDiscountAmount}</TableCell>
-                <TableCell className="font-mono text-xs text-slate-500 dark:text-slate-400">{new Date(coupon.validTill).toLocaleDateString('en-IN')}</TableCell>
+                <TableCell className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatDate(coupon.validTill)}</TableCell>
                 <TableCell className="font-mono text-slate-700 dark:text-slate-300">{coupon.usageCount}</TableCell>
                 <TableCell>
                   <Badge variant={coupon.isActive ? 'success' : 'danger'}>
@@ -283,7 +337,7 @@ export default function AdminCouponsPage() {
         }}
         title={editingCoupon ? `Edit Coupon — ${editingCoupon.code}` : 'Create Discount Coupon'}
       >
-        <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
+        <form className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto px-0.5 custom-scrollbar" onSubmit={formik.handleSubmit} noValidate>
           <Input
             label="Coupon Code"
             name="code"

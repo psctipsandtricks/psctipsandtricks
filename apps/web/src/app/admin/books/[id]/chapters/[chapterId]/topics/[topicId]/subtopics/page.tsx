@@ -40,6 +40,7 @@ export default function TopicSubtopicsPage() {
       reorderItems={(subtopics) => ApiClient.reorderSubtopics(topicId, subtopics)}
       uploadAudio={(subtopicId, file) => ApiClient.uploadSubtopicAudio(subtopicId, file)}
       uploadPdf={(subtopicId, file) => ApiClient.uploadSubtopicPdf(subtopicId, file)}
+      reprocessAudio={(subtopicId) => ApiClient.reprocessSubtopicAudio(subtopicId)}
     />
   );
 }

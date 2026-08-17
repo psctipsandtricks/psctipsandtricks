@@ -193,3 +193,29 @@ export function AuthSkeleton() {
     </div>
   );
 }
+
+export function BookReaderSkeleton() {
+  return (
+    <div className="flex gap-6 py-4 animate-fadeIn">
+      <div className="flex-1 space-y-6 max-w-3xl mx-auto">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64 rounded-xl" />
+          <Skeleton className="h-2 w-full rounded-full" />
+        </div>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={i} className="p-6 space-y-4 border border-slate-200/80 dark:border-slate-800/80">
+            <Skeleton className="h-5 w-1/2 rounded-lg" />
+            <Skeleton className="h-10 w-full rounded-xl" />
+            <Skeleton className="h-64 w-full rounded-xl" />
+          </Card>
+        ))}
+      </div>
+      <div className="hidden lg:block w-72 shrink-0 space-y-2">
+        <Skeleton className="h-8 w-full rounded-xl" />
+        <Skeleton className="h-16 w-full rounded-xl" />
+        <Skeleton className="h-16 w-full rounded-xl" />
+        <Skeleton className="h-16 w-full rounded-xl" />
+      </div>
+    </div>
+  );
+}

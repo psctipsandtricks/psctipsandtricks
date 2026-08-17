@@ -1,0 +1,50 @@
+{
+  "mode": "live",
+  "note": "Record of the live migration run. Re-run verification at any time with `node scripts/migrate-legacy-users-orders.js --verify-only`, which writes verification-report.json and never overwrites this file.",
+  "source": {
+    "usersJson": "/Users/antoanstin/Downloads/users.json",
+    "ordersJson": "/Users/antoanstin/Downloads/orders.json",
+    "legacyUsers": 37400,
+    "legacyOrders": 43415
+  },
+  "users": {
+    "legacySource": 37400,
+    "created": 37396,
+    "mergedIntoExistingAccounts": 4,
+    "totalMigrated": 37400
+  },
+  "orders": {
+    "legacySource": 43415,
+    "created": 42755,
+    "skippedOrphans": 660,
+    "skippedReason": "user_id has no row in users.json (deleted accounts); skipped by product-owner instruction, full rows retained in skipped-orphan-orders.json"
+  },
+  "oauth": {
+    "created": 37206,
+    "alreadyPresent": 2,
+    "duplicateLinksSkipped": 22,
+    "duplicateDetail": "oauth-duplicate-links.json"
+  },
+  "books": {
+    "mappedToRealBooks": {
+      "101": "83b937d2-7d71-4331-9a74-af0df8ab52f0",
+      "113": "5c505d30-e466-41c6-811f-faf5eb8ac598"
+    },
+    "placeholdersCreated": 10
+  },
+  "premiumUsersMarked": 13326,
+  "orderStatusDistribution": {
+    "SUCCESS": 16419,
+    "PENDING": 26214,
+    "REFUNDED": 118,
+    "CANCELLED": 4
+  },
+  "settledRevenuePreserved": {
+    "legacy": 4309254.26,
+    "migrated": 4309254.26
+  },
+  "verification": {
+    "passed": 11,
+    "failed": 0
+  }
+}

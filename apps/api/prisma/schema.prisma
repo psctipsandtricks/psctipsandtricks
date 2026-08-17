@@ -24,6 +24,10 @@ enum OrderStatus {
   SUCCESS
   FAILED
   REFUNDED
+  /// Carried over from the legacy PHP app, which could cancel an order after
+  /// payment. Distinct from FAILED (payment never succeeded) and from REFUNDED
+  /// (money returned) so the historical record stays exact.
+  CANCELLED
 }
 
 enum MockTestStatus {
@@ -80,8 +84,25 @@ model User {
   chatGroupPins      ChatGroupPin[]
   chatGroupReads     ChatGroupRead[]
   oauthIdentities    OAuthIdentity[]
+  // --- Legacy migration fields (PHP/MySQL app) ---
+  /// Primary key this user had in the legacy `users` table. Kept as a
+  /// reference only — the new app still issues its own uuid — so the migration
+  /// can be re-run idempotently and legacy orders can be re-linked.
+  legacyId           String?               @unique
+  bio                String?               @db.Text
+  gender             String?
+  dateOfBirth        DateTime?
+  lastLoginAt        DateTime?
+  /// The complete original legacy row, verbatim (minus the password hash,
+  /// which is stored in `password`). Nothing from the old database is dropped:
+  /// columns with no first-class home here (remember_token, batch_id,
+  /// preferences, address, …) remain readable from this blob.
+  legacyData         Json?
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
+
+  @@index([role, createdAt(sort: Desc)])
+  @@index([phoneNumber])
 }
 
 model OAuthIdentity {
@@ -106,8 +127,17 @@ model StaffPermission {
   manageCoupons       Boolean  @default(false)
   manageNotifications Boolean  @default(false)
   viewOrders          Boolean  @default(false)
+  manageOrders        Boolean  @default(false)
   viewAnalytics       Boolean  @default(false)
   manageUsers         Boolean  @default(false)
+  /// The YouTube video library (VideoExam → VideoChapter → Video). Separate
+  /// from manageBooks: the two libraries are independent modules, so a staff
+  /// member curating videos need not also be able to edit the e-book catalog.
+  manageVideos        Boolean  @default(false)
+  /// The standalone PDF library (PdfExam → PdfChapter → PdfDocument).
+  managePdfs          Boolean  @default(false)
+  manageStaff         Boolean  @default(false)
+  manageAnnouncements Boolean  @default(false)
   grantedById         String?
   grantedBy           User?    @relation("GrantedByAdmin", fields: [grantedById], references: [id])
   createdAt           DateTime @default(now())
@@ -115,36 +145,54 @@ model StaffPermission {
 }
 
 model Book {
-  id               String            @id @default(uuid())
-  title            String
-  author           String
-  description      String            @db.Text
-  coverUrl         String
-  pdfUrl           String?
-  price            Float             @default(0)
-  discountPercent  Float             @default(0)
+  id                  String            @id @default(uuid())
+  title               String
+  author              String
+  description         String            @db.Text
+  coverUrl            String
+  pdfUrl              String?
+  price               Float             @default(0)
+  discountPercent     Float             @default(0)
   /// Always the effective, actually-charged price (price minus the discount).
   /// Persisted rather than derived so the checkout and order history read one
   /// authoritative number instead of each re-deriving the discount.
-  finalPrice       Float             @default(0)
-  category         String
-  publicationYear  Int?
+  finalPrice          Float             @default(0)
+  category            String
+  publicationYear     Int?
   /// Store-listing identifiers carried over from the previous app: the
   /// Play Store product / base-plan ids and the App Store product id.
-  productId        String?
-  appleId          String?
-  basePlanId       String?
-  subscriptionType String            @default("FULL_TIME_ACCESS")
-  isPremium        Boolean           @default(false)
-  isPublished      Boolean           @default(true)
+  productId           String?
+  appleId             String?
+  basePlanId          String?
+  subscriptionType    String            @default("FULL_TIME_ACCESS")
+  isPremium           Boolean           @default(false)
+  isPublished         Boolean           @default(true)
   /// Whether the book shows in the public/guest listing for signed-out users.
-  visibleToGuests  Boolean           @default(false)
-  downloadCount    Int               @default(0)
-  orders           Order[]
-  chapters         Chapter[]
-  readingProgress  ReadingProgress[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  visibleToGuests     Boolean           @default(false)
+  downloadCount       Int               @default(0)
+  orders              Order[]
+  chapters            Chapter[]
+  readingProgress     ReadingProgress[]
+  // --- Legacy migration fields ---
+  /// `book_id` this title had in the legacy app.
+  legacyId            String?           @unique
+  /// True for books that existed only in the legacy app and were never brought
+  /// across. They exist purely so historical orders keep a valid book
+  /// reference; they are unpublished, hidden from guests, and grant no access.
+  isLegacyPlaceholder Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([isLegacyPlaceholder, createdAt(sort: Desc)])
+  @@index([category])
+}
+
+enum AudioSyncStatus {
+  NONE
+  PENDING
+  PROCESSING
+  READY
+  FAILED
 }
 
 model Chapter {
@@ -160,6 +208,15 @@ model Chapter {
   audioUrl             String?
   audioDurationSeconds Int?
   pdfUrl               String?
+  /// Raw admin-uploaded audio, kept so "Reprocess" never re-denoises an
+  /// already-denoised file. `audioUrl` is overwritten with the AI-cleaned
+  /// version once processing succeeds.
+  originalAudioUrl     String?
+  audioSyncStatus      AudioSyncStatus   @default(NONE)
+  audioSyncError       String?
+  /// { pageNumber: number; text: string; startTime: number; endTime: number }[]
+  audioSyncSegments    Json?
+  audioSyncedAt        DateTime?
   topics               Topic[]
   readingProgress      ReadingProgress[]
   createdAt            DateTime          @default(now())
@@ -167,34 +224,45 @@ model Chapter {
 }
 
 model Topic {
-  id          String     @id @default(uuid())
-  chapterId   String
-  chapter     Chapter    @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  title       String
-  description String?    @db.Text
-  orderIndex  Int        @default(0)
-  isActive    Boolean    @default(true)
-  youtubeUrl  String?
-  audioUrl    String?
-  pdfUrl      String?
-  subtopics   Subtopic[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                String            @id @default(uuid())
+  chapterId         String
+  chapter           Chapter           @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?           @db.Text
+  orderIndex        Int               @default(0)
+  isActive          Boolean           @default(true)
+  youtubeUrl        String?
+  audioUrl          String?
+  pdfUrl            String?
+  originalAudioUrl  String?
+  audioSyncStatus   AudioSyncStatus   @default(NONE)
+  audioSyncError    String?
+  audioSyncSegments Json?
+  audioSyncedAt     DateTime?
+  subtopics         Subtopic[]
+  readingProgress   ReadingProgress[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 }
 
 model Subtopic {
-  id          String   @id @default(uuid())
-  topicId     String
-  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  title       String
-  description String?  @db.Text
-  orderIndex  Int      @default(0)
-  isActive    Boolean  @default(true)
-  youtubeUrl  String?
-  audioUrl    String?
-  pdfUrl      String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String          @id @default(uuid())
+  topicId           String
+  topic             Topic           @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?         @db.Text
+  orderIndex        Int             @default(0)
+  isActive          Boolean         @default(true)
+  youtubeUrl        String?
+  audioUrl          String?
+  pdfUrl            String?
+  originalAudioUrl  String?
+  audioSyncStatus   AudioSyncStatus @default(NONE)
+  audioSyncError    String?
+  audioSyncSegments Json?
+  audioSyncedAt     DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 }
 
 model ReadingProgress {
@@ -205,6 +273,8 @@ model ReadingProgress {
   book            Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
   chapterId       String?
   chapter         Chapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  topicId         String?
+  topic           Topic?   @relation(fields: [topicId], references: [id], onDelete: SetNull)
   progressPercent Float    @default(0)
   lastReadAt      DateTime @default(now())
 
@@ -261,6 +331,11 @@ model Quiz {
   mockTests                       MockTest[]
   createdAt                       DateTime         @default(now())
   updatedAt                       DateTime         @updatedAt
+
+  @@index([isActive, createdAt(sort: Desc)])
+  @@index([folderName])
+  @@index([category])
+  @@index([accessType])
 }
 
 model Question {
@@ -279,6 +354,9 @@ model Question {
   order              Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  @@index([quizId, order])
+  @@index([createdAt(sort: Desc)])
 }
 
 enum AttemptStatus {
@@ -340,20 +418,46 @@ model MockTestParticipant {
 }
 
 model Order {
-  id                String      @id @default(uuid())
-  userId            String
-  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bookId            String?
-  book              Book?       @relation(fields: [bookId], references: [id])
-  quizId            String?
-  quiz              Quiz?       @relation(fields: [quizId], references: [id])
-  amount            Float
-  currency          String      @default("INR")
-  status            OrderStatus @default(PENDING)
-  razorpayOrderId   String?
-  razorpayPaymentId String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  id                  String      @id @default(uuid())
+  userId              String
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookId              String?
+  book                Book?       @relation(fields: [bookId], references: [id])
+  quizId              String?
+  quiz                Quiz?       @relation(fields: [quizId], references: [id])
+  amount              Float
+  currency            String      @default("INR")
+  status              OrderStatus @default(PENDING)
+  razorpayOrderId     String?
+  razorpayPaymentId   String?
+  // --- Legacy migration fields (PHP/MySQL app) ---
+  /// Primary key this order had in the legacy `orders` table.
+  legacyId            String?     @unique
+  /// The human-facing legacy reference (e.g. ORD_1761235553_20_95), which is
+  /// what support tickets and customer receipts quote.
+  legacyOrderNumber   String?     @unique
+  /// Legacy `book_id`, retained even when the book never came across.
+  legacyBookId        String?
+  /// Raw legacy `status` and `payment_status`, kept unmapped. The two
+  /// disagreed on ~1.7k rows, so collapsing them into `status` alone would
+  /// destroy the evidence needed to audit a disputed payment.
+  legacyStatus        String?
+  legacyPaymentStatus String?
+  razorpaySignature   String?
+  description         String?
+  accessType          String?
+  validTill           DateTime?
+  paidAt              DateTime?
+  /// The complete original legacy row, verbatim, including the full `metadata`
+  /// JSON (Play Store purchase tokens, Apple transaction ids, signatures).
+  legacyData          Json?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([userId, bookId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([razorpayPaymentId])
+  @@index([razorpayOrderId])
 }
 
 model Coupon {
@@ -467,4 +571,113 @@ model AnnouncementPopup {
   endDate   DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// --- YouTube video library ---------------------------------------------------
+// A browsable Exam → Chapter → Video folder tree, deliberately kept separate
+// from the Book hierarchy: a Book's chapters are pages of a purchasable title,
+// whereas these are free reference material organised by exam. Mixing them
+// would force every video to hang off a book that doesn't exist.
+
+model VideoExam {
+  id          String         @id @default(uuid())
+  title       String
+  description String?        @db.Text
+  orderIndex  Int            @default(0)
+  isActive    Boolean        @default(true)
+  chapters    VideoChapter[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model VideoChapter {
+  id          String    @id @default(uuid())
+  examId      String
+  exam        VideoExam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  title       String
+  description String?   @db.Text
+  orderIndex  Int       @default(0)
+  isActive    Boolean   @default(true)
+  videos      Video[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([examId])
+}
+
+model Video {
+  id             String       @id @default(uuid())
+  chapterId      String
+  chapter        VideoChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?      @db.Text
+  /// The canonical watch URL. The admin may paste any YouTube link shape
+  /// (youtu.be, /shorts, /embed, a bare id); the API normalises all of them to
+  /// this one form so stored links are predictable.
+  youtubeUrl     String
+  /// Parsed out of the pasted link on write. Everything the app renders — the
+  /// embed player and the thumbnail — is derived from this id, so a malformed
+  /// link is rejected at the API rather than producing a dead card.
+  youtubeVideoId String
+  /// Derived from `youtubeVideoId`, never uploaded. Stored rather than
+  /// recomputed per render so the URL pattern lives in exactly one place.
+  thumbnailUrl   String
+  orderIndex     Int          @default(0)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([chapterId])
+}
+
+// --- PDF library -------------------------------------------------------------
+// The same Exam → Chapter → content shape as the video library, as its own set
+// of tables. The two modules are independent: an exam folder in one has no
+// bearing on the other.
+
+model PdfExam {
+  id          String       @id @default(uuid())
+  title       String
+  description String?      @db.Text
+  orderIndex  Int          @default(0)
+  isActive    Boolean      @default(true)
+  chapters    PdfChapter[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model PdfChapter {
+  id          String        @id @default(uuid())
+  examId      String
+  exam        PdfExam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  title       String
+  description String?       @db.Text
+  orderIndex  Int           @default(0)
+  isActive    Boolean       @default(true)
+  documents   PdfDocument[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([examId])
+}
+
+model PdfDocument {
+  id            String     @id @default(uuid())
+  chapterId     String
+  chapter       PdfChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?    @db.Text
+  /// Public Supabase Storage URL. Nullable only in the window between creating
+  /// the row and the upload completing — the admin UI always does both.
+  fileUrl       String?
+  /// The name the admin uploaded, kept for display and for the download
+  /// filename; the stored object key is timestamped and sanitised.
+  fileName      String?
+  fileSizeBytes Int?
+  orderIndex    Int        @default(0)
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([chapterId])
 }

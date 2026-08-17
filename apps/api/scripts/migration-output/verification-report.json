@@ -1,0 +1,146 @@
+{
+  "startedAt": "2026-08-15T18:51:48.166Z",
+  "mode": "verify-only",
+  "books": {
+    "mapped": [
+      "101",
+      "113"
+    ],
+    "placeholders": []
+  },
+  "orders": {
+    "legacySource": 43415,
+    "prepared": 42755,
+    "skippedOrphans": 660
+  },
+  "verification": {
+    "users": {
+      "legacy": 37400,
+      "migrated": 37400,
+      "totalInDb": 37402
+    },
+    "orders": {
+      "legacy": 43415,
+      "expected": 42755,
+      "migrated": 42755,
+      "totalInDb": 42767
+    },
+    "statusDistribution": {
+      "expected": {
+        "SUCCESS": 16419,
+        "PENDING": 26214,
+        "REFUNDED": 118,
+        "CANCELLED": 4
+      },
+      "actual": {
+        "PENDING": 26214,
+        "REFUNDED": 118,
+        "CANCELLED": 4,
+        "SUCCESS": 16419
+      }
+    },
+    "access": {
+      "101": {
+        "newBookId": "83b937d2-7d71-4331-9a74-af0df8ab52f0",
+        "legacyUsersWithPaidOrder": 12475,
+        "usersWithAccessNow": 12477
+      },
+      "113": {
+        "newBookId": "5c505d30-e466-41c6-811f-faf5eb8ac598",
+        "legacyUsersWithPaidOrder": 3544,
+        "usersWithAccessNow": 3544
+      }
+    },
+    "placeholders": [
+      {
+        "id": "3168c834-e1de-45b2-9335-b222c2155efb",
+        "legacyId": "112",
+        "title": "Dont Buy",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "8328c469-2073-477a-845d-6462a5b616f1",
+        "legacyId": "95",
+        "title": "PSC HOT TOPICS",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "830802e6-550a-4efc-b466-6349a41911b2",
+        "legacyId": "105",
+        "title": "Sample Book (Dont Buy)",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "c9a70175-9689-401f-a8e8-654b68cf3907",
+        "legacyId": "107",
+        "title": "TEST 2",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "e057dba4-1a99-46a2-a041-7755a868be65",
+        "legacyId": "108",
+        "title": "test",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "38853812-f22f-4fcf-8e8c-bdce03686ab2",
+        "legacyId": "109",
+        "title": "test",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "6ebfb36b-87df-4900-aa98-7500ba22a387",
+        "legacyId": "111",
+        "title": "Dont buy",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "c0c62c80-ca5c-45e9-ad1c-2d04f1204fd5",
+        "legacyId": "110",
+        "title": "Test Book",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "0b6cad61-b9c3-42b6-83d4-8d291b1dc5bc",
+        "legacyId": "106",
+        "title": "Legacy book #106",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      },
+      {
+        "id": "ff346c5f-0f1e-4ebb-a423-6050c640acff",
+        "legacyId": "114",
+        "title": "test",
+        "isPublished": false,
+        "visibleToGuests": false,
+        "pdfUrl": null
+      }
+    ],
+    "paidRevenue": {
+      "legacy": 4309254.26,
+      "migrated": 4309254.26
+    },
+    "oauthConflicts": 22,
+    "passed": 11,
+    "failed": 0,
+    "failures": []
+  },
+  "finishedAt": "2026-08-15T18:52:01.498Z"
+}

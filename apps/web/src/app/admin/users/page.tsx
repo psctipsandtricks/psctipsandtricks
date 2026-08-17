@@ -1,12 +1,44 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Button, Input, Dialog, Pagination, Skeleton, ConfirmDialog } from '@psc/ui';
-import { Search, UserCheck, ShieldAlert, Zap, RefreshCw, Trash2, Edit3, Mail, Users, Apple } from 'lucide-react';
+import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Button, Input, Dialog, Pagination, Skeleton, ConfirmDialog, Select } from '@psc/ui';
+import {
+  Search,
+  UserCheck,
+  ShieldAlert,
+  Zap,
+  RefreshCw,
+  Trash2,
+  Edit3,
+  Mail,
+  Users,
+  Apple,
+  ShoppingBag,
+  BookOpen,
+  HelpCircle,
+  CheckCircle2,
+  Clock,
+  Calendar,
+  ExternalLink,
+} from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+
+function formatOrderDateTime(isoString?: string) {
+  if (!isoString) return { date: '-', time: '-' };
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return { date: '-', time: '-' };
+  const date = d.toISOString().split('T')[0];
+  const time = d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return { date, time };
+}
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -37,7 +69,8 @@ interface StudentUser {
   email: string;
   phoneNumber: string;
   loginMethod: 'Email' | 'Google' | 'Apple';
-  registeredAt: string;
+  registeredAtDate: string;
+  registeredAtTime: string;
   status: 'Active' | 'Suspended';
   subscription: 'Free Tier' | 'VIP Unlimited';
   ordersCount: number;
@@ -47,7 +80,6 @@ interface StudentUser {
 const createUserSchema = Yup.object({
   name: Yup.string().trim().required('Name is required'),
   email: Yup.string().email('Enter a valid email').required('Email is required'),
-  password: Yup.string().min(6, 'Password must be at least 6 characters').required('Password is required'),
 });
 
 const editUserSchema = Yup.object({
@@ -58,24 +90,19 @@ export default function AdminUsersPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<StudentUser[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMethod, setFilterMethod] = useState<string>('ALL');
   const [confirmTarget, setConfirmTarget] = useState<{ type: 'suspend' | 'delete'; student: StudentUser } | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentUser | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-    loadStudents();
-  }, []);
-
-  const INITIAL_STUDENTS: StudentUser[] = [
-    { id: 'usr-101', name: 'Anandu Krishnan', email: 'anandu.k@gmail.com', phoneNumber: '', loginMethod: 'Google', registeredAt: '2026-07-28', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 0, quizAttemptsCount: 12 },
-    { id: 'usr-102', name: 'Sneha Nair', email: 'sneha.nair@psctips.com', phoneNumber: '', loginMethod: 'Email', registeredAt: '2026-07-30', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 0, quizAttemptsCount: 5 },
-    { id: 'usr-103', name: 'Rahul Varma', email: 'rahul.varma@icloud.com', phoneNumber: '', loginMethod: 'Apple', registeredAt: '2026-08-01', status: 'Active', subscription: 'Free Tier', ordersCount: 0, quizAttemptsCount: 2 },
-    { id: 'usr-104', name: 'Divya S. Pillai', email: 'divya.sp@gmail.com', phoneNumber: '', loginMethod: 'Google', registeredAt: '2026-08-02', status: 'Active', subscription: 'Free Tier', ordersCount: 0, quizAttemptsCount: 0 },
-    { id: 'usr-105', name: 'Muhammed Shafi', email: 'shafi.m@gmail.com', phoneNumber: '', loginMethod: 'Email', registeredAt: '2026-08-03', status: 'Active', subscription: 'VIP Unlimited', ordersCount: 0, quizAttemptsCount: 8 },
-  ];
+  // Student Completed Orders modal state
+  const [selectedStudentForOrders, setSelectedStudentForOrders] = useState<StudentUser | null>(null);
+  const [studentOrders, setStudentOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState<boolean>(false);
 
   const determineLoginMethod = (email: string, oauthIdentities?: Array<{ provider: string }>): 'Email' | 'Google' | 'Apple' => {
     if (Array.isArray(oauthIdentities) && oauthIdentities.length > 0) {
@@ -95,125 +122,121 @@ export default function AdminUsersPage() {
     return 'Email';
   };
 
-  const loadStudents = async () => {
-    let apiStudents: StudentUser[] = [];
+  const loadStudents = React.useCallback(async () => {
+    setLoading(true);
     try {
-      const dbUsers = await ApiClient.getUsers();
-      if (Array.isArray(dbUsers) && dbUsers.length > 0) {
-        apiStudents = dbUsers.map((u: any) => ({
-          id: u.id,
-          name: u.name || u.email.split('@')[0],
-          email: u.email,
-          phoneNumber: u.phoneNumber || '',
-          loginMethod: determineLoginMethod(u.email, u.oauthIdentities),
-          registeredAt: u.createdAt ? new Date(u.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-          status: u.status === 'SUSPENDED' ? 'Suspended' as const : 'Active' as const,
-          subscription: u.isPremium ? 'VIP Unlimited' as const : 'Free Tier' as const,
-          ordersCount: u.ordersCount ?? 0,
-          quizAttemptsCount: u.quizAttemptsCount ?? 0,
-        }));
+      const res = await ApiClient.getUsers({
+        page: currentPage,
+        limit: pageSize,
+        search: searchTerm.trim() || undefined,
+        provider: filterMethod !== 'ALL' ? filterMethod : undefined,
+      });
+
+      if (res && res.data && Array.isArray(res.data)) {
+        const mapped: StudentUser[] = res.data.map((u: any) => {
+          const { date, time } = formatOrderDateTime(u.createdAt);
+          return {
+            id: u.id,
+            name: u.name || u.email.split('@')[0],
+            email: u.email,
+            phoneNumber: u.phoneNumber || '',
+            loginMethod: determineLoginMethod(u.email, u.oauthIdentities),
+            registeredAtDate: date,
+            registeredAtTime: time,
+            status: u.status === 'SUSPENDED' ? ('Suspended' as const) : ('Active' as const),
+            subscription: u.isPremium ? ('VIP Unlimited' as const) : ('Free Tier' as const),
+            ordersCount: u.ordersCount ?? 0,
+            quizAttemptsCount: u.quizAttemptsCount ?? 0,
+          };
+        });
+        setStudents(mapped);
+        setTotalCount(res.total || 0);
+      } else if (Array.isArray(res)) {
+        const mapped: StudentUser[] = res.map((u: any) => {
+          const { date, time } = formatOrderDateTime(u.createdAt);
+          return {
+            id: u.id,
+            name: u.name || u.email.split('@')[0],
+            email: u.email,
+            phoneNumber: u.phoneNumber || '',
+            loginMethod: determineLoginMethod(u.email, u.oauthIdentities),
+            registeredAtDate: date,
+            registeredAtTime: time,
+            status: u.status === 'SUSPENDED' ? ('Suspended' as const) : ('Active' as const),
+            subscription: u.isPremium ? ('VIP Unlimited' as const) : ('Free Tier' as const),
+            ordersCount: u.ordersCount ?? 0,
+            quizAttemptsCount: u.quizAttemptsCount ?? 0,
+          };
+        });
+        setStudents(mapped);
+        setTotalCount(mapped.length);
       }
     } catch (err) {
       console.warn('Could not fetch users from backend API:', err);
+    } finally {
+      setLoading(false);
     }
+  }, [currentPage, pageSize, searchTerm, filterMethod]);
 
-    let localSessionUser: StudentUser | null = null;
+  useEffect(() => {
+    setMounted(true);
+    const timer = setTimeout(() => {
+      loadStudents();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [loadStudents]);
+
+  const handleViewStudentOrders = async (student: StudentUser) => {
+    setSelectedStudentForOrders(student);
+    setLoadingOrders(true);
     try {
-      const pscUserRaw = localStorage.getItem('psc_user');
-      if (pscUserRaw) {
-        const pscUser = JSON.parse(pscUserRaw);
-        if (pscUser && pscUser.email) {
-          localSessionUser = {
-            id: pscUser.id || 'usr-local-session',
-            name: pscUser.name || pscUser.email.split('@')[0],
-            email: pscUser.email,
-            phoneNumber: pscUser.phoneNumber || '',
-            loginMethod: determineLoginMethod(pscUser.email, pscUser.oauthIdentities),
-            registeredAt: new Date().toISOString().split('T')[0],
-            status: 'Active' as const,
-            subscription: pscUser.isPremium ? 'VIP Unlimited' as const : 'Free Tier' as const,
-            ordersCount: pscUser.ordersCount ?? 0,
-            quizAttemptsCount: pscUser.quizAttemptsCount ?? 0,
-          };
-        }
+      const orders = await ApiClient.getUserOrders(student.id);
+      setStudentOrders(Array.isArray(orders) ? orders : []);
+    } catch (err) {
+      console.error('Failed to load user orders:', err);
+      try {
+        const all = await ApiClient.getAllOrders();
+        const userOrders = (all || []).filter((o: any) => o.userId === student.id && o.status === 'SUCCESS');
+        setStudentOrders(userOrders);
+      } catch {
+        setStudentOrders([]);
       }
-    } catch (e) {}
-
-    let storedLocal: StudentUser[] = [];
-    try {
-      const stored = localStorage.getItem('psc_registered_students');
-      if (stored) {
-        storedLocal = JSON.parse(stored);
-      }
-    } catch (e) {}
-
-    const baseList = apiStudents.length > 0 ? apiStudents : (storedLocal.length > 0 ? storedLocal : INITIAL_STUDENTS);
-
-    const finalMap = new Map<string, StudentUser>();
-    
-    if (localSessionUser) {
-      finalMap.set(localSessionUser.email.toLowerCase(), localSessionUser);
+    } finally {
+      setLoadingOrders(false);
     }
-
-    baseList.forEach((s) => {
-      if (!finalMap.has(s.email.toLowerCase())) {
-        finalMap.set(s.email.toLowerCase(), {
-          ...s,
-          phoneNumber: s.phoneNumber ?? '',
-          ordersCount: s.ordersCount ?? 0,
-          quizAttemptsCount: s.quizAttemptsCount ?? 0,
-          loginMethod: determineLoginMethod(s.email, (s as any).oauthIdentities),
-        });
-      }
-    });
-
-    const mergedList = Array.from(finalMap.values());
-    setStudents(mergedList);
-    try {
-      localStorage.setItem('psc_registered_students', JSON.stringify(mergedList));
-    } catch (e) {}
-    setLoading(false);
   };
 
-  const handleToggleStatus = (id: string) => {
-    const updated = students.map((s) => {
-      if (s.id === id) {
-        return {
-          ...s,
-          status: s.status === 'Active' ? ('Suspended' as const) : ('Active' as const),
-        };
-      }
-      return s;
-    });
-    setStudents(updated);
-    localStorage.setItem('psc_registered_students', JSON.stringify(updated));
-  };
-
-  const handleDelete = (id: string) => {
-    const updated = students.filter((s) => s.id !== id);
-    setStudents(updated);
-    localStorage.setItem('psc_registered_students', JSON.stringify(updated));
-  };
-
-  const handleConfirmAction = () => {
+  const handleConfirmAction = async () => {
     if (!confirmTarget) return;
-    if (confirmTarget.type === 'suspend') {
-      handleToggleStatus(confirmTarget.student.id);
-    } else {
-      handleDelete(confirmTarget.student.id);
-    }
+    const target = confirmTarget;
     setConfirmTarget(null);
+
+    if (target.type === 'suspend') {
+      try {
+        const nextStatus = target.student.status === 'Active' ? 'SUSPENDED' : 'ACTIVE';
+        await ApiClient.adminUpdateUser(target.student.id, { status: nextStatus });
+        await loadStudents();
+      } catch (err: any) {
+        alert(err.message || 'Failed to update student account status.');
+      }
+    } else {
+      try {
+        await ApiClient.deleteUser(target.student.id);
+        await loadStudents();
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete student account.');
+      }
+    }
   };
 
   const createFormik = useFormik({
-    initialValues: { name: '', email: '', password: '', phoneNumber: '', isPremium: false },
+    initialValues: { name: '', email: '', phoneNumber: '', isPremium: false },
     validationSchema: createUserSchema,
     onSubmit: async (values, { resetForm, setSubmitting }) => {
       try {
         await ApiClient.createUser({
           name: values.name.trim(),
           email: values.email.trim(),
-          password: values.password,
           phoneNumber: values.phoneNumber.trim() || undefined,
           isPremium: values.isPremium,
         });
@@ -256,24 +279,7 @@ export default function AdminUsersPage() {
     },
   });
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, filterMethod]);
-
-  const filteredStudents = students.filter((s) => {
-    const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesMethod = filterMethod === 'ALL' || s.loginMethod.toUpperCase() === filterMethod.toUpperCase();
-    return matchesSearch && matchesMethod;
-  });
-
-  const totalItems = filteredStudents.length;
-  const totalPages = Math.ceil(totalItems / pageSize) || 1;
-  const paginatedStudents = filteredStudents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   if (!mounted) {
     return (
@@ -301,19 +307,27 @@ export default function AdminUsersPage() {
             <Input
               placeholder="Search name or email..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
-          <select
-            value={filterMethod}
-            onChange={(e) => setFilterMethod(e.target.value)}
-            className="h-11 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
-          >
-            <option value="ALL">All Providers</option>
-            <option value="GOOGLE">Google</option>
-            <option value="APPLE">Apple</option>
-            <option value="EMAIL">Email</option>
-          </select>
+          <div className="w-full sm:w-48">
+            <Select
+              value={filterMethod}
+              onChange={(val) => {
+                setFilterMethod(val);
+                setCurrentPage(1);
+              }}
+              options={[
+                { value: 'ALL', label: 'All Providers' },
+                { value: 'GOOGLE', label: 'Google' },
+                { value: 'APPLE', label: 'Apple' },
+                { value: 'EMAIL', label: 'Email' },
+              ]}
+            />
+          </div>
           <Button
             variant="gold"
             className="font-bold shadow-md shadow-amber-500/20 w-full sm:w-auto shrink-0"
@@ -332,7 +346,7 @@ export default function AdminUsersPage() {
             <TableRow>
               <TableHead>Student Details</TableHead>
               <TableHead>Login Method</TableHead>
-              <TableHead>Registration Date</TableHead>
+              <TableHead>Registration Date & Time</TableHead>
               <TableHead>Orders</TableHead>
               <TableHead>Quiz Attempts</TableHead>
               <TableHead>Account Status</TableHead>
@@ -352,14 +366,14 @@ export default function AdminUsersPage() {
                   <TableCell className="py-4 text-right"><Skeleton className="h-8 w-24 rounded-xl ml-auto" /></TableCell>
                 </TableRow>
               ))
-            ) : paginatedStudents.length === 0 ? (
+            ) : students.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
-                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center text-slate-400">
                       <Users className="w-6 h-6" />
                     </div>
-                    <div className="space-y-1">
+                    <div>
                       <h3 className="text-base font-extrabold text-slate-900 dark:text-white">No Student Match</h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                         No registered student accounts found matching your search or filter criteria.
@@ -373,6 +387,7 @@ export default function AdminUsersPage() {
                         onClick={() => {
                           setSearchTerm('');
                           setFilterMethod('ALL');
+                          setCurrentPage(1);
                         }}
                       >
                         Reset All Filters
@@ -382,7 +397,7 @@ export default function AdminUsersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedStudents.map((student) => (
+              students.map((student) => (
                 <TableRow key={student.id}>
                   <TableCell>
                     <div>
@@ -411,8 +426,35 @@ export default function AdminUsersPage() {
                       )}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-slate-400">{student.registeredAt}</TableCell>
-                  <TableCell className="font-mono font-semibold text-slate-700 dark:text-slate-300">{student.ordersCount}</TableCell>
+                  <TableCell>
+                    <div className="font-mono text-xs text-slate-700 dark:text-slate-300 font-semibold">{student.registeredAtDate}</div>
+                    <div className="flex items-center space-x-1 text-[11px] font-mono text-slate-400 mt-0.5">
+                      <Clock className="w-3 h-3 text-cyan-500 shrink-0" />
+                      <span>{student.registeredAtTime}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {student.ordersCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => handleViewStudentOrders(student)}
+                        className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition-all hover:scale-105 shadow-2xs cursor-pointer group"
+                        title="Click to view all completed orders and products"
+                      >
+                        <ShoppingBag className="w-3.5 h-3.5 shrink-0 group-hover:rotate-6 transition-transform" />
+                        <span className="font-mono font-bold">{student.ordersCount}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleViewStudentOrders(student)}
+                        className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Click to view order details"
+                      >
+                        <span className="font-mono">0</span>
+                      </button>
+                    )}
+                  </TableCell>
                   <TableCell className="font-mono font-semibold text-slate-700 dark:text-slate-300">{student.quizAttemptsCount}</TableCell>
                   <TableCell>
                     <Badge variant={student.status === 'Active' ? 'success' : 'danger'}>
@@ -460,7 +502,7 @@ export default function AdminUsersPage() {
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
-            totalItems={totalItems}
+            totalItems={totalCount}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(newSize) => {
@@ -509,16 +551,6 @@ export default function AdminUsersPage() {
             error={createFormik.touched.email && createFormik.errors.email ? createFormik.errors.email : undefined}
           />
           <Input
-            label="Password"
-            name="password"
-            type="password"
-            placeholder="Minimum 6 characters"
-            value={createFormik.values.password}
-            onChange={createFormik.handleChange}
-            onBlur={createFormik.handleBlur}
-            error={createFormik.touched.password && createFormik.errors.password ? createFormik.errors.password : undefined}
-          />
-          <Input
             label="Phone Number (optional)"
             name="phoneNumber"
             placeholder="e.g. +91 98765 43210"
@@ -565,20 +597,16 @@ export default function AdminUsersPage() {
             onChange={editFormik.handleChange}
             onBlur={editFormik.handleBlur}
           />
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Account Status
-            </label>
-            <select
-              name="status"
-              value={editFormik.values.status}
-              onChange={editFormik.handleChange}
-              className="h-11 w-full px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-[#070b18]/70 text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
-            >
-              <option value="Active">Active</option>
-              <option value="Suspended">Suspended</option>
-            </select>
-          </div>
+          <Select
+            label="Account Status"
+            name="status"
+            value={editFormik.values.status}
+            onChange={(val) => editFormik.setFieldValue('status', val)}
+            options={[
+              { value: 'Active', label: 'Active' },
+              { value: 'Suspended', label: 'Suspended' },
+            ]}
+          />
           <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
             <input
               type="checkbox"
@@ -593,6 +621,167 @@ export default function AdminUsersPage() {
             Save Changes
           </Button>
         </form>
+      </Dialog>
+
+      {/* Student Completed Orders Inspector Dialog */}
+      <Dialog
+        isOpen={selectedStudentForOrders !== null}
+        onClose={() => setSelectedStudentForOrders(null)}
+        title="Completed Student Orders"
+        description={selectedStudentForOrders ? `${selectedStudentForOrders.name} (${selectedStudentForOrders.email})` : ''}
+        className="max-w-2xl w-full"
+      >
+        {selectedStudentForOrders && (
+          <div className="space-y-4 pt-2">
+            {/* Summary Metrics Strip */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                  Completed Orders
+                </span>
+                <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                  {loadingOrders ? '...' : studentOrders.length}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400 block">
+                  Total Spent
+                </span>
+                <span className="text-xl font-black text-cyan-700 dark:text-cyan-300">
+                  {loadingOrders ? '...' : `₹${studentOrders.reduce((sum, o) => sum + (Number(o.amount) || 0), 0).toLocaleString('en-IN')}`}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
+                  Account Plan
+                </span>
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-300 mt-1 block truncate">
+                  {selectedStudentForOrders.subscription}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-[#1e2e56] pb-2">
+              <div className="flex items-center space-x-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Showing Completed (SUCCESS) Orders Only</span>
+              </div>
+              <span className="font-mono text-[11px]">
+                {studentOrders.length} order{studentOrders.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {/* Orders & Products List */}
+            {loadingOrders ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                <RefreshCw className="w-6 h-6 animate-spin text-cyan-500" />
+                <p className="text-xs font-semibold text-slate-400">Loading student orders & products...</p>
+              </div>
+            ) : studentOrders.length === 0 ? (
+              <div className="py-10 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center mx-auto text-slate-400">
+                  <ShoppingBag className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Completed Orders Yet</h4>
+                  <p className="text-xs text-slate-400 mt-1">This student has not completed any paid purchases or manual grants.</p>
+                </div>
+                <div className="pt-2">
+                  <Link
+                    href="/admin/orders"
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 font-bold text-xs transition-colors"
+                  >
+                    <span>Grant Manual Order</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
+                {studentOrders.map((order) => {
+                  const { date, time } = formatOrderDateTime(order.createdAt);
+                  const isBook = Boolean(order.bookId || order.book);
+                  const isQuiz = Boolean(order.quizId || order.quiz);
+                  const productTitle = order.book?.title || order.quiz?.title || order.description || 'General Order';
+                  const isManual = order.razorpayOrderId === '[MANUAL_ORDER]' || order.razorpayOrderId?.startsWith('[MANUAL_ORDER]');
+
+                  return (
+                    <div
+                      key={order.id}
+                      className="p-3.5 rounded-2xl border border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/80 dark:bg-[#070b18]/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-cyan-500/40 transition-all shadow-xs"
+                    >
+                      <div className="flex items-start space-x-3 min-w-0 flex-1">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
+                            isBook
+                              ? 'bg-blue-500/15 text-blue-500'
+                              : isQuiz
+                              ? 'bg-purple-500/15 text-purple-500'
+                              : 'bg-emerald-500/15 text-emerald-500'
+                          }`}
+                        >
+                          {isBook ? (
+                            <BookOpen className="w-4 h-4" />
+                          ) : isQuiz ? (
+                            <HelpCircle className="w-4 h-4" />
+                          ) : (
+                            <ShoppingBag className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+                              {isBook ? 'Book' : isQuiz ? 'Quiz' : 'Item'}
+                            </span>
+                            <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate">
+                              {productTitle}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-400 font-mono">
+                            <span className="flex items-center space-x-1">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              <span>{date}</span>
+                            </span>
+                            <span className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              <span>{time}</span>
+                            </span>
+                            {order.razorpayPaymentId && (
+                              <span className="truncate max-w-[130px] text-cyan-600 dark:text-cyan-400" title={order.razorpayPaymentId}>
+                                ID: {order.razorpayPaymentId}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end sm:space-x-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60 dark:border-slate-800/60 shrink-0">
+                        <div className="text-right">
+                          <div className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                            ₹{Number(order.amount).toLocaleString('en-IN')}
+                          </div>
+                          <Badge variant={isManual ? 'gold' : 'success'} className="text-[10px] px-1.5 py-0">
+                            {isManual ? 'Admin Grant' : 'Completed'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setSelectedStudentForOrders(null)}
+                className="font-bold border-slate-300 dark:border-[#1e2e56]"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
       </Dialog>
     </div>
   );

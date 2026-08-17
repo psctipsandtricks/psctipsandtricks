@@ -86,22 +86,13 @@ export function FooterWrapper() {
           <ul className="space-y-2.5 text-sm">
             <li>
               <a
-                href={`tel:${CONTACT_PHONE_TEL}`}
-                className="flex items-center gap-2 hover:text-cyan-500 dark:hover:text-cyan-400 transition-colors font-bold font-mono"
-              >
-                <Phone className="w-4 h-4 shrink-0 text-cyan-500" />
-                {CONTACT_PHONE_DISPLAY}
-              </a>
-            </li>
-            <li>
-              <a
                 href={CONTACT_PHONE_WHATSAPP}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 hover:text-emerald-500 transition-colors"
+                className="flex items-center gap-2 hover:text-emerald-500 transition-colors font-bold"
               >
                 <MessageCircle className="w-4 h-4 shrink-0 text-emerald-500" />
-                WhatsApp Us
+                <span>WhatsApp Us ({CONTACT_PHONE_DISPLAY})</span>
               </a>
             </li>
             <li className="flex items-center gap-2">

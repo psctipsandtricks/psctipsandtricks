@@ -6,14 +6,17 @@ import {
   Delete,
   Param,
   Body,
+  Request,
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { BooksService } from './books.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -40,16 +43,50 @@ const PDF_UPLOAD_LIMITS = { fileSize: 20 * 1024 * 1024 }; // 20MB, matches the "
 export class BooksController {
   constructor(private readonly booksService: BooksService) {}
 
-  @ApiOperation({ summary: 'List all published e-books' })
+  @ApiOperation({ summary: 'List all published e-books, tagged with the caller\'s purchase access' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async findAll() {
-    return this.booksService.findAll();
+  async findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('category') category?: string,
+    @Query('subscriptionType') subscriptionType?: string,
+  ) {
+    return this.booksService.findAll(
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        search,
+        category,
+        subscriptionType,
+      },
+      req.user,
+    );
   }
 
-  @ApiOperation({ summary: 'Get details of a specific e-book, including chapters' })
+  @ApiOperation({ summary: 'Get details of a specific e-book, including chapters and the caller\'s purchase access' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.booksService.findOne(id);
+  async findOne(@Request() req: any, @Param('id') id: string) {
+    return this.booksService.findOne(id, req.user);
+  }
+
+  @ApiOperation({ summary: 'Get the full reader tree (chapters/topics/subtopics) — requires the caller to own the book (free or purchased)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/reader')
+  async getReaderContent(@Request() req: any, @Param('id') id: string) {
+    return this.booksService.getReaderContent(id, req.user);
+  }
+
+  @ApiOperation({ summary: 'Download a book\'s PDF — requires the caller to own it (free or purchased)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/download')
+  async download(@Request() req: any, @Param('id') id: string) {
+    return this.booksService.recordDownload(id, req.user);
   }
 
   @ApiOperation({ summary: 'Create a new e-book (Admin / Staff with manage_books)' })
@@ -172,6 +209,16 @@ export class BooksController {
     return this.booksService.uploadChapterPdf(chapterId, file);
   }
 
+  @ApiOperation({ summary: 'Re-run AI noise removal + PDF sync for a chapter\'s audio (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Post('chapters/:chapterId/audio/reprocess')
+  async reprocessChapterAudio(@Param('chapterId') chapterId: string) {
+    return this.booksService.reprocessChapterAudio(chapterId);
+  }
+
   // --- Topics ---
 
   @ApiOperation({ summary: 'List topics for a chapter' })
@@ -250,6 +297,16 @@ export class BooksController {
     return this.booksService.uploadTopicPdf(topicId, file);
   }
 
+  @ApiOperation({ summary: 'Re-run AI noise removal + PDF sync for a topic\'s audio (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Post('topics/:topicId/audio/reprocess')
+  async reprocessTopicAudio(@Param('topicId') topicId: string) {
+    return this.booksService.reprocessTopicAudio(topicId);
+  }
+
   // --- Subtopics ---
 
   @ApiOperation({ summary: 'List subtopics for a topic' })
@@ -320,5 +377,30 @@ export class BooksController {
   @Post('subtopics/:subtopicId/pdf')
   async uploadSubtopicPdf(@Param('subtopicId') subtopicId: string, @UploadedFile() file: Express.Multer.File) {
     return this.booksService.uploadSubtopicPdf(subtopicId, file);
+  }
+
+  @ApiOperation({ summary: 'Re-run AI noise removal + PDF sync for a subtopic\'s audio (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Post('subtopics/:subtopicId/audio/reprocess')
+  async reprocessSubtopicAudio(@Param('subtopicId') subtopicId: string) {
+    return this.booksService.reprocessSubtopicAudio(subtopicId);
+  }
+
+  // --- Bulk audio processing ---
+
+  @ApiOperation({
+    summary:
+      'Enqueue AI noise removal + PDF sync for every chapter/topic/subtopic with audio that has not been synced yet (Admin / Staff with manage_books)',
+  })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Post('audio/reprocess-all')
+  async reprocessAllAudio() {
+    return this.booksService.reprocessAllAudio();
   }
 }

@@ -31,11 +31,28 @@ export interface StaffPermission {
     manageCoupons: boolean;
     manageNotifications: boolean;
     viewOrders: boolean;
+    manageOrders: boolean;
     viewAnalytics: boolean;
     manageUsers: boolean;
+    manageVideos: boolean;
+    managePdfs: boolean;
+    manageStaff: boolean;
+    manageAnnouncements: boolean;
     grantedById?: string | null;
     createdAt: string;
     updatedAt: string;
+}
+export interface StaffMember {
+    id: string;
+    name: string;
+    email: string;
+    phoneNumber?: string | null;
+    role: 'ADMIN' | 'STAFF' | 'STUDENT';
+    status: 'ACTIVE' | 'SUSPENDED';
+    avatarUrl?: string | null;
+    lastLoginAt?: string | null;
+    createdAt: string;
+    staffPermission?: StaffPermission | null;
 }
 export type BookSubscriptionType = 'FULL_TIME_ACCESS' | 'LIMITED_ACCESS' | 'SUBSCRIPTION';
 export interface Book {

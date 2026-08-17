@@ -25,6 +25,8 @@ export function NavbarWrapper() {
     { label: 'Home', href: '/', active: pathname === '/' },
     { label: 'Quiz Hub', href: '/quizzes', active: pathname.startsWith('/quizzes') },
     { label: 'E-Books', href: '/books', active: pathname.startsWith('/books') },
+    { label: 'Videos', href: '/videos', active: pathname.startsWith('/videos') },
+    { label: 'PDFs', href: '/pdfs', active: pathname.startsWith('/pdfs') },
     { label: 'Community', href: '/community', active: pathname.startsWith('/community') },
     { label: 'Dashboard', href: '/dashboard', active: pathname === '/dashboard' },
   ];

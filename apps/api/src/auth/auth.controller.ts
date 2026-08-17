@@ -1,3 +1,4 @@
+import { UserRole, UserStatus } from '@prisma/client';
 import { Controller, Post, Get, Body, HttpCode, HttpStatus, UseGuards, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiExcludeEndpoint } from '@nestjs/swagger';
@@ -78,11 +79,27 @@ export class AuthController {
   private redirectWithSession(req: any, res: Response) {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     const redirectTarget = req.query?.state || '/dashboard';
-    const { accessToken, refreshToken } = req.user || {};
-    if (!accessToken || !refreshToken) {
-      return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
+    const { user, accessToken, refreshToken } = req.user || {};
+
+    const cleanRedirect =
+      typeof redirectTarget === 'string' && redirectTarget.startsWith('/') ? redirectTarget : '/dashboard';
+    const isAdminFlow = cleanRedirect.startsWith('/admin');
+
+    if (!accessToken || !refreshToken || !user) {
+      return res.redirect(`${frontendUrl}${isAdminFlow ? '/admin?error=oauth_failed' : '/login?error=oauth_failed'}`);
     }
-    const cleanRedirect = typeof redirectTarget === 'string' && redirectTarget.startsWith('/') ? redirectTarget : '/dashboard';
-    return res.redirect(`${frontendUrl}/auth/callback?redirect=${encodeURIComponent(cleanRedirect)}#accessToken=${accessToken}&refreshToken=${refreshToken}`);
+
+    if (isAdminFlow) {
+      if (user.role !== UserRole.ADMIN && user.role !== UserRole.STAFF) {
+        return res.redirect(`${frontendUrl}/admin?error=unauthorized_staff&email=${encodeURIComponent(user.email || '')}`);
+      }
+      if (user.status === UserStatus.SUSPENDED) {
+        return res.redirect(`${frontendUrl}/admin?error=suspended_staff&email=${encodeURIComponent(user.email || '')}`);
+      }
+    }
+
+    return res.redirect(
+      `${frontendUrl}/auth/callback?redirect=${encodeURIComponent(cleanRedirect)}#accessToken=${accessToken}&refreshToken=${refreshToken}`,
+    );
   }
 }

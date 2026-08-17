@@ -10,7 +10,10 @@ import {
   LayoutDashboard,
   HelpCircle,
   BookOpen,
+  Youtube,
+  FileText,
   Users,
+  ShieldCheck,
   ShoppingCart,
   Tag,
   Bell,
@@ -63,7 +66,7 @@ function AdminLayoutGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!adminUser) {
+  if (!adminUser || (adminUser.role !== 'ADMIN' && adminUser.role !== 'STAFF') || (adminUser as any).status === 'SUSPENDED') {
     return <AdminLoginForm />;
   }
 
@@ -104,17 +107,28 @@ function AdminPanelShell({
   mobileNavOpen: boolean;
   setMobileNavOpen: (open: boolean) => void;
 }) {
-  const sidebarItems = [
-    { id: 'dashboard', label: 'Analytics Dashboard', href: '/admin', icon: <LayoutDashboard className="w-4 h-4" /> },
-    { id: 'quizzes', label: 'Manage Quizzes', href: '/admin/quizzes', icon: <HelpCircle className="w-4 h-4" /> },
-    { id: 'books', label: 'Manage E-Books', href: '/admin/books', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'users', label: 'User Management', href: '/admin/users', icon: <Users className="w-4 h-4" /> },
-    { id: 'community', label: 'Community Groups', href: '/admin/community', icon: <MessageSquare className="w-4 h-4" /> },
-    { id: 'orders', label: 'Orders & Payments', href: '/admin/orders', icon: <ShoppingCart className="w-4 h-4" /> },
-    { id: 'coupons', label: 'Coupon Codes', href: '/admin/coupons', icon: <Tag className="w-4 h-4" /> },
-    { id: 'notifications', label: 'Push Notifications', href: '/admin/notifications', icon: <Bell className="w-4 h-4" /> },
-    { id: 'announcements', label: 'Announcements', href: '/admin/announcements', icon: <Megaphone className="w-4 h-4" /> },
+  const allSidebarItems = [
+    { id: 'dashboard', label: 'Analytics Dashboard', href: '/admin', icon: <LayoutDashboard className="w-4 h-4" />, perm: 'viewAnalytics' },
+    { id: 'quizzes', label: 'Manage Quizzes', href: '/admin/quizzes', icon: <HelpCircle className="w-4 h-4" />, perm: 'manageQuizzes' },
+    { id: 'books', label: 'Manage E-Books', href: '/admin/books', icon: <BookOpen className="w-4 h-4" />, perm: 'manageBooks' },
+    { id: 'videos', label: 'Video Library', href: '/admin/videos', icon: <Youtube className="w-4 h-4" />, perm: 'manageVideos' },
+    { id: 'pdfs', label: 'PDF Library', href: '/admin/pdfs', icon: <FileText className="w-4 h-4" />, perm: 'managePdfs' },
+    { id: 'users', label: 'User Management', href: '/admin/users', icon: <Users className="w-4 h-4" />, perm: 'manageUsers' },
+    { id: 'staff', label: 'Staff Management', href: '/admin/staff', icon: <ShieldCheck className="w-4 h-4" />, perm: 'manageStaff' },
+    { id: 'community', label: 'Community Groups', href: '/admin/community', icon: <MessageSquare className="w-4 h-4" />, perm: 'manageChat' },
+    { id: 'orders', label: 'Orders & Payments', href: '/admin/orders', icon: <ShoppingCart className="w-4 h-4" />, perm: 'viewOrders' },
+    { id: 'coupons', label: 'Coupon Codes', href: '/admin/coupons', icon: <Tag className="w-4 h-4" />, perm: 'manageCoupons' },
+    { id: 'notifications', label: 'Push Notifications', href: '/admin/notifications', icon: <Bell className="w-4 h-4" />, perm: 'manageNotifications' },
+    { id: 'announcements', label: 'Announcements', href: '/admin/announcements', icon: <Megaphone className="w-4 h-4" />, perm: 'manageAnnouncements' },
   ];
+
+  const sidebarItems =
+    adminUser.role === 'ADMIN'
+      ? allSidebarItems
+      : allSidebarItems.filter((item) => {
+          if (!item.perm) return true;
+          return Boolean((adminUser as any)?.staffPermission?.[item.perm]);
+        });
 
   return (
     <div className="h-screen h-[100vh] flex bg-slate-50 dark:bg-[#060b18] text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">

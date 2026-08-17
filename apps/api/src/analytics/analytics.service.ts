@@ -30,6 +30,80 @@ export class AnalyticsService {
     };
   }
 
+  async getAdminDashboardSummary() {
+    const now = new Date();
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+    const [
+      registeredStudents,
+      totalOrders,
+      totalRevenueResult,
+      monthlyRevenueResult,
+      recentOrders,
+      sixMonthOrders,
+    ] = await Promise.all([
+      this.prisma.user.count({ where: { role: 'STUDENT' } }),
+      this.prisma.order.count(),
+      this.prisma.order.aggregate({
+        where: { status: 'SUCCESS' },
+        _sum: { amount: true },
+      }),
+      this.prisma.order.aggregate({
+        where: {
+          status: 'SUCCESS',
+          createdAt: { gte: startOfCurrentMonth },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.order.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { name: true, email: true } },
+          book: { select: { title: true } },
+          quiz: { select: { title: true } },
+        },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          status: 'SUCCESS',
+          createdAt: { gte: sixMonthsAgo },
+        },
+        select: {
+          amount: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const monthsNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const revenueChartData = Array.from({ length: 6 }).map((_, idx) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - idx), 1);
+      const mName = monthsNames[d.getMonth()];
+      const mYear = d.getFullYear();
+      const mMonth = d.getMonth();
+
+      const rev = sixMonthOrders
+        .filter((o) => {
+          const od = new Date(o.createdAt);
+          return od.getMonth() === mMonth && od.getFullYear() === mYear;
+        })
+        .reduce((sum, o) => sum + (o.amount || 0), 0);
+
+      return { month: mName, revenue: rev };
+    });
+
+    return {
+      totalRevenue: totalRevenueResult._sum.amount || 0,
+      totalOrders,
+      monthlyRevenue: monthlyRevenueResult._sum.amount || 0,
+      registeredStudents,
+      revenueChartData,
+      recentOrders,
+    };
+  }
+
   /**
    * Everything the student's personal dashboard renders, in one round trip.
    *
@@ -44,7 +118,7 @@ export class AnalyticsService {
     const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const twoWeeksAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
 
-    const [submissions, participants, upcoming] = await Promise.all([
+    const [submissions, participants, upcoming, readingRows] = await Promise.all([
       this.prisma.quizSubmission.findMany({
         where: { userId, attemptStatus: 'COMPLETED' },
         include: {
@@ -67,6 +141,16 @@ export class AnalyticsService {
         },
         orderBy: { scheduledAt: 'asc' },
         take: 5,
+      }),
+      this.prisma.readingProgress.findMany({
+        where: { userId, book: { isPublished: true } },
+        include: {
+          book: { select: { id: true, title: true, author: true, coverUrl: true, category: true } },
+          chapter: { select: { id: true, title: true } },
+          topic: { select: { id: true, title: true } },
+        },
+        orderBy: { lastReadAt: 'desc' },
+        take: 12,
       }),
     ]);
 
@@ -210,6 +294,23 @@ export class AnalyticsService {
         joined: mt.participants.length > 0,
         submitted: mt.participants.some((p) => p.submittedAt !== null),
       })),
+      // Books the student has opened in the reader — drives the dashboard's
+      // "Continue Reading" list. A row only exists once they've actually read.
+      booksInProgress: readingRows.map((row) => {
+        const percent = Math.max(0, Math.min(100, Math.round(row.progressPercent)));
+        return {
+          bookId: row.bookId,
+          title: row.book.title,
+          author: row.book.author,
+          coverUrl: row.book.coverUrl,
+          category: row.book.category,
+          progressPercent: percent,
+          isCompleted: percent >= 100,
+          lastChapterTitle: row.chapter?.title ?? null,
+          lastTopicTitle: row.topic?.title ?? null,
+          lastReadAt: row.lastReadAt,
+        };
+      }),
       generatedAt: new Date(),
     };
   }

@@ -17,6 +17,7 @@ import {
   Pagination,
   Skeleton,
   ConfirmDialog,
+  Select,
 } from '@psc/ui';
 import {
   Users,
@@ -487,41 +488,34 @@ export default function AdminCommunityPage() {
             </div>
 
             {/* Category Filter */}
-            <div className="flex items-center space-x-2">
-              <Tag className="w-4 h-4 text-cyan-500" />
-              <select
-                value={selectedCategoryFilter}
-                onChange={(e) => {
-                  setSelectedCategoryFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full h-11 bg-white/90 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3.5 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 shadow-2xs hover:border-slate-400 dark:hover:border-[#2a3e70] transition-all cursor-pointer"
-              >
-                <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Categories</option>
-                {categories.map((category) => (
-                  <option key={category} value={category} className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              value={selectedCategoryFilter}
+              onChange={(val) => {
+                setSelectedCategoryFilter(val);
+                setCurrentPage(1);
+              }}
+              icon={<Tag className="w-4 h-4 text-cyan-500" />}
+              searchable
+              options={[
+                { value: 'ALL', label: 'All Categories' },
+                ...categories.map((cat) => ({ value: cat, label: cat })),
+              ]}
+            />
 
             {/* Lock Status Filter */}
-            <div className="flex items-center space-x-2">
-              <Filter className="w-4 h-4 text-cyan-500" />
-              <select
-                value={selectedStatusFilter}
-                onChange={(e) => {
-                  setSelectedStatusFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full h-11 bg-white/90 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-900 dark:text-slate-100 rounded-xl px-3.5 text-sm font-semibold focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/50 shadow-2xs hover:border-slate-400 dark:hover:border-[#2a3e70] transition-all cursor-pointer"
-              >
-                <option value="ALL" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">All Statuses (Active & Locked)</option>
-                <option value="ACTIVE" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">🟢 Active Only (Open to Students)</option>
-                <option value="LOCKED" className="bg-white text-slate-900 dark:bg-[#091124] dark:text-slate-100">🔒 Locked / Read Only</option>
-              </select>
-            </div>
+            <Select
+              value={selectedStatusFilter}
+              onChange={(val) => {
+                setSelectedStatusFilter(val);
+                setCurrentPage(1);
+              }}
+              icon={<Filter className="w-4 h-4 text-cyan-500" />}
+              options={[
+                { value: 'ALL', label: 'All Statuses (Active & Locked)' },
+                { value: 'ACTIVE', label: '🟢 Active Only (Open to Students)' },
+                { value: 'LOCKED', label: '🔒 Locked / Read Only' },
+              ]}
+            />
           </div>
         </Card>
       </div>
@@ -918,25 +912,18 @@ export default function AdminCommunityPage() {
                   {announcementFormError}
                 </div>
               )}
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 dark:text-slate-300">Target Group</label>
-                <select
-                  name="selectedTargetGroupId"
-                  value={postFormik.values.selectedTargetGroupId}
-                  onChange={postFormik.handleChange}
-                  onBlur={postFormik.handleBlur}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-bold"
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-                {postFormik.touched.selectedTargetGroupId && postFormik.errors.selectedTargetGroupId && (
-                  <p className="text-xs text-rose-500 font-medium">{postFormik.errors.selectedTargetGroupId}</p>
-                )}
-              </div>
+              <Select
+                label="Target Group"
+                name="selectedTargetGroupId"
+                value={postFormik.values.selectedTargetGroupId}
+                onChange={(val) => postFormik.setFieldValue('selectedTargetGroupId', val)}
+                searchable
+                options={groups.map((g) => ({
+                  value: g.id,
+                  label: g.name,
+                }))}
+                error={postFormik.touched.selectedTargetGroupId && postFormik.errors.selectedTargetGroupId ? (postFormik.errors.selectedTargetGroupId as string) : undefined}
+              />
 
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">Announcement Text</label>
@@ -1145,18 +1132,21 @@ export default function AdminCommunityPage() {
                   className="pl-9"
                 />
               </div>
-              <select
-                value={memberStatusFilter}
-                onChange={(e) => {
-                  setMemberStatusFilter(e.target.value as MemberStatusFilter);
-                  setMemberPage(1);
-                }}
-                className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-700 dark:text-slate-200"
-              >
-                <option value="ALL">All members</option>
-                <option value="ACTIVE">Active only</option>
-                <option value="BLOCKED">Blocked only{blockedCount ? ` (${blockedCount})` : ''}</option>
-              </select>
+              <div className="w-44 shrink-0">
+                <Select
+                  value={memberStatusFilter}
+                  onChange={(val) => {
+                    setMemberStatusFilter(val as MemberStatusFilter);
+                    setMemberPage(1);
+                  }}
+                  triggerClassName="h-11 text-xs"
+                  options={[
+                    { value: 'ALL', label: 'All members' },
+                    { value: 'ACTIVE', label: 'Active only' },
+                    { value: 'BLOCKED', label: `Blocked only${blockedCount ? ` (${blockedCount})` : ''}` },
+                  ]}
+                />
+              </div>
             </div>
 
             <div className="space-y-3 max-h-80 overflow-y-auto pr-1">

@@ -46,6 +46,8 @@ async function bootstrap() {
     .addTag('Staff', 'Staff invitations and permission management (Super Admin only)')
     .addTag('Mock Tests', 'Scheduled live mock tests and rank lists')
     .addTag('Analytics', 'Usage stats and subject-wise performance')
+    .addTag('Videos', 'YouTube video library, browsed as Exam → Chapter → Video')
+    .addTag('PDFs', 'PDF study-material library, browsed as Exam → Chapter → PDF')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

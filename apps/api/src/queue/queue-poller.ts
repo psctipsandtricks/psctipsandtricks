@@ -3,8 +3,6 @@ import { SupabaseQueueService } from './queue.service';
 
 const POLL_INTERVAL_MS = 3000;
 const DRAIN_INTERVAL_MS = 250;
-const VISIBILITY_TIMEOUT_SECONDS = 30;
-const BATCH_SIZE = 5;
 const MAX_ATTEMPTS = 5;
 
 /**
@@ -15,6 +13,13 @@ const MAX_ATTEMPTS = 5;
 export abstract class QueuePoller<T = unknown> implements OnModuleInit, OnModuleDestroy {
   protected abstract readonly queueName: string;
   protected abstract readonly logger: Logger;
+
+  // How long pgmq hides a read message from other readers before it's considered
+  // abandoned and re-delivered. Override for handlers that can run long (e.g.
+  // CPU-heavy media processing) so an in-flight job isn't picked up twice.
+  protected readonly visibilityTimeoutSeconds: number = 30;
+  // How many messages to grab per poll. Override down for heavy per-message work.
+  protected readonly batchSize: number = 5;
 
   private stopped = false;
   private timer?: NodeJS.Timeout;
@@ -45,7 +50,7 @@ export abstract class QueuePoller<T = unknown> implements OnModuleInit, OnModule
   private async poll() {
     let hadMessages = false;
     try {
-      const messages = await this.queueService.read<T>(this.queueName, VISIBILITY_TIMEOUT_SECONDS, BATCH_SIZE);
+      const messages = await this.queueService.read<T>(this.queueName, this.visibilityTimeoutSeconds, this.batchSize);
       hadMessages = messages.length > 0;
       for (const msg of messages) {
         try {

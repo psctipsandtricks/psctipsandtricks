@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, Button, Badge, Input, Pagination, Skeleton } from '@psc/ui';
+import { Card, Button, Badge, Input, Pagination, Skeleton, Select } from '@psc/ui';
 import {
   History,
   Trophy,
@@ -275,18 +275,14 @@ export default function StudentQuizHistoryPage() {
               })}
             </div>
 
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              aria-label="Sort attempts"
-              className="glass-input h-9 px-2.5 text-[11px] sm:text-xs font-bold cursor-pointer"
-            >
-              {SORTS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
+            <div className="w-44 shrink-0">
+              <Select
+                value={sortKey}
+                onChange={(val) => setSortKey(val as SortKey)}
+                triggerClassName="h-9 text-xs"
+                options={SORTS.map((s) => ({ value: s.key, label: s.label }))}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -558,6 +554,11 @@ function AttemptRow({ attempt }: { attempt: any }) {
     minute: '2-digit',
   });
 
+  const isNegativeMarking = Boolean(attempt.quiz?.negativeMarkingEnabled);
+  const negEvery = Math.max(1, attempt.quiz?.negativeMarkingEvery || 3);
+  const negDeduct = attempt.quiz?.negativeMarkingDeduct ?? 1;
+  const negativeMarks = Math.floor(wrong / negEvery) * negDeduct;
+
   return (
     <Card
       className={`relative overflow-hidden p-4 sm:p-5 pl-5 sm:pl-6 glass-card rounded-2xl space-y-3.5 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${BAND_STRIPE[band]}`}
@@ -579,6 +580,11 @@ function AttemptRow({ attempt }: { attempt: any }) {
             ) : (
               <Badge variant="warning" className="font-bold">
                 In Progress
+              </Badge>
+            )}
+            {isNegativeMarking && (
+              <Badge variant="outline" className="font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/25">
+                Negative Marking (-{negDeduct}/{negEvery})
               </Badge>
             )}
             {category && (
@@ -623,6 +629,11 @@ function AttemptRow({ attempt }: { attempt: any }) {
                     / {attempt.totalMarks ?? 0}
                   </span>
                 </span>
+                {isNegativeMarking && negativeMarks > 0 && (
+                  <span className="block text-[10px] font-bold text-rose-500 font-mono">
+                    Penalty: -{negativeMarks}
+                  </span>
+                )}
                 <Link href={`/quizzes/${attempt.quizId}`} className="block mt-1.5">
                   <Button
                     variant="outline"
@@ -656,7 +667,7 @@ function AttemptRow({ attempt }: { attempt: any }) {
       {isCompleted && (
         <div className="space-y-2.5">
           <BreakdownBar correct={correct} wrong={wrong} unattempted={unattempted} />
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${isNegativeMarking ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
             <BreakdownChip
               label="Correct"
               value={String(correct)}
@@ -669,6 +680,14 @@ function AttemptRow({ attempt }: { attempt: any }) {
               icon={<XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
               className="bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-400"
             />
+            {isNegativeMarking && (
+              <BreakdownChip
+                label="Negative Marks"
+                value={`-${negativeMarks}`}
+                icon={<MinusCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />}
+                className="bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-400"
+              />
+            )}
             <BreakdownChip
               label="Skipped"
               value={String(unattempted)}

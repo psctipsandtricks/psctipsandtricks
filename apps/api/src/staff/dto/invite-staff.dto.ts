@@ -33,5 +33,17 @@ export class InviteStaffDto {
 
   @IsOptional()
   @IsBoolean()
+  manageOrders?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   viewAnalytics?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  manageVideos?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  managePdfs?: boolean;
 }

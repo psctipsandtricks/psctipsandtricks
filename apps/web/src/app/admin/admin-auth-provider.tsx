@@ -10,7 +10,9 @@ interface AdminAuthContextType {
   isLoading: boolean;
   /** Throws with a user-facing message on failure; never persists a session for a non-admin account. */
   loginAdmin: (email: string, password: string) => Promise<void>;
+  loginWithTokens: (accessToken: string, refreshToken: string) => Promise<User>;
   logoutAdmin: () => void;
+  refreshAdminUser: () => Promise<void>;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
@@ -26,12 +28,31 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const refreshAdminUser = async () => {
+    try {
+      const stored = localStorage.getItem(ADMIN_USER_KEY);
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u?.id) {
+          const profile = await ApiClient.getUserProfile(u.id);
+          if (profile) {
+            localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(profile));
+            setAdminUser(profile as any);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not refresh admin user profile:', err);
+    }
+  };
+
   useEffect(() => {
     try {
       const token = localStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
       const storedUser = localStorage.getItem(ADMIN_USER_KEY);
       if (token && storedUser) {
         setAdminUser(JSON.parse(storedUser));
+        refreshAdminUser();
       }
     } catch (err) {
       console.error('Error restoring admin session:', err);
@@ -42,8 +63,13 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleExpired = () => setAdminUser(null);
+    const handleRefresh = () => refreshAdminUser();
     window.addEventListener('psc:admin-session-expired', handleExpired);
-    return () => window.removeEventListener('psc:admin-session-expired', handleExpired);
+    window.addEventListener('psc:admin-session-refresh', handleRefresh);
+    return () => {
+      window.removeEventListener('psc:admin-session-expired', handleExpired);
+      window.removeEventListener('psc:admin-session-refresh', handleRefresh);
+    };
   }, []);
 
   const loginAdmin = async (email: string, password: string) => {
@@ -59,6 +85,44 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     setAdminUser(response.user);
   };
 
+  const loginWithTokens = async (accessToken: string, refreshToken: string): Promise<User> => {
+    localStorage.setItem(ADMIN_ACCESS_TOKEN_KEY, accessToken);
+    localStorage.setItem(ADMIN_REFRESH_TOKEN_KEY, refreshToken);
+
+    try {
+      let sub = '';
+      try {
+        const payload = JSON.parse(atob(accessToken.split('.')[1]));
+        sub = payload.sub || '';
+      } catch {
+        sub = '';
+      }
+
+      if (!sub) {
+        logoutAdmin();
+        throw new Error('Invalid authentication token payload.');
+      }
+
+      const profile = await ApiClient.getUserProfile(sub);
+      if (!profile || (profile.role !== 'ADMIN' && profile.role !== 'STAFF')) {
+        logoutAdmin();
+        throw new Error('Access denied. Your account is not registered as an authorized staff member.');
+      }
+
+      if (profile.status === 'SUSPENDED') {
+        logoutAdmin();
+        throw new Error('Access denied. Your staff account has been suspended.');
+      }
+
+      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(profile));
+      setAdminUser(profile as any);
+      return profile as any;
+    } catch (err) {
+      logoutAdmin();
+      throw err;
+    }
+  };
+
   const logoutAdmin = () => {
     setAdminUser(null);
     localStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
@@ -67,7 +131,9 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AdminAuthContext.Provider value={{ adminUser, isLoading, loginAdmin, logoutAdmin }}>
+    <AdminAuthContext.Provider
+      value={{ adminUser, isLoading, loginAdmin, loginWithTokens, logoutAdmin, refreshAdminUser }}
+    >
       {children}
     </AdminAuthContext.Provider>
   );

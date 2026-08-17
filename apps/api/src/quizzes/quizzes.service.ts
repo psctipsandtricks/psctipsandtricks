@@ -59,25 +59,88 @@ export class QuizzesService {
     }
   }
 
-  async findAll(publishedOnly = false, actor?: AccessActor | null) {
-    // Scheduling is enforced for everyone who is not staff, including
-    // unauthenticated visitors and any caller that skips `publishedOnly`.
-    // The column holds ISO-8601 UTC strings of a fixed shape, so `lte` against
-    // the current instant in the same format compares them chronologically.
-    const releaseFilter: Prisma.QuizWhereInput | undefined = this.quizAccess.isStaff(actor)
-      ? undefined
-      : { OR: [{ releaseDate: null }, { releaseDate: { lte: new Date().toISOString() } }] };
+  async findAll(
+    options?:
+      | boolean
+      | {
+          publishedOnly?: boolean;
+          page?: number;
+          limit?: number;
+          search?: string;
+          folder?: string;
+          access?: string;
+          status?: string;
+        },
+    actor?: AccessActor | null,
+  ) {
+    const isPublishedOnly = typeof options === 'boolean' ? options : options?.publishedOnly ?? false;
+    const query = typeof options === 'object' ? options : undefined;
 
-    const publishedFilter: Prisma.QuizWhereInput | undefined = publishedOnly
-      ? // A quiz with no questions yet is a draft — even if `isActive` is
-        // somehow true, it must never appear in the public/student list.
-        { isActive: true, questions: { some: {} } }
-      : undefined;
+    const where: any = {};
 
-    const where: Prisma.QuizWhereInput | undefined =
-      publishedFilter || releaseFilter
-        ? { ...(publishedFilter ?? {}), ...(releaseFilter ?? {}) }
-        : undefined;
+    if (!this.quizAccess.isStaff(actor)) {
+      where.OR = [{ releaseDate: null }, { releaseDate: { lte: new Date().toISOString() } }];
+    }
+
+    if (isPublishedOnly) {
+      where.isActive = true;
+      where.questions = { some: {} };
+    }
+
+    if (query?.folder && query.folder !== 'ALL') {
+      where.folderName = query.folder;
+    }
+
+    if (query?.access && query.access !== 'ALL') {
+      where.accessType = query.access;
+    }
+
+    if (query?.status && query.status !== 'ALL') {
+      where.isActive = query.status === 'ACTIVE';
+    }
+
+    if (query?.search && query.search.trim()) {
+      const s = query.search.trim();
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { title: { contains: s, mode: 'insensitive' } },
+            { category: { contains: s, mode: 'insensitive' } },
+            { topic: { contains: s, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+
+    if (query?.page || query?.limit) {
+      const page = Math.max(1, Number(query.page) || 1);
+      const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
+      const skip = (page - 1) * limit;
+
+      const [total, quizzes] = await Promise.all([
+        this.prisma.quiz.count({ where }),
+        this.prisma.quiz.findMany({
+          where,
+          include: {
+            questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+            _count: { select: { questions: true, submissions: true } },
+          },
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+
+      const redacted = await this.quizAccess.redactQuizList(actor, quizzes);
+      return {
+        data: redacted,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    }
 
     const quizzes = await this.prisma.quiz.findMany({
       where,
@@ -88,8 +151,6 @@ export class QuizzesService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // This route is public, so paid quizzes must not ship their answer key to
-    // browsers that have not paid for them.
     return this.quizAccess.redactQuizList(actor, quizzes);
   }
 

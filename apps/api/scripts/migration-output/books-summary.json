@@ -1,0 +1,74 @@
+{
+  "ranAt": "2026-08-14T11:14:49.019Z",
+  "source": {
+    "books": 3,
+    "chapters": 36,
+    "topics": 300
+  },
+  "imported": {
+    "books": 3,
+    "chapters": 36,
+    "topics": 300
+  },
+  "skipped": {
+    "danglingChapters": 0,
+    "danglingTopics": 0
+  },
+  "files": {
+    "uploaded": 602,
+    "uploadedMB": 1629,
+    "missing": [
+      {
+        "type": "book",
+        "oldId": "101",
+        "field": "merged_pdf",
+        "bucket": "book-pdfs",
+        "relJsonPath": "books/merged/merged_101.pdf"
+      },
+      {
+        "type": "book",
+        "oldId": "106",
+        "field": "merged_pdf",
+        "bucket": "book-pdfs",
+        "relJsonPath": "books/merged/merged_106.pdf"
+      },
+      {
+        "type": "book",
+        "oldId": "113",
+        "field": "merged_pdf",
+        "bucket": "book-pdfs",
+        "relJsonPath": "books/merged/merged_113.pdf"
+      },
+      {
+        "type": "book",
+        "oldId": "106",
+        "field": "cover_image",
+        "bucket": "book-covers",
+        "relJsonPath": "books/covers/J8R45Ix359L6Aebx7PtRvyvP9r4pilrIdJqhUugy.jpg",
+        "error": "\nInvalid `prisma.book.update()` invocation in\n/Users/antoanstin/Downloads/WORK/new_psc/apps/api/scripts/upload-newly-found-files.js:95:27\n\n  92 const newId = bookIdMap[job.oldId];\n  93 url = await uploadWithRetry(job.bucket, `${newId}/${path.basename(job.relJsonPath)}`, localPath);\n  94 const field = job.field === 'cover_image' ? 'coverUrl' : 'pdfUrl';\n→ 95 await prisma.book.update(\nAn operation failed because it depends on one or more records that were required but not found. Record to update not found."
+      },
+      {
+        "type": "chapter",
+        "oldId": "269",
+        "field": "pdf_file",
+        "bucket": "chapter-pdfs",
+        "relJsonPath": "books/new-scert-coming-soon/chapters/day-1/pdf/N2Z9jXc1DoEZsHxDSFqXhC0H7BFnVOW902zbneeR.pdf",
+        "error": "Cannot read properties of null (reading 'bookId')"
+      },
+      {
+        "type": "chapter",
+        "oldId": "270",
+        "field": "pdf_file",
+        "bucket": "chapter-pdfs",
+        "relJsonPath": "books/new-scert-coming-soon/chapters/day-2/pdf/uXSl53fpjssOb6I53BqXjuhkwzZSKUYuu0aR3HgB.pdf",
+        "error": "Cannot read properties of null (reading 'bookId')"
+      }
+    ],
+    "failed": []
+  },
+  "dbVerified": {
+    "books": 3,
+    "chapters": 36,
+    "topics": 300
+  }
+}
