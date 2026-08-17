@@ -200,7 +200,7 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
             </span>
           </div>
 
-          {/* Controls: Auto-Scroll Toggle & Noise Filter & Voice Clarity Mode */}
+          {/* Controls: Auto-Scroll Toggle */}
           <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center flex-wrap">
             {onToggleAutoScroll && (
               <button
@@ -217,20 +217,6 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
                 <span>{autoScrollEnabled ? 'Auto-Scroll ON' : 'Auto-Scroll OFF'}</span>
               </button>
             )}
-
-            <button
-              type="button"
-              onClick={() => setNoiseFilterEnabled((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                noiseFilterEnabled
-                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs'
-                  : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 border border-slate-300 dark:border-slate-700'
-              }`}
-              title={noiseFilterEnabled ? 'Voice Clarity Filter Active (Cuts Background Noise & Boosts Voice)' : 'Voice Clarity Filter Disabled'}
-            >
-              <Sparkles className={`w-3 h-3 ${noiseFilterEnabled ? 'text-emerald-500' : 'text-slate-400'}`} />
-              <span>{noiseFilterEnabled ? 'Voice Clarity ON' : 'Raw Audio'}</span>
-            </button>
           </div>
         </div>
 
@@ -303,19 +289,6 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setNoiseFilterEnabled((prev) => !prev)}
-                  className={`hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    noiseFilterEnabled
-                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                  }`}
-                  title={noiseFilterEnabled ? 'Voice Clarity Active' : 'Voice Clarity Off'}
-                >
-                  <Sparkles className={`w-2.5 h-2.5 ${noiseFilterEnabled ? 'text-emerald-500' : 'text-slate-400'}`} />
-                  <span>{noiseFilterEnabled ? 'Clarity ON' : 'Raw'}</span>
-                </button>
 
                 <button
                   type="button"

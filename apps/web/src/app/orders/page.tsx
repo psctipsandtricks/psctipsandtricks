@@ -13,7 +13,6 @@ import {
   HelpCircle,
   Radio,
   Calendar,
-  IndianRupee,
   CheckCircle2,
   Clock,
   XCircle,
@@ -26,7 +25,6 @@ import type { OrderWithItems, OrderStatus } from '@psc/shared-types';
 const STATUS_FILTERS: { label: string; value: OrderStatus | 'ALL' }[] = [
   { label: 'All', value: 'ALL' },
   { label: 'Paid', value: 'SUCCESS' },
-  { label: 'Pending', value: 'PENDING' },
   { label: 'Failed', value: 'FAILED' },
 ];
 
@@ -37,13 +35,6 @@ function statusBadge(status: OrderStatus) {
         <Badge variant="success" className="text-[10px] font-bold flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" />
           <span>PAID</span>
-        </Badge>
-      );
-    case 'PENDING':
-      return (
-        <Badge variant="warning" className="text-[10px] font-bold flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          <span>PENDING</span>
         </Badge>
       );
     case 'REFUNDED':
@@ -70,7 +61,6 @@ export default function MyOrdersPage() {
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'ALL'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
 
@@ -86,7 +76,8 @@ export default function MyOrdersPage() {
       try {
         setLoading(true);
         const data = await ApiClient.getMyOrders();
-        setOrders(data || []);
+        const validOrders = (data || []).filter((o) => o.status === 'SUCCESS');
+        setOrders(validOrders);
       } catch (err) {
         console.error('Failed to load order history:', err);
       } finally {
@@ -101,23 +92,16 @@ export default function MyOrdersPage() {
     order.book ? 'BOOK' : order.quiz?.isLiveMock ? 'MOCK' : 'QUIZ';
 
   const filteredOrders = orders.filter((order) => {
-    const matchesSearch = itemTitle(order).toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return itemTitle(order).toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter]);
+  }, [searchTerm]);
 
   const totalItems = filteredOrders.length;
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
   const paginatedOrders = filteredOrders.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-  const totalSpent = orders
-    .filter((o) => o.status === 'SUCCESS')
-    .reduce((sum, o) => sum + (o.amount || 0), 0);
-  const totalPaid = orders.filter((o) => o.status === 'SUCCESS').length;
 
   if (loading || authLoading || !user) {
     return (
@@ -129,8 +113,7 @@ export default function MyOrdersPage() {
             <Skeleton className="w-64 h-4 rounded-md" />
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Skeleton className="h-24 rounded-2xl" />
+        <div className="grid grid-cols-2 gap-4">
           <Skeleton className="h-24 rounded-2xl" />
           <Skeleton className="h-24 rounded-2xl" />
         </div>
@@ -166,13 +149,13 @@ export default function MyOrdersPage() {
       </div>
 
       {/* Quick Summary Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card className="p-3.5 sm:p-4 glass-card flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20">
             <ShoppingBag className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold block">Total Orders</span>
+            <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold block">Completed Orders</span>
             <span className="text-lg sm:text-xl font-black text-slate-900 dark:text-white font-mono">{orders.length}</span>
           </div>
         </Card>
@@ -182,48 +165,22 @@ export default function MyOrdersPage() {
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold block">Items Purchased</span>
-            <span className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">{totalPaid}</span>
-          </div>
-        </Card>
-
-        <Card className="p-3.5 sm:p-4 glass-card flex items-center space-x-3 col-span-2 sm:col-span-1">
-          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            <IndianRupee className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold block">Total Spent</span>
-            <span className="text-lg sm:text-xl font-black text-amber-600 dark:text-amber-400 font-mono">₹{totalSpent}</span>
+            <span className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-semibold block">Active Unlocked Items</span>
+            <span className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">{orders.length}</span>
           </div>
         </Card>
       </div>
 
-      {/* Filter & Search Bar */}
+      {/* Search Bar */}
       <div className="flex flex-col sm:flex-row gap-3 justify-between">
-        <div className="relative w-full sm:w-72">
+        <div className="relative w-full sm:w-80">
           <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
           <Input
-            placeholder="Search your orders..."
+            placeholder="Search your purchased items..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9"
           />
-        </div>
-
-        <div className="flex items-center space-x-1.5 bg-slate-100 dark:bg-[#091124] p-1 rounded-xl border border-slate-200 dark:border-[#1e2e56] self-start sm:self-auto">
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setStatusFilter(f.value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                statusFilter === f.value
-                  ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
         </div>
       </div>
 

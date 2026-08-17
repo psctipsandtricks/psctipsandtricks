@@ -3,13 +3,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { Skeleton } from '@psc/ui';
-import { ArrowLeft, ExternalLink, Video as VideoIcon, X } from 'lucide-react';
+import { Badge, Skeleton } from '@psc/ui';
+import { ArrowLeft, ExternalLink, Video as VideoIcon, X, FileText, PlayCircle } from 'lucide-react';
 import type { Video } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { youtubeEmbedUrl, youtubeWatchUrl } from '@/lib/youtube';
 import { VideoThumbnail } from './video-thumbnail';
+import { SecureVideoPdfViewer } from './secure-video-pdf-viewer';
 
 export default function ChapterVideosPage() {
   const params = useParams();
@@ -23,6 +24,7 @@ export default function ChapterVideosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [playing, setPlaying] = useState<Video | null>(null);
+  const [activeModalTab, setActiveModalTab] = useState<'VIDEO' | 'PDF'>('VIDEO');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -51,7 +53,7 @@ export default function ChapterVideosPage() {
     if (user && chapterId) load();
   }, [user, chapterId, load]);
 
-  // Escape closes the player, which is the reflex for a full-screen overlay.
+  // Escape closes the player
   useEffect(() => {
     if (!playing) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -60,6 +62,16 @@ export default function ChapterVideosPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [playing]);
+
+  const handlePlayVideo = (video: Video) => {
+    setPlaying(video);
+    setActiveModalTab('VIDEO');
+  };
+
+  const handleOpenPdf = (video: Video) => {
+    setPlaying(video);
+    setActiveModalTab('PDF');
+  };
 
   if (authLoading || !user) {
     return <VideoGridSkeleton />;
@@ -79,7 +91,7 @@ export default function ChapterVideosPage() {
           {chapterTitle || 'Videos'}
         </h1>
         <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm leading-relaxed">
-          Tap a thumbnail to start watching.
+          Tap a thumbnail to start watching, or read attached PDF study notes.
         </p>
       </div>
 
@@ -106,60 +118,142 @@ export default function ChapterVideosPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5">
           {videos.map((video) => (
-            <VideoThumbnail key={video.id} video={video} onPlay={setPlaying} />
+            <VideoThumbnail
+              key={video.id}
+              video={video}
+              onPlay={handlePlayVideo}
+              onOpenPdf={handleOpenPdf}
+            />
           ))}
         </div>
       )}
 
+      {/* Video & In-App PDF Viewer Modal */}
       {playing && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-6 !mt-0"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-2 sm:p-6 !mt-0"
           role="dialog"
           aria-modal="true"
           aria-label={playing.title}
           onClick={() => setPlaying(null)}
         >
-          {/* The panel swallows clicks so only the backdrop closes the player. */}
           <div
-            className="w-full max-w-4xl space-y-3"
+            className={`w-full ${
+              activeModalTab === 'PDF' ? 'max-w-5xl h-[90vh]' : 'max-w-4xl'
+            } bg-slate-900 border border-slate-800 rounded-3xl p-3 sm:p-5 shadow-2xl overflow-hidden flex flex-col transition-all`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-base sm:text-lg font-extrabold text-white leading-snug">{playing.title}</h2>
+            {/* Header with Title and Mode Switcher */}
+            <div className="flex items-start justify-between gap-3 shrink-0 pb-2 border-b border-slate-800">
+              <div className="space-y-1.5 min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-extrabold text-white leading-snug truncate">
+                    {playing.title}
+                  </h2>
+                  {playing.pdfUrl && (
+                    <Badge variant="gold" className="text-[10px] font-bold">
+                      PDF Available
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Tabs: Video vs In-App PDF Notes */}
+                {playing.pdfUrl && (
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab('VIDEO')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeModalTab === 'VIDEO'
+                          ? 'bg-rose-500 text-white shadow-md shadow-rose-500/20'
+                          : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+                      }`}
+                    >
+                      <PlayCircle className="w-3.5 h-3.5" />
+                      <span>Watch Video</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab('PDF')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeModalTab === 'PDF'
+                          ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                          : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>In-App PDF Notes</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setPlaying(null)}
                 className="p-2 rounded-xl border border-white/20 text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
-                aria-label="Close video"
+                aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black shadow-2xl">
-              <iframe
-                key={playing.id}
-                src={youtubeEmbedUrl(playing.youtubeVideoId)}
-                title={playing.title}
-                className="w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
-            </div>
+            {/* Video View */}
+            {activeModalTab === 'VIDEO' && (
+              <div className="space-y-3 pt-3 flex-1 min-h-0 flex flex-col justify-center">
+                <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black shadow-2xl shrink-0">
+                  <iframe
+                    key={playing.id}
+                    src={youtubeEmbedUrl(playing.youtubeVideoId)}
+                    title={playing.title}
+                    className="w-full h-full border-0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
 
-            {playing.description && (
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">{playing.description}</p>
+                {playing.description && (
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-h-20 overflow-y-auto">
+                    {playing.description}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <a
+                    href={youtubeWatchUrl(playing.youtubeVideoId)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-400 hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Watch on YouTube</span>
+                  </a>
+
+                  {playing.pdfUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab('PDF')}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-amber-400 hover:underline cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Switch to PDF Notes →</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
 
-            <a
-              href={youtubeWatchUrl(playing.youtubeVideoId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-400 hover:underline"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Watch on YouTube</span>
-            </a>
+            {/* Secure In-App PDF Viewer View (No download buttons, canvas rendered, watermark protected) */}
+            {activeModalTab === 'PDF' && playing.pdfUrl && (
+              <div className="flex-1 min-h-0 flex flex-col pt-2">
+                <SecureVideoPdfViewer
+                  url={playing.pdfUrl}
+                  title={playing.pdfFileName || playing.title}
+                  user={user}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

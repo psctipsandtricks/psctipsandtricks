@@ -5,6 +5,14 @@ import { PdfGroundTruth, PdfPageText } from './audio-processing.types';
 // can't load an ESM-only package — this forces a real dynamic import.
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
 
+// pdfjs-dist v4+ computes page viewport transforms via the browser DOMMatrix
+// API even for plain text extraction (no canvas/rendering involved) — Node
+// has no such global, so we polyfill it with a small pure-JS implementation.
+if (typeof (globalThis as any).DOMMatrix === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  (globalThis as any).DOMMatrix = require('dommatrix');
+}
+
 const HEADER_FOOTER_BAND = 0.1; // top/bottom 10% of page height
 const HEADER_FOOTER_MIN_PAGE_SHARE = 0.4; // must repeat on >=40% of pages to be dropped
 

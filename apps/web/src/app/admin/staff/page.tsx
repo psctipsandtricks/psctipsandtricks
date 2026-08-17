@@ -38,7 +38,6 @@ import {
   EyeOff,
   RefreshCw,
   Mail,
-  Phone,
   Calendar,
   Clock,
   BookOpen,
@@ -546,8 +545,8 @@ export default function StaffManagementPage() {
                               {staff.email}
                             </p>
                             {staff.phoneNumber && (
-                              <p className="text-[10px] text-slate-400 flex items-center gap-1 font-mono">
-                                <Phone className="w-2.5 h-2.5" /> {staff.phoneNumber}
+                              <p className="text-[10px] text-slate-400 font-mono">
+                                {staff.phoneNumber}
                               </p>
                             )}
                           </div>

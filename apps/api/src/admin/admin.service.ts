@@ -10,7 +10,7 @@ export class AdminService {
       this.prisma.user.count(),
       this.prisma.quiz.count(),
       this.prisma.book.count(),
-      this.prisma.order.count(),
+      this.prisma.order.count({ where: { status: 'SUCCESS' } }),
       this.prisma.order.aggregate({
         where: { status: 'SUCCESS' },
         _sum: { amount: true },

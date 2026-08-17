@@ -376,10 +376,13 @@ export class OrdersService {
     return updated;
   }
 
-  /** A student's own purchase history — "My Orders" on the public site. */
+  /** A student's own purchase history — "My Orders" on the public site (only successful/completed purchases). */
   async findMyOrders(userId: string) {
     return this.prisma.order.findMany({
-      where: { userId },
+      where: {
+        userId,
+        status: 'SUCCESS',
+      },
       include: {
         book: { select: { id: true, title: true, coverUrl: true } },
         quiz: { select: { id: true, title: true, isLiveMock: true } },

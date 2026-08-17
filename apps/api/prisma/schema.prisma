@@ -151,6 +151,9 @@ model Book {
   description         String            @db.Text
   coverUrl            String
   pdfUrl              String?
+  previewPdfUrl       String?
+  previewPdfFileName  String?
+  previewPdfSizeBytes Int?
   price               Float             @default(0)
   discountPercent     Float             @default(0)
   /// Always the effective, actually-charged price (price minus the discount).
@@ -336,6 +339,16 @@ model Quiz {
   @@index([folderName])
   @@index([category])
   @@index([accessType])
+}
+
+model QuizFolder {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?  @db.Text
+  orderIndex  Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Question {
@@ -622,6 +635,9 @@ model Video {
   /// Derived from `youtubeVideoId`, never uploaded. Stored rather than
   /// recomputed per render so the URL pattern lives in exactly one place.
   thumbnailUrl   String
+  pdfUrl         String?
+  pdfFileName    String?
+  pdfSizeBytes   Int?
   orderIndex     Int          @default(0)
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now())

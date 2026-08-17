@@ -24,4 +24,16 @@ export class UpdateVideoDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  pdfUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  pdfFileName?: string;
+
+  @IsOptional()
+  @IsInt()
+  pdfSizeBytes?: number;
 }

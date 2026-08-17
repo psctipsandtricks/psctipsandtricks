@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { QuizzesService } from './quizzes.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -11,11 +11,64 @@ import { UserRole } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
+import { CreateQuizFolderDto, UpdateQuizFolderDto } from './dto/quiz-folder.dto';
+import { ReorderDto } from '../common/dto/library-folder.dto';
+
+const MANAGE_QUIZZES_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
 
 @ApiTags('Quizzes')
 @Controller('quizzes')
 export class QuizzesController {
   constructor(private readonly quizzesService: QuizzesService) {}
+
+  // --- Folders ---
+
+  @ApiOperation({ summary: 'List all quiz folders with quiz counts' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get('folders')
+  async listFolders(@Request() req: any) {
+    return this.quizzesService.listFolders(req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a quiz folder (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Post('folders')
+  async createFolder(@Body() dto: CreateQuizFolderDto) {
+    return this.quizzesService.createFolder(dto);
+  }
+
+  @ApiOperation({ summary: 'Reorder quiz folders (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Patch('folders/reorder')
+  async reorderFolders(@Body() dto: ReorderDto) {
+    return this.quizzesService.reorderFolders(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a quiz folder (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Patch('folders/:id')
+  async updateFolder(@Param('id') id: string, @Body() dto: UpdateQuizFolderDto) {
+    return this.quizzesService.updateFolder(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a quiz folder (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Delete('folders/:id')
+  async removeFolder(@Param('id') id: string) {
+    return this.quizzesService.deleteFolder(id);
+  }
 
   @ApiOperation({ summary: 'List all quizzes and live mock tests' })
   @ApiQuery({ name: 'publishedOnly', required: false, type: Boolean })

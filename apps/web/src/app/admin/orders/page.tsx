@@ -38,7 +38,6 @@ import {
   X,
   User as UserIcon,
   Mail,
-  Phone,
   Receipt,
   Check,
   RefreshCw,
@@ -1117,9 +1116,8 @@ export default function AdminOrdersPage() {
 
               {viewingOrder.userPhone && (
                 <div className="flex justify-between items-start py-2 border-b border-slate-200/70 dark:border-slate-800/70">
-                  <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Phone Number:</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-semibold">
+                    <span>Mobile / WhatsApp:</span>
                   </span>
                   <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 text-right">
                     {viewingOrder.userPhone}

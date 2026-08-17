@@ -44,7 +44,7 @@ export class AnalyticsService {
       sixMonthOrders,
     ] = await Promise.all([
       this.prisma.user.count({ where: { role: 'STUDENT' } }),
-      this.prisma.order.count(),
+      this.prisma.order.count({ where: { status: 'SUCCESS' } }),
       this.prisma.order.aggregate({
         where: { status: 'SUCCESS' },
         _sum: { amount: true },

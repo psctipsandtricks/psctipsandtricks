@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { AccessActor } from '../common/access/quiz-access.service';
 import { CreateLibraryFolderDto, ReorderDto, UpdateLibraryFolderDto } from '../common/dto/library-folder.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
@@ -26,7 +27,10 @@ const CURATOR: AccessActor = { id: '', role: UserRole.ADMIN };
  */
 @Injectable()
 export class VideosService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private storageService: StorageService,
+  ) {}
 
   /** Admins and staff see unpublished rows; everyone else is limited to active ones. */
   private static isCurator(actor?: AccessActor | null): boolean {
@@ -232,5 +236,41 @@ export class VideosService {
       ),
     );
     return this.listVideos(chapterId, CURATOR);
+  }
+
+  async uploadVideoPdf(videoId: string, file: Express.Multer.File) {
+    const video = await this.findVideo(videoId, CURATOR);
+    if (!file) throw new BadRequestException('No file was uploaded');
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('Only PDF files can be uploaded');
+    }
+
+    const url = await this.storageService.upload(
+      'library-pdfs',
+      `video-pdfs/${video.chapterId}/${videoId}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+
+    return this.prisma.video.update({
+      where: { id: videoId },
+      data: {
+        pdfUrl: url,
+        pdfFileName: file.originalname,
+        pdfSizeBytes: file.size,
+      },
+    });
+  }
+
+  async removeVideoPdf(videoId: string) {
+    await this.findVideo(videoId, CURATOR);
+    return this.prisma.video.update({
+      where: { id: videoId },
+      data: {
+        pdfUrl: null,
+        pdfFileName: null,
+        pdfSizeBytes: null,
+      },
+    });
   }
 }

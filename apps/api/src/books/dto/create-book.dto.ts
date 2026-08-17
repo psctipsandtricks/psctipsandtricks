@@ -20,6 +20,18 @@ export class CreateBookDto {
   pdfUrl?: string;
 
   @IsOptional()
+  @IsString()
+  previewPdfUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  previewPdfFileName?: string;
+
+  @IsOptional()
+  @IsInt()
+  previewPdfSizeBytes?: number;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   price?: number;

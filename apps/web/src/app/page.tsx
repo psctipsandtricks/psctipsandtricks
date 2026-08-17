@@ -31,7 +31,6 @@ import {
   Sliders,
   Eye,
   MessageCircle,
-  Phone,
   Users,
   FileQuestion,
   HelpCircle,
@@ -40,7 +39,6 @@ import { StatCounter } from './home-stat-counter';
 import { HomeBooksShowcase } from './home-books-showcase';
 
 const CONTACT_PHONE_DISPLAY = '+91 88919 30605';
-const CONTACT_PHONE_TEL = '+918891930605';
 const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
 
 const READER_FEATURES = [
@@ -420,13 +418,7 @@ export default function HomePage() {
           <a href={CONTACT_PHONE_WHATSAPP} target="_blank" rel="noopener noreferrer">
             <Button size="lg" variant="gold" className="font-bold shadow-md shadow-emerald-500/20">
               <MessageCircle className="w-4 h-4 mr-2" />
-              Chat on WhatsApp
-            </Button>
-          </a>
-          <a href={`tel:${CONTACT_PHONE_TEL}`}>
-            <Button size="lg" variant="outline" className="font-bold">
-              <Phone className="w-4 h-4 mr-2" />
-              Call {CONTACT_PHONE_DISPLAY}
+              Chat on WhatsApp ({CONTACT_PHONE_DISPLAY})
             </Button>
           </a>
         </div>

@@ -1,5 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Request,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { VideosService } from './videos.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -12,6 +25,7 @@ import { CreateVideoDto } from './dto/create-video.dto';
 import { UpdateVideoDto } from './dto/update-video.dto';
 
 const MANAGE_VIDEOS_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
+const VIDEO_PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 };
 
 /**
  * Every route requires a signed-in user: the library is free, but not public.
@@ -173,5 +187,25 @@ export class VideosController {
   @Delete('items/:videoId')
   async removeVideo(@Param('videoId') videoId: string) {
     return this.videosService.removeVideo(videoId);
+  }
+
+  @ApiOperation({ summary: 'Upload/attach a PDF to a video (Admin / Staff with manage_videos)' })
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @UseInterceptors(FileInterceptor('file', { limits: VIDEO_PDF_UPLOAD_LIMITS }))
+  @Post('items/:videoId/pdf')
+  async uploadVideoPdf(@Param('videoId') videoId: string, @UploadedFile() file: Express.Multer.File) {
+    return this.videosService.uploadVideoPdf(videoId, file);
+  }
+
+  @ApiOperation({ summary: 'Remove attached PDF from a video (Admin / Staff with manage_videos)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Delete('items/:videoId/pdf')
+  async removeVideoPdf(@Param('videoId') videoId: string) {
+    return this.videosService.removeVideoPdf(videoId);
   }
 }

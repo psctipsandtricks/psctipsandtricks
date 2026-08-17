@@ -136,11 +136,11 @@ function AdminPanelShell({
       <Sidebar
         brandName="PSC Control Panel"
         brandIcon={
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-400 via-blue-500 to-indigo-600 text-slate-950 font-black flex items-center justify-center shadow-sm shrink-0">
-            <svg viewBox="0 0 512 512" className="w-4.5 h-4.5 fill-amber-300 drop-shadow-xs">
-              <path d="M 288 88 L 168 264 H 256 L 224 424 L 344 248 H 256 Z" />
-            </svg>
-          </div>
+          <img
+            src="/logo.svg"
+            alt="PSC Tips and Tricks Logo"
+            className="w-8 h-8 rounded-full object-contain shadow-xs ring-1 ring-cyan-500/30 shrink-0"
+          />
         }
         items={sidebarItems}
         pathname={pathname || ''}

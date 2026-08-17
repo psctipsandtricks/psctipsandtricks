@@ -107,7 +107,7 @@ export default function AdminDashboardPage() {
             icon={<TrendingUp className="w-5 h-5 text-cyan-400" />}
           />
           <StatsCard
-            title="Total Orders"
+            title="Completed Orders"
             value={totalOrders.toLocaleString('en-IN')}
             change={totalOrders > 0 ? '+100%' : '0%'}
             isPositive

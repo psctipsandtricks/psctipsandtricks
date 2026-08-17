@@ -267,6 +267,42 @@ export class BooksService {
     return this.prisma.book.update({ where: { id }, data: { coverUrl: url } });
   }
 
+  async uploadPreviewPdf(id: string, file: Express.Multer.File) {
+    await this.findOne(id);
+    if (!file) throw new BadRequestException('No file was uploaded');
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('Only PDF files can be uploaded');
+    }
+
+    const url = await this.storageService.upload(
+      'library-pdfs',
+      `book-previews/${id}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+
+    return this.prisma.book.update({
+      where: { id },
+      data: {
+        previewPdfUrl: url,
+        previewPdfFileName: file.originalname,
+        previewPdfSizeBytes: file.size,
+      },
+    });
+  }
+
+  async removePreviewPdf(id: string) {
+    await this.findOne(id);
+    return this.prisma.book.update({
+      where: { id },
+      data: {
+        previewPdfUrl: null,
+        previewPdfFileName: null,
+        previewPdfSizeBytes: null,
+      },
+    });
+  }
+
   // --- Chapters ---
 
   async listChapters(bookId: string) {

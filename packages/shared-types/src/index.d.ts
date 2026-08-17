@@ -62,6 +62,9 @@ export interface Book {
     description: string;
     coverUrl: string;
     pdfUrl?: string;
+    previewPdfUrl?: string | null;
+    previewPdfFileName?: string | null;
+    previewPdfSizeBytes?: number | null;
     price: number;
     discountPercent: number;
     /** Effective charged price — always price minus discountPercent, computed server-side. */
@@ -76,9 +79,27 @@ export interface Book {
     isPublished: boolean;
     visibleToGuests: boolean;
     downloadCount: number;
+    ordersCount?: number;
+    chaptersCount?: number;
+    topicsCount?: number;
     chapters?: Chapter[];
+    /** Present on responses from GET /books and GET /books/:id — the caller's purchase state for this book. */
+    access?: {
+        isPaid: boolean;
+        hasAccess: boolean;
+        price: number;
+        reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
+    };
     createdAt: string;
     updatedAt: string;
+}
+export type AudioSyncStatus = 'NONE' | 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
+/** One spoken sentence, pre-aligned to its position in the PDF and its audio timestamps. */
+export interface AudioSyncSegment {
+    pageNumber: number;
+    text: string;
+    startTime: number;
+    endTime: number;
 }
 export interface Chapter {
     id: string;
@@ -92,6 +113,10 @@ export interface Chapter {
     audioUrl?: string | null;
     audioDurationSeconds?: number | null;
     pdfUrl?: string | null;
+    audioSyncStatus?: AudioSyncStatus;
+    audioSyncSegments?: AudioSyncSegment[] | null;
+    topicsCount?: number;
+    topics?: Topic[];
     createdAt: string;
     updatedAt: string;
 }
@@ -105,6 +130,10 @@ export interface Topic {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
+    audioSyncStatus?: AudioSyncStatus;
+    audioSyncSegments?: AudioSyncSegment[] | null;
+    subtopicsCount?: number;
+    subtopics?: Subtopic[];
     createdAt: string;
     updatedAt: string;
 }
@@ -118,6 +147,68 @@ export interface Subtopic {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
+    audioSyncStatus?: AudioSyncStatus;
+    audioSyncSegments?: AudioSyncSegment[] | null;
+    createdAt: string;
+    updatedAt: string;
+}
+/** Shared shape of the two library folder levels — exams and chapters differ only in what they contain. */
+export interface LibraryFolder {
+    id: string;
+    title: string;
+    description?: string | null;
+    orderIndex: number;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+export interface VideoExam extends LibraryFolder {
+    /** Number of videos across every chapter — present on list responses so a folder card can show how much is inside. */
+    videoCount?: number;
+    chapterCount?: number;
+    chapters?: VideoChapter[];
+}
+export interface VideoChapter extends LibraryFolder {
+    examId: string;
+    videoCount?: number;
+    videos?: Video[];
+}
+export interface Video {
+    id: string;
+    chapterId: string;
+    title: string;
+    description?: string | null;
+    youtubeUrl: string;
+    youtubeVideoId: string;
+    thumbnailUrl: string;
+    pdfUrl?: string | null;
+    pdfFileName?: string | null;
+    pdfSizeBytes?: number | null;
+    orderIndex: number;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+export interface PdfExam extends LibraryFolder {
+    documentCount?: number;
+    chapterCount?: number;
+    chapters?: PdfChapter[];
+}
+export interface PdfChapter extends LibraryFolder {
+    examId: string;
+    documentCount?: number;
+    documents?: PdfDocument[];
+}
+export interface PdfDocument {
+    id: string;
+    chapterId: string;
+    title: string;
+    description?: string | null;
+    fileUrl?: string | null;
+    fileName?: string | null;
+    fileSizeBytes?: number | null;
+    orderIndex: number;
+    isActive: boolean;
     createdAt: string;
     updatedAt: string;
 }
@@ -126,8 +217,21 @@ export interface ReadingProgress {
     userId: string;
     bookId: string;
     chapterId?: string | null;
+    topicId?: string | null;
     progressPercent: number;
     lastReadAt: string;
+}
+export interface ReaderSubtopic extends Subtopic {
+}
+export interface ReaderTopic extends Topic {
+    subtopics: ReaderSubtopic[];
+}
+export interface ReaderChapter extends Chapter {
+    topics: ReaderTopic[];
+}
+export interface BookReaderContent {
+    book: Pick<Book, 'id' | 'title' | 'author' | 'coverUrl' | 'category'>;
+    chapters: ReaderChapter[];
 }
 export type BookmarkType = 'QUESTION' | 'CHAPTER';
 export interface Bookmark {
@@ -150,10 +254,22 @@ export interface Question {
     explanation?: string | null;
     marks: number;
 }
+export interface QuizFolder {
+    id: string;
+    name: string;
+    description?: string | null;
+    orderIndex: number;
+    isActive: boolean;
+    quizCount?: number;
+    quizzes?: Quiz[];
+    createdAt: string;
+    updatedAt: string;
+}
 export interface Quiz {
     id: string;
     title: string;
     category: string;
+    folderName?: string | null;
     totalQuestions: number;
     durationMinutes: number;
     isLiveMock: boolean;
@@ -274,6 +390,18 @@ export interface StudentDashboardAttempt {
     timeTakenSeconds: number;
     submittedAt: string;
 }
+export interface StudentDashboardBookProgress {
+    bookId: string;
+    title: string;
+    author: string;
+    coverUrl: string;
+    category: string;
+    progressPercent: number;
+    isCompleted: boolean;
+    lastChapterTitle: string | null;
+    lastTopicTitle: string | null;
+    lastReadAt: string;
+}
 export interface StudentDashboard {
     stats: {
         totalAttempts: number;
@@ -317,6 +445,7 @@ export interface StudentDashboard {
         joined: boolean;
         submitted: boolean;
     }[];
+    booksInProgress: StudentDashboardBookProgress[];
     generatedAt: string;
 }
 export type OrderStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';

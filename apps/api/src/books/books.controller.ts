@@ -131,6 +131,28 @@ export class BooksController {
     return this.booksService.uploadCover(id, file);
   }
 
+  @ApiOperation({ summary: 'Upload/replace preview PDF for a book (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @UseInterceptors(FileInterceptor('file', { limits: PDF_UPLOAD_LIMITS }))
+  @Post(':id/preview-pdf')
+  async uploadPreviewPdf(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.booksService.uploadPreviewPdf(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove preview PDF for a book (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Delete(':id/preview-pdf')
+  async removePreviewPdf(@Param('id') id: string) {
+    return this.booksService.removePreviewPdf(id);
+  }
+
   // --- Chapters ---
 
   @ApiOperation({ summary: 'List chapters for a book' })

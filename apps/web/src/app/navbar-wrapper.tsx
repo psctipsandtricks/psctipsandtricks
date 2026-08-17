@@ -33,9 +33,20 @@ export function NavbarWrapper() {
 
   return (
     <Navbar
-      brandName="⚡ PSC Tips And Tricks"
+      brandName="PSC Tips And Tricks"
+      logoUrl="/logo.svg"
       links={navLinks}
-      user={mounted && user ? { name: user.name, email: user.email, avatarUrl: user.avatarUrl ?? undefined } : undefined}
+      user={
+        mounted && user
+          ? {
+              name: user.name,
+              email: user.email,
+              avatarUrl: user.avatarUrl ?? undefined,
+              role: user.role,
+              isPremium: user.isPremium,
+            }
+          : undefined
+      }
       theme={mounted ? theme : 'dark'}
       onToggleTheme={toggleTheme}
       onLogout={logout}

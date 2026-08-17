@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   Camera,
   Mail,
-  Phone,
   Calendar,
   ShoppingBag,
   History,
@@ -370,18 +369,12 @@ export default function ProfilePage() {
 
         <Input label="Full Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your full name" />
 
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">Phone Number</label>
-          <div className="relative">
-            <Phone className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
-            <Input
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="e.g. 9876543210"
-              className="pl-9"
-            />
-          </div>
-        </div>
+        <Input
+          label="Mobile / WhatsApp Number"
+          value={phoneNumber}
+          onChange={(e) => setPhoneNumber(e.target.value)}
+          placeholder="e.g. 9876543210"
+        />
 
         <div className="pt-1">
           <Button

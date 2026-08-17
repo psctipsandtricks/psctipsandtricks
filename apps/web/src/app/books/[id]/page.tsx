@@ -3,43 +3,50 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, Button, Badge } from '@psc/ui';
+import { Button } from '@psc/ui';
 import {
   ShoppingCart,
-  Eye,
   CheckCircle2,
   AlertCircle,
   BookOpen,
   Music,
   FileText,
-  Youtube,
   ShieldCheck,
   Sparkles,
   ArrowLeft,
   ArrowRight,
-  ListTree,
-  ChevronDown,
-  Phone,
   MessageCircle,
   Sliders,
   GraduationCap,
   Award,
   Globe2,
-  Clock,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../auth-provider';
 import { ApiClient } from '@/lib/api-client';
 import { Book } from '@psc/shared-types';
+
+const SecurePdfViewer = dynamic(
+  () => import('@/components/secure-pdf-viewer').then((mod) => mod.SecurePdfViewer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex-1 min-h-[300px] flex flex-col items-center justify-center p-12 text-slate-400">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500 mb-3" />
+        <p className="text-xs font-bold font-mono">Loading Secure Reader…</p>
+      </div>
+    ),
+  }
+);
 
 export default function BookDetailPage({ params }: { params: { id: string } }) {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
   const [book, setBook] = useState<Book | null>(null);
-  const [chapters, setChapters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -48,16 +55,9 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
       setLoading(true);
       setLoadError('');
       try {
-        const [bookData, chaptersData] = await Promise.all([
-          ApiClient.getBookById(params.id),
-          ApiClient.getChapters(params.id).catch(() => []),
-        ]);
+        const bookData = await ApiClient.getBookById(params.id);
         if (!cancelled) {
           setBook(bookData);
-          setChapters(Array.isArray(chaptersData) ? chaptersData : []);
-          if (Array.isArray(chaptersData) && chaptersData.length > 0) {
-            setExpandedChapterId(chaptersData[0].id);
-          }
         }
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.message || 'This book could not be found.');
@@ -130,7 +130,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href="/books"
-          className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-400 inline-flex items-center gap-1.5 transition-colors"
+          className="text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-amber-500 dark:hover:text-amber-400 inline-flex items-center gap-1.5 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to E-Books Catalog</span>
@@ -151,20 +151,20 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
 
       {/* ── 1. Top Cinema Hero Card (Balanced 2-Column Presentation) ─ */}
       <div className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] shadow-xl overflow-hidden p-6 sm:p-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
           {/* Left Column: Book Poster Visual (5 Cols) */}
-          <div className="lg:col-span-5 space-y-4">
-            <div className="relative rounded-2xl overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] shadow-2xl bg-slate-900 group">
+          <div className="lg:col-span-5 space-y-3">
+            <div className="relative rounded-2xl overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] shadow-xl bg-slate-950 group">
               {book.coverUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={book.coverUrl}
                   alt={book.title}
-                  className="w-full h-auto max-h-[460px] object-contain transition-transform duration-500 group-hover:scale-[1.02] block mx-auto"
+                  className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-[1.02] block mx-auto"
                 />
               ) : (
-                <div className="w-full h-72 flex flex-col items-center justify-center text-cyan-400 p-6 bg-gradient-to-b from-cyan-950/30 to-slate-950/60">
-                  <BookOpen className="w-16 h-16 stroke-[1.5] mb-2 text-cyan-400/70" />
+                <div className="w-full h-64 flex flex-col items-center justify-center text-amber-400 p-6 bg-gradient-to-b from-amber-950/30 to-slate-950/60">
+                  <BookOpen className="w-14 h-14 stroke-[1.5] mb-2 text-amber-400/70" />
                   <span className="text-xs font-bold text-center text-slate-300">{book.title}</span>
                 </div>
               )}
@@ -174,43 +174,24 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
                 <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-md">
                   {book.category}
                 </span>
-                {discount > 0 && !isFree && (
+                {discount > 0 && !isFree && !owned && (
                   <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-rose-500 text-white shadow-md">
                     {discount}% OFF
                   </span>
                 )}
               </div>
-
-              {/* Multimedia Features Pill Over Cover */}
-              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-around bg-slate-950/90 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 text-[11px] text-white">
-                <span className="flex items-center gap-1 font-bold text-cyan-400">
-                  <Music className="w-3.5 h-3.5" /> Audio Lessons
-                </span>
-                <span className="text-slate-600">·</span>
-                <span className="flex items-center gap-1 font-bold text-amber-400">
-                  <FileText className="w-3.5 h-3.5" /> PDF Notes
-                </span>
-                <span className="text-slate-600">·</span>
-                <span className="flex items-center gap-1 font-bold text-rose-400">
-                  <Youtube className="w-3.5 h-3.5" /> Video
-                </span>
-              </div>
             </div>
 
-            {/* Quick Metadata Info Strip */}
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#0c152e] border border-slate-200/60 dark:border-slate-800">
-                <p className="text-[10px] font-bold text-slate-400 uppercase">Chapters</p>
-                <p className="text-sm font-black text-slate-900 dark:text-white font-mono">{chapters.length || '10+'}</p>
-              </div>
+            {/* Quick Chips Info Strip */}
+            <div className="grid grid-cols-2 gap-2.5 text-center">
               <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#0c152e] border border-slate-200/60 dark:border-slate-800">
                 <p className="text-[10px] font-bold text-slate-400 uppercase">Language</p>
-                <p className="text-sm font-black text-slate-900 dark:text-white">Malayalam</p>
+                <p className="text-xs font-black text-slate-900 dark:text-white">Malayalam</p>
               </div>
               <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#0c152e] border border-slate-200/60 dark:border-slate-800">
                 <p className="text-[10px] font-bold text-slate-400 uppercase">Access</p>
-                <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">
-                  {owned ? 'Unlocked' : isFree ? 'Free' : 'Full-Time'}
+                <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                  {owned ? 'Unlocked' : isFree ? 'Free Access' : 'Full-Time'}
                 </p>
               </div>
             </div>
@@ -236,36 +217,71 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
             </div>
 
             {/* Prominent Price & CTA Box */}
-            <div className="p-5 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/[0.06] via-cyan-500/[0.04] to-amber-500/[0.06] dark:bg-[#0c152e] space-y-4 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div
+              className={`p-5 sm:p-6 rounded-2xl border ${
+                owned
+                  ? 'border-emerald-500/30 bg-emerald-500/[0.05] dark:bg-[#07191d]'
+                  : 'border-amber-500/30 bg-gradient-to-br from-amber-500/[0.06] via-amber-500/[0.02] to-amber-500/[0.06] dark:bg-[#0c152e]'
+              } space-y-4 shadow-sm`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-                    {owned ? 'Your Entitlement Status' : 'Special Promotional Offer'}
-                  </span>
-                  {isFree ? (
-                    <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                      Free Access
-                    </span>
-                  ) : (
-                    <div className="flex items-baseline gap-2 pt-0.5">
-                      <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white font-mono">
-                        ₹{effectivePrice}
+                  {owned ? (
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Purchased & Full Access Active</span>
                       </span>
-                      {originalPrice > effectivePrice && (
-                        <span className="text-base sm:text-lg text-slate-400 line-through font-mono">
-                          ₹{originalPrice}
+                      <p className="text-sm font-black text-slate-900 dark:text-white">
+                        All lessons, notes & materials unlocked
+                      </p>
+                    </div>
+                  ) : isFree ? (
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                        Free E-Book Access
+                      </span>
+                      <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                        Free
+                      </span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                        Special Promotional Offer
+                      </span>
+                      <div className="flex items-baseline gap-2 pt-0.5">
+                        <span className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white font-mono">
+                          ₹{effectivePrice}
                         </span>
-                      )}
-                      {discount > 0 && (
-                        <span className="text-xs font-black text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md">
-                          Save ₹{originalPrice - effectivePrice} ({discount}% OFF)
-                        </span>
-                      )}
+                        {originalPrice > effectivePrice && (
+                          <span className="text-base sm:text-lg text-slate-400 line-through font-mono">
+                            ₹{originalPrice}
+                          </span>
+                        )}
+                        {discount > 0 && (
+                          <span className="text-xs font-black text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md">
+                            Save ₹{originalPrice - effectivePrice} ({discount}% OFF)
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
 
-                <div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  {book.previewPdfUrl && (
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={() => setPreviewModalOpen(true)}
+                      className="font-bold text-sm border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 px-5 cursor-pointer shadow-xs"
+                    >
+                      <FileText className="w-4 h-4 mr-1.5 text-amber-500" />
+                      <span>Read Free Preview</span>
+                    </Button>
+                  )}
+
                   {owned || isFree ? (
                     <Button
                       variant="gold"
@@ -316,7 +332,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
               </div>
 
               <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-[#0c152e] border border-slate-200/60 dark:border-slate-800">
-                <div className="w-8 h-8 rounded-lg bg-cyan-500/15 text-cyan-500 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
                   <Music className="w-4 h-4" />
                 </div>
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
@@ -346,11 +362,10 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* ── 2. Two-Column Detailed Breakdown (Syllabus & TOC) ──────── */}
+      {/* ── 2. Two-Column Detailed Information Grid ─────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Syllabus Description & Curriculum Accordion (7 Cols) */}
+        {/* Left Column: Syllabus & Module Overview (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Detailed Syllabus & Description Card */}
           <div className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] p-6 sm:p-8 shadow-sm space-y-4">
             <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-amber-500" />
@@ -361,116 +376,10 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
               {book.description}
             </div>
           </div>
-
-          {/* Curriculum Breakdown / Chapters & Topics Accordion */}
-          {chapters.length > 0 && (
-            <div className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] p-6 sm:p-8 shadow-sm space-y-4">
-              <div>
-                <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <ListTree className="w-5 h-5 text-cyan-500" />
-                  <span>Table of Contents ({chapters.length} Chapters)</span>
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Click any chapter to inspect all subtopics, audio lessons, and PDF materials.
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                {chapters.map((chapter, idx) => {
-                  const isExpanded = expandedChapterId === chapter.id;
-                  const topics = chapter.topics || [];
-
-                  return (
-                    <div
-                      key={chapter.id}
-                      className="rounded-2xl border border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50 overflow-hidden transition-all"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setExpandedChapterId(isExpanded ? null : chapter.id)}
-                        className="w-full p-4 flex items-center justify-between text-left hover:bg-slate-100/70 dark:hover:bg-[#0c152e] transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono font-black text-xs flex items-center justify-center shrink-0">
-                            {idx + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <h3 className="text-sm font-black text-slate-900 dark:text-white truncate">
-                              {chapter.title}
-                            </h3>
-                            {chapter.description && (
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                                {chapter.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2.5 shrink-0">
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold font-mono bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
-                            {topics.length} {topics.length === 1 ? 'Topic' : 'Topics'}
-                          </span>
-                          <ChevronDown
-                            className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
-                              isExpanded ? 'rotate-180 text-cyan-500' : ''
-                            }`}
-                          />
-                        </div>
-                      </button>
-
-                      {/* Expanded Topics List */}
-                      {isExpanded && (
-                        <div className="p-3 pt-0 border-t border-slate-200/60 dark:border-slate-800/80 space-y-1.5 mt-1">
-                          {topics.length > 0 ? (
-                            topics.map((t: any, tIdx: number) => (
-                              <div
-                                key={t.id}
-                                className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-[#070e22] border border-slate-200/60 dark:border-slate-800 text-xs"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="font-mono text-[11px] font-bold text-cyan-600 dark:text-cyan-400 shrink-0">
-                                    {idx + 1}.{tIdx + 1}
-                                  </span>
-                                  <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                                    {t.title}
-                                  </span>
-                                </div>
-
-                                <div className="flex items-center gap-2 shrink-0">
-                                  {t.audioUrl && (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-cyan-600 dark:text-cyan-400">
-                                      <Music className="w-2.5 h-2.5" /> Audio
-                                    </span>
-                                  )}
-                                  {t.pdfUrl && (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                                      <FileText className="w-2.5 h-2.5" /> Notes
-                                    </span>
-                                  )}
-                                  {t.youtubeUrl && (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-500">
-                                      <Youtube className="w-2.5 h-2.5" /> Video
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-xs text-slate-400 text-center py-2">No topics in this chapter.</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Right Column: Why Choose + Helpline (5 Cols) */}
+        {/* Right Column: Features & WhatsApp Support (5 Cols) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Multimedia Reader Advantage Card */}
           <div className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] p-6 sm:p-8 shadow-sm space-y-4">
             <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-500" />
@@ -478,9 +387,9 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
             </h3>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-2xl bg-cyan-500/[0.06] border border-cyan-500/20 space-y-1">
-                <p className="font-black text-cyan-800 dark:text-cyan-300 flex items-center gap-1.5">
-                  <Music className="w-3.5 h-3.5 text-cyan-500" />
+              <div className="p-3 rounded-2xl bg-amber-500/[0.06] border border-amber-500/20 space-y-1">
+                <p className="font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                  <Music className="w-3.5 h-3.5 text-amber-500" />
                   <span>Synchronized Audio Playback</span>
                 </p>
                 <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
@@ -494,7 +403,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
                   <span>Voice Clarity DSP Filter</span>
                 </p>
                 <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Built-in audio filter clears background hiss for crystal-clear teacher voices during bus & travel study.
+                  Studio audio filters for clear pronunciation of complex scientific and historical terminology.
                 </p>
               </div>
 
@@ -510,30 +419,48 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          {/* Need Guidance Hotline Card */}
+          {/* Need Guidance WhatsApp Support Card */}
           <div className="p-6 rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-cyan-500/10 to-amber-500/10 space-y-3 text-center sm:text-left">
             <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
-              <Phone className="w-4 h-4 text-amber-500" />
+              <MessageCircle className="w-4 h-4 text-emerald-500" />
               <span>Need Help or Syllabus Guidance?</span>
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Have questions regarding book access, payment methods, or syllabus alignment? Chat directly with our student support team.
+              Have questions regarding book access, payment methods, or syllabus alignment? Message our student support team on WhatsApp.
             </p>
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-1">
               <a href="https://wa.me/918891930605" target="_blank" rel="noopener noreferrer">
-                <Button variant="gold" size="sm" className="font-bold text-xs">
-                  <MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp Us
-                </Button>
-              </a>
-              <a href="tel:+918891930605">
-                <Button variant="outline" size="sm" className="font-bold text-xs">
-                  <Phone className="w-3.5 h-3.5 mr-1" /> +91 88919 30605
+                <Button variant="gold" size="sm" className="font-bold text-xs shadow-md shadow-emerald-500/20">
+                  <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> WhatsApp Us (+91 88919 30605)
                 </Button>
               </a>
             </div>
           </div>
         </div>
       </div>
+
+      {/* ── Secure Preview PDF Modal ────────────────────────────── */}
+      {previewModalOpen && book.previewPdfUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-2 sm:p-6 !mt-0"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Sample Preview: ${book.title}`}
+          onClick={() => setPreviewModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-5xl h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl p-3 sm:p-4 shadow-2xl overflow-hidden flex flex-col transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SecurePdfViewer
+              url={book.previewPdfUrl}
+              title={`Preview Sample: ${book.title}`}
+              user={user ? { id: user.id, name: user.name, email: user.email, phone: user.phoneNumber || undefined } : null}
+              onClose={() => setPreviewModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
   PdfExam,
   PdfChapter,
   PdfDocument,
+  QuizFolder,
   StaffMember,
   StaffPermission,
 } from '@psc/shared-types';
@@ -51,6 +52,9 @@ export interface BookWritePayload {
   isPremium?: boolean;
   isPublished?: boolean;
   visibleToGuests?: boolean;
+  previewPdfUrl?: string;
+  previewPdfFileName?: string;
+  previewPdfSizeBytes?: number;
 }
 
 /** Fields an admin writes on an exam or chapter folder, in either content library. */
@@ -76,6 +80,16 @@ export interface VideoWritePayload {
   title: string;
   description?: string;
   youtubeUrl: string;
+  orderIndex?: number;
+  isActive?: boolean;
+  pdfUrl?: string;
+  pdfFileName?: string;
+  pdfSizeBytes?: number;
+}
+
+export interface QuizFolderWritePayload {
+  name: string;
+  description?: string;
   orderIndex?: number;
   isActive?: boolean;
 }
@@ -355,6 +369,9 @@ export const ApiClient = {
     fetcher<Book>(`/books/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteBook: (id: string) => fetcher<any>(`/books/${id}`, { method: 'DELETE' }),
   uploadBookCover: (id: string, file: File) => uploadFetcher<Book>(`/books/${id}/cover`, file),
+  uploadBookPreviewPdf: (id: string, file: File, onProgress?: (percent: number) => void) =>
+    uploadFetcherWithProgress<Book>(`/books/${id}/preview-pdf`, file, onProgress),
+  deleteBookPreviewPdf: (id: string) => fetcher<Book>(`/books/${id}/preview-pdf`, { method: 'DELETE' }),
 
   // Chapters (Admin)
   getChapters: (bookId: string) => fetcher<Chapter[]>(`/books/${bookId}/chapters`),
@@ -462,6 +479,9 @@ export const ApiClient = {
   deleteVideo: (videoId: string) => fetcher<any>(`/videos/items/${videoId}`, { method: 'DELETE' }),
   reorderVideos: (chapterId: string, items: ReorderEntry[]) =>
     fetcher<Video[]>(`/videos/chapters/${chapterId}/videos/reorder`, { method: 'PATCH', body: JSON.stringify({ items }) }),
+  uploadVideoPdf: (videoId: string, file: File, onProgress?: (percent: number) => void) =>
+    uploadFetcherWithProgress<Video>(`/videos/items/${videoId}/pdf`, file, onProgress),
+  deleteVideoPdf: (videoId: string) => fetcher<Video>(`/videos/items/${videoId}/pdf`, { method: 'DELETE' }),
 
   // PDF Library (Exam → Chapter → PDF)
   getPdfExams: () => fetcher<PdfExam[]>('/pdfs/exams'),
@@ -541,6 +561,15 @@ export const ApiClient = {
     }),
   getStudentAttemptHistory: () => fetcher<any[]>('/quizzes/history/me'),
   getMyDashboard: () => fetcher<StudentDashboard>('/analytics/me/dashboard'),
+
+  getQuizFolders: () => fetcher<QuizFolder[]>('/quizzes/folders'),
+  createQuizFolder: (payload: QuizFolderWritePayload) =>
+    fetcher<QuizFolder>('/quizzes/folders', { method: 'POST', body: JSON.stringify(payload) }),
+  updateQuizFolder: (id: string, payload: Partial<QuizFolderWritePayload>) =>
+    fetcher<QuizFolder>(`/quizzes/folders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteQuizFolder: (id: string) => fetcher<any>(`/quizzes/folders/${id}`, { method: 'DELETE' }),
+  reorderQuizFolders: (items: ReorderEntry[]) =>
+    fetcher<QuizFolder[]>('/quizzes/folders/reorder', { method: 'PATCH', body: JSON.stringify({ items }) }),
 
   getAdminAttemptHistory: (quizId?: string, userId?: string) =>
     fetcher<any[]>(`/quizzes/admin/attempts?${quizId ? `quizId=${quizId}&` : ''}${userId ? `userId=${userId}` : ''}`),

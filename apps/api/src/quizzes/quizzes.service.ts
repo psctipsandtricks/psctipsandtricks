@@ -5,8 +5,12 @@ import { Prisma } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
+import { CreateQuizFolderDto, UpdateQuizFolderDto } from './dto/quiz-folder.dto';
+import { ReorderDto } from '../common/dto/library-folder.dto';
 import { AccessActor, QuizAccessService } from '../common/access/quiz-access.service';
 import { computeFinalScore } from '../common/scoring';
+
+const CURATOR: AccessActor = { id: '', role: 'ADMIN' as any };
 
 /**
  * How far into the past a submitted release date may fall before it is
@@ -501,5 +505,219 @@ export class QuizzesService {
       timeTakenSeconds: sub.timeTakenSeconds,
       submittedAt: sub.submittedAt || sub.createdAt,
     }));
+  }
+
+  // --- Quiz Folders ---
+
+  async listFolders(actor?: AccessActor | null) {
+    const isCurator = this.quizAccess.isStaff(actor);
+    const folderWhere = isCurator ? {} : { isActive: true };
+
+    const [dbFolders, quizFolderCounts] = await Promise.all([
+      this.prisma.quizFolder.findMany({
+        where: folderWhere,
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+      }),
+      this.prisma.quiz.groupBy({
+        by: ['folderName'],
+        _count: { _all: true },
+        where: isCurator ? {} : { isActive: true },
+      }),
+    ]);
+
+    const countMap: Record<string, number> = {};
+    for (const group of quizFolderCounts) {
+      const name = (!group.folderName || group.folderName === 'Root / No Folder' || group.folderName === 'Root')
+        ? 'Root'
+        : group.folderName;
+      countMap[name] = (countMap[name] || 0) + group._count._all;
+    }
+
+    const seenNames = new Set<string>();
+    const result: any[] = [];
+
+    // Map stored db folders
+    for (const f of dbFolders) {
+      seenNames.add(f.name);
+      result.push({
+        id: f.id,
+        name: f.name,
+        title: f.name,
+        description: f.description,
+        orderIndex: f.orderIndex,
+        isActive: f.isActive,
+        quizCount: countMap[f.name] || 0,
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+      });
+    }
+
+    // Ensure 'Root' is present if not already in DB
+    if (!seenNames.has('Root')) {
+      seenNames.add('Root');
+      result.unshift({
+        id: 'root-folder',
+        name: 'Root',
+        title: 'Root',
+        description: 'Default root folder for uncategorized quizzes',
+        orderIndex: -1,
+        isActive: true,
+        quizCount: countMap['Root'] || 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // Also include any folders discovered on quizzes that aren't yet in quizFolder table
+    for (const [folderName, count] of Object.entries(countMap)) {
+      if (!seenNames.has(folderName)) {
+        seenNames.add(folderName);
+        result.push({
+          id: `virtual-${encodeURIComponent(folderName)}`,
+          name: folderName,
+          title: folderName,
+          description: null,
+          orderIndex: result.length,
+          isActive: true,
+          quizCount: count,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    return result.sort((a, b) => a.orderIndex - b.orderIndex);
+  }
+
+  async findFolder(idOrName: string) {
+    let folder = await this.prisma.quizFolder.findFirst({
+      where: {
+        OR: [{ id: idOrName }, { name: idOrName }],
+      },
+    });
+
+    if (!folder) {
+      if (idOrName === 'Root' || idOrName === 'root-folder') {
+        return {
+          id: 'root-folder',
+          name: 'Root',
+          title: 'Root',
+          description: 'Default root folder',
+          orderIndex: -1,
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+      throw new NotFoundException('Quiz folder not found');
+    }
+
+    return folder;
+  }
+
+  async createFolder(dto: CreateQuizFolderDto) {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Folder name is required');
+
+    const existing = await this.prisma.quizFolder.findUnique({ where: { name } });
+    if (existing) throw new BadRequestException(`Folder "${name}" already exists`);
+
+    return this.prisma.quizFolder.create({
+      data: {
+        name,
+        description: dto.description?.trim() || null,
+        orderIndex: dto.orderIndex ?? 0,
+        isActive: dto.isActive ?? true,
+      },
+    });
+  }
+
+  async updateFolder(idOrName: string, dto: UpdateQuizFolderDto) {
+    let folder = await this.prisma.quizFolder.findFirst({
+      where: {
+        OR: [{ id: idOrName }, { name: idOrName }],
+      },
+    });
+
+    // If folder was virtual (e.g. created on-the-fly by assigning a quiz to it), create DB record
+    if (!folder) {
+      const oldName = idOrName.startsWith('virtual-') ? decodeURIComponent(idOrName.replace('virtual-', '')) : idOrName;
+      const newName = dto.name ? dto.name.trim() : oldName;
+
+      folder = await this.prisma.quizFolder.create({
+        data: {
+          name: newName,
+          description: dto.description?.trim() || null,
+          orderIndex: dto.orderIndex ?? 0,
+          isActive: dto.isActive ?? true,
+        },
+      });
+
+      if (newName !== oldName) {
+        await this.prisma.quiz.updateMany({
+          where: { folderName: oldName },
+          data: { folderName: newName },
+        });
+      }
+
+      return folder;
+    }
+
+    const newName = dto.name ? dto.name.trim() : folder.name;
+    if (newName !== folder.name) {
+      const duplicate = await this.prisma.quizFolder.findUnique({ where: { name: newName } });
+      if (duplicate && duplicate.id !== folder.id) {
+        throw new BadRequestException(`Folder "${newName}" already exists`);
+      }
+      // Cascade rename to existing quizzes in this folder
+      await this.prisma.quiz.updateMany({
+        where: { folderName: folder.name },
+        data: { folderName: newName },
+      });
+    }
+
+    return this.prisma.quizFolder.update({
+      where: { id: folder.id },
+      data: {
+        name: newName,
+        description: dto.description !== undefined ? dto.description?.trim() || null : undefined,
+        orderIndex: dto.orderIndex !== undefined ? dto.orderIndex : undefined,
+        isActive: dto.isActive !== undefined ? dto.isActive : undefined,
+      },
+    });
+  }
+
+  async deleteFolder(idOrName: string) {
+    const folder = await this.prisma.quizFolder.findFirst({
+      where: {
+        OR: [{ id: idOrName }, { name: idOrName }],
+      },
+    });
+
+    const targetName = folder ? folder.name : (idOrName.startsWith('virtual-') ? decodeURIComponent(idOrName.replace('virtual-', '')) : idOrName);
+
+    // Move any quizzes inside this folder to 'Root'
+    await this.prisma.quiz.updateMany({
+      where: { folderName: targetName },
+      data: { folderName: 'Root' },
+    });
+
+    if (folder) {
+      await this.prisma.quizFolder.delete({ where: { id: folder.id } });
+    }
+
+    return { success: true, message: `Folder "${targetName}" deleted, quizzes moved to Root.` };
+  }
+
+  async reorderFolders(dto: { items: { id: string; orderIndex: number }[] }) {
+    for (const item of dto.items) {
+      if (item.id && !item.id.startsWith('virtual-') && item.id !== 'root-folder') {
+        await this.prisma.quizFolder.update({
+          where: { id: item.id },
+          data: { orderIndex: item.orderIndex },
+        }).catch(() => null);
+      }
+    }
+    return this.listFolders(CURATOR);
   }
 }

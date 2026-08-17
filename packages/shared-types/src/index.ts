@@ -66,6 +66,9 @@ export interface Book {
   description: string;
   coverUrl: string;
   pdfUrl?: string;
+  previewPdfUrl?: string | null;
+  previewPdfFileName?: string | null;
+  previewPdfSizeBytes?: number | null;
   price: number;
   discountPercent: number;
   /** Effective charged price — always price minus discountPercent, computed server-side. */
@@ -193,6 +196,9 @@ export interface Video {
   youtubeUrl: string;
   youtubeVideoId: string;
   thumbnailUrl: string;
+  pdfUrl?: string | null;
+  pdfFileName?: string | null;
+  pdfSizeBytes?: number | null;
   orderIndex: number;
   isActive: boolean;
   createdAt: string;
@@ -277,10 +283,23 @@ export interface Question {
   marks: number;
 }
 
+export interface QuizFolder {
+  id: string;
+  name: string;
+  description?: string | null;
+  orderIndex: number;
+  isActive: boolean;
+  quizCount?: number;
+  quizzes?: Quiz[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Quiz {
   id: string;
   title: string;
   category: string;
+  folderName?: string | null;
   totalQuestions: number;
   durationMinutes: number;
   isLiveMock: boolean;

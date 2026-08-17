@@ -6,9 +6,17 @@ import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, ToggleSwitch, Badge, Pagination, Skeleton, Select } from '@psc/ui';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
-import { Edit3, Trash2, BookOpen, Library, ImagePlus, Eye, Gift, Globe, CheckCircle2, UploadCloud, X, ExternalLink } from 'lucide-react';
+import { Edit3, Trash2, BookOpen, Library, ImagePlus, Eye, Gift, Globe, CheckCircle2, UploadCloud, X, ExternalLink, FileText } from 'lucide-react';
 import { Book } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
+
+const MAX_PDF_BYTES = 50 * 1024 * 1024;
+
+function formatFileSize(bytes?: number | null): string | null {
+  if (!bytes) return null;
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 
 const currentYear = new Date().getFullYear();
 
@@ -64,6 +72,9 @@ export default function AdminBooksPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [previewPdfFile, setPdfPreviewFile] = useState<File | null>(null);
+  const [removeExistingPreviewPdf, setRemoveExistingPreviewPdf] = useState(false);
+  const [pdfUploadPercent, setPdfUploadPercent] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Book | null>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -105,9 +116,6 @@ export default function AdminBooksPage() {
     validationSchema: bookSchema,
     onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
       try {
-        // "Free Book" is the single source of truth for whether payment is
-        // required: ticking it zeroes the price and clears the premium flag
-        // the checkout reads, so the two can never disagree.
         const price = values.isFree ? 0 : Number(values.price);
         const payload = {
           title: values.title.trim(),
@@ -126,9 +134,14 @@ export default function AdminBooksPage() {
           visibleToGuests: values.visibleToGuests,
         };
 
+        let targetId = '';
         if (editingBook) {
-          await ApiClient.updateBook(editingBook.id, payload);
-          if (coverFile) await ApiClient.uploadBookCover(editingBook.id, coverFile);
+          targetId = editingBook.id;
+          await ApiClient.updateBook(targetId, payload);
+          if (coverFile) await ApiClient.uploadBookCover(targetId, coverFile);
+          if (removeExistingPreviewPdf && !previewPdfFile) {
+            await ApiClient.deleteBookPreviewPdf(targetId);
+          }
         } else {
           if (!coverFile) {
             setFieldError('title', 'Choose a cover image before publishing.');
@@ -136,17 +149,26 @@ export default function AdminBooksPage() {
             return;
           }
           const created = await ApiClient.createBook({ ...payload, coverUrl: '' });
-          await ApiClient.uploadBookCover(created.id, coverFile);
+          targetId = created.id;
+          await ApiClient.uploadBookCover(targetId, coverFile);
+        }
+
+        if (previewPdfFile && targetId) {
+          setPdfUploadPercent(0);
+          await ApiClient.uploadBookPreviewPdf(targetId, previewPdfFile, setPdfUploadPercent);
         }
 
         resetForm();
         setCoverFile(null);
+        setPdfPreviewFile(null);
+        setRemoveExistingPreviewPdf(false);
         setIsDialogOpen(false);
         setEditingBook(null);
         await fetchBooks();
       } catch (err: any) {
         setFieldError('title', err.message || `Failed to ${editingBook ? 'update' : 'create'} book.`);
       } finally {
+        setPdfUploadPercent(null);
         setSubmitting(false);
       }
     },
@@ -155,6 +177,8 @@ export default function AdminBooksPage() {
   const handleOpenCreateDialog = () => {
     setEditingBook(null);
     setCoverFile(null);
+    setPdfPreviewFile(null);
+    setRemoveExistingPreviewPdf(false);
     formik.resetForm({ values: emptyValues });
     setIsDialogOpen(true);
   };
@@ -162,6 +186,8 @@ export default function AdminBooksPage() {
   const handleOpenEditDialog = (book: Book) => {
     setEditingBook(book);
     setCoverFile(null);
+    setPdfPreviewFile(null);
+    setRemoveExistingPreviewPdf(false);
     formik.resetForm({
       values: {
         title: book.title,
@@ -318,6 +344,15 @@ export default function AdminBooksPage() {
                         >
                           <span>{book.topicsCount ?? 0} {book.topicsCount === 1 ? 'Topic' : 'Topics'}</span>
                         </Link>
+                        {book.previewPdfUrl && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-extrabold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/25 font-mono shadow-2xs"
+                            title="Preview PDF Attached"
+                          >
+                            <FileText className="w-3 h-3 text-amber-500" />
+                            <span>Preview PDF</span>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </TableCell>
@@ -605,6 +640,131 @@ export default function AdminBooksPage() {
                 onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
               />
             </label>
+          </div>
+
+          {/* Preview PDF Upload Section */}
+          <div className="space-y-2 p-3 rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-amber-500" />
+                <span>Preview PDF / Sample Pages (Optional)</span>
+              </label>
+              <span className="text-[10px] text-slate-400 font-semibold">PDF · Max 50MB</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Students can view these preview sample pages before purchasing the book.
+            </p>
+
+            {/* Currently Active Preview PDF */}
+            {editingBook?.previewPdfUrl && !removeExistingPreviewPdf && !previewPdfFile && (
+              <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-bold text-amber-900 dark:text-amber-300 truncate">
+                      {editingBook.previewPdfFileName || 'Attached Preview PDF'}
+                    </p>
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400 truncate">
+                      {formatFileSize(editingBook.previewPdfSizeBytes) ? `${formatFileSize(editingBook.previewPdfSizeBytes)} · ` : ''}Active for student preview
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <a
+                    href={editingBook.previewPdfUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 font-bold transition-colors text-[11px]"
+                  >
+                    <span>View</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setRemoveExistingPreviewPdf(true)}
+                    className="p-1 rounded-lg text-rose-500 hover:bg-rose-500/10 cursor-pointer"
+                    title="Remove attached preview PDF"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* If user clicked remove on existing Preview PDF */}
+            {removeExistingPreviewPdf && !previewPdfFile && (
+              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400 flex items-center justify-between">
+                <span>Existing Preview PDF will be removed upon save.</span>
+                <button
+                  type="button"
+                  onClick={() => setRemoveExistingPreviewPdf(false)}
+                  className="font-bold underline text-[11px] cursor-pointer"
+                >
+                  Undo
+                </button>
+              </div>
+            )}
+
+            {/* Newly Selected Preview PDF File Preview */}
+            {previewPdfFile && (
+              <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{previewPdfFile.name}</p>
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                      {(previewPdfFile.size / (1024 * 1024)).toFixed(2)} MB · Ready to upload
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPdfPreviewFile(null)}
+                  className="text-slate-400 hover:text-rose-500 p-1 rounded transition-colors cursor-pointer"
+                  title="Remove selection"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* PDF Picker Button */}
+            <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all">
+              <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
+              <span>
+                {previewPdfFile
+                  ? 'Change preview PDF file…'
+                  : editingBook?.previewPdfUrl && !removeExistingPreviewPdf
+                    ? 'Upload new preview PDF to replace current…'
+                    : 'Choose a preview PDF to attach…'}
+              </span>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  if (file && file.size > MAX_PDF_BYTES) {
+                    alert(`"${file.name}" exceeds the 50MB limit.`);
+                    return;
+                  }
+                  setPdfPreviewFile(file);
+                  setRemoveExistingPreviewPdf(false);
+                }}
+              />
+            </label>
+
+            {pdfUploadPercent !== null && (
+              <div className="space-y-1 pt-1">
+                <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 to-cyan-500 transition-all duration-200"
+                    style={{ width: `${pdfUploadPercent}%` }}
+                  />
+                </div>
+                <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Uploading Preview PDF… {pdfUploadPercent}%</p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2.5 pt-1">

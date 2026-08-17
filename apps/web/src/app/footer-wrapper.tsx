@@ -3,10 +3,9 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Zap, Phone, MessageCircle, MapPin } from 'lucide-react';
+import { Zap, MessageCircle, MapPin } from 'lucide-react';
 
 const CONTACT_PHONE_DISPLAY = '+91 88919 30605';
-const CONTACT_PHONE_TEL = '+918891930605';
 const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
 
 const QUICK_LINKS = [
@@ -36,8 +35,12 @@ export function FooterWrapper() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
         {/* Brand */}
         <div className="space-y-3 sm:col-span-2 lg:col-span-1">
-          <Link href="/" className="flex items-center space-x-2 font-black text-lg text-slate-900 dark:text-white">
-            <Zap className="w-5 h-5 text-amber-500" />
+          <Link href="/" className="flex items-center space-x-2.5 font-black text-lg text-slate-900 dark:text-white group">
+            <img
+              src="/logo.svg"
+              alt="PSC Tips and Tricks Logo"
+              className="w-7 h-7 rounded-full object-contain shadow-xs ring-1 ring-cyan-500/30 group-hover:scale-105 transition-transform"
+            />
             <span>PSC Tips And Tricks</span>
           </Link>
           <p className="text-sm leading-relaxed max-w-xs">
