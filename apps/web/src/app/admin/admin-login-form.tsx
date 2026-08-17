@@ -56,36 +56,42 @@ function AdminLoginFormContent() {
 
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
   const googleAdminAuthUrl = `${apiBaseUrl}/auth/google?state=/admin`;
+  const appleAdminAuthUrl = `${apiBaseUrl}/auth/apple?state=/admin`;
 
   return (
-    <div className="min-h-screen bg-[#060b18] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 selection:bg-cyan-500/20 selection:text-cyan-400">
       <div className="max-w-md w-full relative">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-80 ambient-glow-amber rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-80 bg-gradient-to-br from-amber-500/20 via-indigo-500/15 to-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
 
-        <Card className="p-8 space-y-6 glass-panel border-slate-800/80 shadow-2xl relative z-10">
+        <Card className="p-8 space-y-6 glass-panel border border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-[#091124]/95 shadow-2xl relative z-10 rounded-3xl">
+          {/* Header */}
           <div className="text-center space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500 text-xl font-black">
-              👑
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500/20 via-amber-400/10 to-indigo-500/20 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500 shadow-md">
+              <span className="text-2xl select-none">👑</span>
             </div>
-            <CardTitle className="text-2xl font-black tracking-tight text-white">Admin Portal Login</CardTitle>
-            <CardDescription>Log in with your administrator or authorized staff Google account.</CardDescription>
+            <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+              Admin Portal Login
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              Log in with your administrator or authorized staff account.
+            </p>
           </div>
 
           {errorMsg && (
-            <div className="p-3.5 text-xs rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-400 font-semibold leading-relaxed flex items-start gap-2.5 animate-in fade-in duration-200">
-              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+            <div className="p-3.5 text-xs rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-semibold leading-relaxed flex items-start gap-2.5 animate-in fade-in duration-200">
+              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-rose-500 dark:text-rose-400" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          {/* ── Google Sign-In for Staff & Admins ─────────────────── */}
-          <div className="space-y-2">
+          {/* ── Social Single Sign-On ─────────────────────────────── */}
+          <div className="space-y-2.5">
+            {/* Google Button */}
             <a
               href={googleAdminAuthUrl}
-              className="flex items-center justify-center gap-3 w-full h-11 px-4 rounded-xl border border-slate-700 bg-[#091124] hover:bg-[#0e1b38] hover:border-cyan-500/50 text-slate-100 text-sm font-bold transition-all duration-200 shadow-md group cursor-pointer"
+              className="flex items-center justify-center gap-3 w-full h-11 px-4 rounded-xl border border-slate-300 dark:border-slate-700/80 bg-white dark:bg-[#060c1d] hover:bg-slate-50 dark:hover:bg-[#0d1733] hover:border-slate-400 dark:hover:border-cyan-500/50 text-slate-800 dark:text-slate-100 text-sm font-bold transition-all duration-200 shadow-sm cursor-pointer"
             >
-              {/* Google G SVG */}
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+              <svg width="20" height="20" className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                 <path
                   fill="#4285F4"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -105,15 +111,29 @@ function AdminLoginFormContent() {
               </svg>
               <span>Continue with Google</span>
             </a>
-            <p className="text-[11px] text-center text-slate-500 font-medium">
+
+            {/* Apple Button */}
+            <a
+              href={appleAdminAuthUrl}
+              className="flex items-center justify-center gap-3 w-full h-11 px-4 rounded-xl border border-black dark:border-slate-700 bg-black hover:bg-neutral-900 text-white text-sm font-bold transition-all duration-200 shadow-sm cursor-pointer"
+            >
+              <svg width="20" height="20" className="w-5 h-5 fill-current shrink-0 -mt-0.5" viewBox="0 0 24 24">
+                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.61-.75 1.04-1.8 0.92-2.87-.93.04-2.02.63-2.66 1.38-.57.65-1.06 1.73-.93 2.76 1.05.08 2.06-.52 2.67-1.27z" />
+              </svg>
+              <span>Continue with Apple</span>
+            </a>
+
+            <p className="text-[11px] text-center text-slate-500 dark:text-slate-400 font-medium pt-0.5">
               Only registered staff emails in Staff Management can log in.
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
-            <div className="flex-1 h-px bg-slate-800" />
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">or sign in with password</span>
-            <div className="flex-1 h-px bg-slate-800" />
+          {/* Divider */}
+          <div className="relative flex items-center justify-center my-4">
+            <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
+            <span className="bg-white dark:bg-[#091124] px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest absolute">
+              or sign in with password
+            </span>
           </div>
 
           {/* ── Password Form ─────────────────────────────────────── */}
@@ -142,10 +162,10 @@ function AdminLoginFormContent() {
             <Button
               type="submit"
               variant="primary"
-              className="w-full font-bold shadow-lg shadow-indigo-600/20"
+              className="w-full font-bold shadow-lg shadow-indigo-600/20 h-11"
               isLoading={formik.isSubmitting}
             >
-              Log In with Password 👑
+              Log In to Admin Panel 👑
             </Button>
           </form>
         </Card>

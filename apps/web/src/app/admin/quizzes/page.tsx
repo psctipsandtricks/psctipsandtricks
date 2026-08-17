@@ -169,11 +169,36 @@ const RELEASE_GRACE_MS = 60_000;
 function resolveReleaseIso(releaseDate?: string, releaseTime?: string): string {
   if (!releaseDate) return '';
   const iso = combineDateAndTime(releaseDate, releaseTime);
-  if (!iso) return '';
-  if (!releaseTime && new Date(iso).getTime() < Date.now()) {
-    return new Date().toISOString();
+  return iso || '';
+}
+
+/** Formats the quiz release timestamp for table display and detects whether it is upcoming. */
+function formatReleaseDateTime(releaseDate?: string) {
+  if (!releaseDate) {
+    return { formattedDate: 'Immediate', formattedTime: '', fullFormatted: 'Immediate Release', isUpcoming: false, isImmediate: true };
   }
-  return iso;
+  const d = new Date(releaseDate);
+  if (isNaN(d.getTime())) {
+    return { formattedDate: 'Immediate', formattedTime: '', fullFormatted: 'Immediate Release', isUpcoming: false, isImmediate: true };
+  }
+  const isUpcoming = d.getTime() > Date.now();
+  const formattedDate = d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const formattedTime = d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return {
+    formattedDate,
+    formattedTime,
+    fullFormatted: `${formattedDate}, ${formattedTime}`,
+    isUpcoming,
+    isImmediate: false,
+  };
 }
 
 /**
@@ -489,6 +514,13 @@ export default function QuizAdminPage() {
   const [isCreatingNewFolder, setIsCreatingNewFolder] = useState(false);
   const [formSubmitError, setFormSubmitError] = useState('');
 
+  const currentEditingQuiz = editingQuizId ? quizzes.find((q) => q.id === editingQuizId) : null;
+  const isAlreadyReleased = Boolean(
+    editingQuizId &&
+      currentEditingQuiz &&
+      (!currentEditingQuiz.releaseDate || new Date(currentEditingQuiz.releaseDate).getTime() <= Date.now()),
+  );
+
   // Inspector Modal State
   const [inspectQuiz, setInspectQuiz] = useState<QuizItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QuizItem | null>(null);
@@ -674,14 +706,17 @@ export default function QuizAdminPage() {
         }
       }
 
+      const currentEditingQuiz = editingQuizId ? quizzes.find((q) => q.id === editingQuizId) : null;
+      const isAlreadyReleased = Boolean(
+        editingQuizId &&
+          currentEditingQuiz &&
+          (!currentEditingQuiz.releaseDate || new Date(currentEditingQuiz.releaseDate).getTime() <= Date.now()),
+      );
+
       const numericPrice = values.accessType === 'PAID' ? Number(values.price) || 0 : 0;
-      // An unchanged release date is sent back verbatim — the server only
-      // requires a *new* schedule to be in the future.
-      const combinedRelease = combineDateAndTime(values.releaseDate, values.releaseTime);
-      const fullReleaseIso =
-        originalReleaseIso && combinedRelease === originalReleaseIso
-          ? combinedRelease
-          : resolveReleaseIso(values.releaseDate, values.releaseTime);
+      const fullReleaseIso = isAlreadyReleased
+        ? (currentEditingQuiz?.releaseDate || undefined)
+        : (values.releaseDate ? resolveReleaseIso(values.releaseDate, values.releaseTime) : null);
 
       const apiPayload = {
         title: values.title.trim(),
@@ -690,7 +725,7 @@ export default function QuizAdminPage() {
         accessType: values.accessType || 'FREE',
         isActive: values.isActive,
         showCorrectAnswerAfterSelection: values.showCorrectAnswerAfterSelection,
-        releaseDate: fullReleaseIso || undefined,
+        releaseDate: isAlreadyReleased ? undefined : (fullReleaseIso || undefined),
         topic: values.selectedTopic || undefined,
         durationMinutes: Number(values.duration) || 30,
         isLiveMock: values.isLive,
@@ -908,6 +943,15 @@ export default function QuizAdminPage() {
   };
 
   const handleQuickToggleActive = async (quiz: QuizItem) => {
+    const rel = formatReleaseDateTime(quiz.releaseDate);
+    if (rel.isUpcoming) {
+      setToastMsg({
+        type: 'warning',
+        text: `Cannot toggle status. This quiz is scheduled for future release on ${rel.fullFormatted}.`,
+      });
+      return;
+    }
+
     const qCount = quiz.questionsCount ?? (quiz.questions?.length ?? 0);
     const nextIsActive = !quiz.isActive;
 
@@ -950,10 +994,12 @@ export default function QuizAdminPage() {
 
     const matchesAccess = selectedAccessFilter === 'ALL' || quiz.accessType === selectedAccessFilter;
 
+    const rel = formatReleaseDateTime(quiz.releaseDate);
     const matchesStatus =
       selectedStatusFilter === 'ALL' ||
-      (selectedStatusFilter === 'ACTIVE' && quiz.isActive !== false) ||
-      (selectedStatusFilter === 'INACTIVE' && quiz.isActive === false);
+      (selectedStatusFilter === 'ACTIVE' && quiz.isActive !== false && !rel.isUpcoming) ||
+      (selectedStatusFilter === 'UPCOMING' && rel.isUpcoming) ||
+      (selectedStatusFilter === 'INACTIVE' && quiz.isActive === false && !rel.isUpcoming);
 
     return matchesSearch && matchesFolder && matchesAccess && matchesStatus;
   });
@@ -1044,8 +1090,9 @@ export default function QuizAdminPage() {
               onChange={(val) => setSelectedStatusFilter(val)}
               icon={<CheckCircle2 className="w-4 h-4 text-cyan-500" />}
               options={[
-                { value: 'ALL', label: 'All Statuses (Active & Draft)' },
-                { value: 'ACTIVE', label: '🟢 Active Only (Visible to Students)' },
+                { value: 'ALL', label: 'All Statuses (Active, Upcoming & Draft)' },
+                { value: 'ACTIVE', label: '🟢 Active Only (Released & Visible)' },
+                { value: 'UPCOMING', label: '⏰ Upcoming Only (Scheduled)' },
                 { value: 'INACTIVE', label: '⚪ Draft / Hidden Only' },
               ]}
             />
@@ -1059,9 +1106,10 @@ export default function QuizAdminPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-[200px] max-w-[300px]">Quiz Title</TableHead>
+                <TableHead className="min-w-[200px] max-w-[280px]">Quiz Title</TableHead>
                 <TableHead className="whitespace-nowrap">Folder Assignment</TableHead>
                 <TableHead className="whitespace-nowrap">Access Type</TableHead>
+                <TableHead className="whitespace-nowrap">Release Schedule</TableHead>
                 <TableHead className="whitespace-nowrap">Active Status</TableHead>
                 <TableHead className="whitespace-nowrap">Questions</TableHead>
                 <TableHead className="whitespace-nowrap">Duration</TableHead>
@@ -1076,6 +1124,7 @@ export default function QuizAdminPage() {
                     <TableCell className="py-4"><Skeleton className="h-5 w-48 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-32 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-20 rounded-lg" /></TableCell>
+                    <TableCell className="py-4"><Skeleton className="h-5 w-28 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-20 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
@@ -1085,7 +1134,7 @@ export default function QuizAdminPage() {
                 ))
               ) : paginatedQuizzes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
+                  <TableCell colSpan={9} className="text-center py-12">
                     <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                       <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shadow-inner">
                         <Search className="w-6 h-6" />
@@ -1115,9 +1164,12 @@ export default function QuizAdminPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedQuizzes.map((quiz) => (
+                paginatedQuizzes.map((quiz) => {
+                  const rel = formatReleaseDateTime(quiz.releaseDate);
+
+                  return (
                   <TableRow key={quiz.id}>
-                    <TableCell className="max-w-[220px] lg:max-w-[300px] py-4">
+                    <TableCell className="max-w-[200px] lg:max-w-[280px] py-4">
                       <div className="relative group/title max-w-full">
                         <span className="block truncate font-bold text-slate-900 dark:text-white text-sm cursor-pointer">
                           {quiz.title}
@@ -1150,6 +1202,23 @@ export default function QuizAdminPage() {
                       )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
+                      {rel.isImmediate ? (
+                        <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                          Immediate
+                        </span>
+                      ) : (
+                        <div className="flex flex-col text-xs space-y-0.5">
+                          <div className="flex items-center gap-1 font-bold text-slate-700 dark:text-slate-200">
+                            <Clock className={`w-3 h-3 shrink-0 ${rel.isUpcoming ? 'text-amber-500' : 'text-slate-400'}`} />
+                            <span>{rel.formattedDate}</span>
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 pl-4">
+                            {rel.formattedTime}
+                          </span>
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
                       {(() => {
                         const qCount = quiz.questionsCount ?? (quiz.questions?.length ?? 0);
                         const isUpdating = updatingStatusQuizId === quiz.id;
@@ -1160,6 +1229,24 @@ export default function QuizAdminPage() {
                               <Loader2 className="w-3 h-3 animate-spin text-cyan-500" />
                               <span>Updating...</span>
                             </Badge>
+                          );
+                        }
+
+                        if (rel.isUpcoming) {
+                          return (
+                            <div
+                              className="cursor-not-allowed select-none"
+                              title={`Upcoming: Scheduled for release on ${rel.fullFormatted}. Cannot be activated manually.`}
+                            >
+                              <Badge
+                                variant="outline"
+                                className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40 px-2.5 py-1 shadow-sm"
+                              >
+                                <Clock className="w-3 h-3 text-amber-500 animate-pulse" />
+                                <span>Upcoming</span>
+                                <Lock className="w-2.5 h-2.5 opacity-60 ml-0.5 text-amber-600 dark:text-amber-400" />
+                              </Badge>
+                            </div>
                           );
                         }
 
@@ -1279,7 +1366,8 @@ export default function QuizAdminPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -1306,7 +1394,7 @@ export default function QuizAdminPage() {
         onClose={() => setIsDialogOpen(false)}
         title={editingQuizId ? 'Edit Quiz Settings' : 'Create New Quiz'}
       >
-        <form className="flex-1 min-h-0 flex flex-col space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
+        <form className="space-y-4 pt-1" onSubmit={formik.handleSubmit} noValidate>
           {formSubmitError && (
             <div className="shrink-0 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-500 dark:text-rose-400 text-xs font-bold flex items-center space-x-2">
               <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
@@ -1314,7 +1402,7 @@ export default function QuizAdminPage() {
             </div>
           )}
 
-          <div className="flex-1 min-h-0 space-y-4 overflow-y-auto px-1 py-1">
+          <div className="space-y-4">
             <Input
               label="Quiz Title *"
               name="title"
@@ -1325,31 +1413,41 @@ export default function QuizAdminPage() {
               error={formik.touched.title && formik.errors.title ? formik.errors.title : undefined}
             />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <DatePicker
-                label="Release Date"
-                value={formik.values.releaseDate}
-                onChange={(d) => formik.setFieldValue('releaseDate', d)}
-                minDate={todayLocalDateStr()}
-                helperText="Students see this quiz only from this moment on. Leave empty to release immediately."
-              />
-              <TimePicker
-                label="Release Time"
-                value={formik.values.releaseTime}
-                onChange={(t) => formik.setFieldValue('releaseTime', t)}
-                // Only today's picks are limited by the clock — any later date
-                // is free to use the full 24 hours.
-                minTime={
-                  formik.values.releaseDate === todayLocalDateStr() ? nowLocalTimeStr() : undefined
-                }
-                error={formik.errors.releaseTime}
-                helperText={
-                  !formik.errors.releaseTime
-                    ? 'Blank = 12:00 AM on that date, or right away if the date is today.'
-                    : undefined
-                }
-              />
-            </div>
+            {!isAlreadyReleased ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <DatePicker
+                  label="Release Date"
+                  value={formik.values.releaseDate}
+                  onChange={(d) => formik.setFieldValue('releaseDate', d)}
+                  minDate={todayLocalDateStr()}
+                  helperText="Students see this quiz only from this moment on. Leave empty to release immediately."
+                />
+                <TimePicker
+                  label="Release Time"
+                  value={formik.values.releaseTime}
+                  onChange={(t) => formik.setFieldValue('releaseTime', t)}
+                  minTime={
+                    formik.values.releaseDate === todayLocalDateStr() ? nowLocalTimeStr() : undefined
+                  }
+                  error={formik.errors.releaseTime}
+                  helperText={
+                    !formik.errors.releaseTime
+                      ? 'Blank = 12:00 AM on that date, or right away if the date is today.'
+                      : undefined
+                  }
+                />
+              </div>
+            ) : (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
+                <div className="flex items-center space-x-2 text-emerald-800 dark:text-emerald-300 font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Release Status: <strong>Live / Already Released</strong></span>
+                </div>
+                <Badge variant="success" className="text-[10px] font-extrabold px-2 py-0.5">
+                  Live
+                </Badge>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
@@ -1802,7 +1900,7 @@ export default function QuizAdminPage() {
           onClose={() => setInspectQuiz(null)}
           title={`Question Set Inspector: "${inspectQuiz.title}"`}
         >
-          <div className="flex-1 min-h-0 space-y-4 pt-2 overflow-y-auto pr-1">
+          <div className="space-y-4 pt-1">
             <div className="flex justify-between items-center p-3 bg-slate-100 dark:bg-[#091124] rounded-xl text-xs">
               <span className="font-bold text-slate-800 dark:text-slate-200">Total Questions: {inspectQuiz.questions ? inspectQuiz.questions.length : 0}</span>
               <span className="font-mono text-cyan-400 font-bold flex items-center space-x-1">

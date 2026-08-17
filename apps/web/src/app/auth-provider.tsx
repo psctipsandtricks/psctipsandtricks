@@ -44,7 +44,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleSessionExpired = () => setUser(null);
     window.addEventListener('psc:session-expired', handleSessionExpired);
-    return () => window.removeEventListener('psc:session-expired', handleSessionExpired);
+
+    // Cross-tab synchronization: detect when user logs in or logs out in another tab
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === ACCESS_TOKEN_KEY || e.key === USER_STORAGE_KEY) {
+        if (!e.newValue) {
+          // Logged out in another tab
+          setUser(null);
+          const pathname = window.location.pathname;
+          const isProtected = ['/dashboard', '/profile', '/my-books', '/tests'].some(p => pathname.startsWith(p));
+          if (isProtected) {
+            window.location.href = `/login?redirect=${encodeURIComponent(pathname)}`;
+          }
+        } else if (e.key === USER_STORAGE_KEY && e.newValue) {
+          // Logged in in another tab
+          try {
+            setUser(JSON.parse(e.newValue));
+          } catch (err) {
+            console.error('Error syncing user from storage event:', err);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('psc:session-expired', handleSessionExpired);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   const determineLoginMethod = (email: string, oauthIdentities?: Array<{ provider: string }>): 'Email' | 'Google' | 'Apple' => {

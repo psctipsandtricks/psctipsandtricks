@@ -35,8 +35,6 @@ export class QuizzesService {
     if (!quiz.releaseDate) return false;
     if (this.quizAccess.isStaff(actor)) return false;
     const releaseAt = new Date(quiz.releaseDate).getTime();
-    // A value that predates this feature and can't be parsed is treated as
-    // "no schedule" — an unreadable date must never hide a live quiz.
     if (isNaN(releaseAt)) return false;
     return releaseAt > Date.now();
   }
@@ -76,42 +74,48 @@ export class QuizzesService {
     const isPublishedOnly = typeof options === 'boolean' ? options : options?.publishedOnly ?? false;
     const query = typeof options === 'object' ? options : undefined;
 
-    const where: any = {};
+    const andClauses: Prisma.QuizWhereInput[] = [];
 
-    if (!this.quizAccess.isStaff(actor)) {
-      where.OR = [{ releaseDate: null }, { releaseDate: { lte: new Date().toISOString() } }];
+    // For student/published catalog or non-staff users, strictly exclude quizzes whose releaseDate is in the future
+    if (isPublishedOnly || !this.quizAccess.isStaff(actor)) {
+      andClauses.push({
+        OR: [
+          { releaseDate: null },
+          { releaseDate: '' },
+          { releaseDate: { lte: new Date().toISOString() } },
+        ],
+      });
     }
 
     if (isPublishedOnly) {
-      where.isActive = true;
-      where.questions = { some: {} };
+      andClauses.push({ isActive: true });
+      andClauses.push({ questions: { some: {} } });
     }
 
     if (query?.folder && query.folder !== 'ALL') {
-      where.folderName = query.folder;
+      andClauses.push({ folderName: query.folder });
     }
 
     if (query?.access && query.access !== 'ALL') {
-      where.accessType = query.access;
+      andClauses.push({ accessType: query.access });
     }
 
     if (query?.status && query.status !== 'ALL') {
-      where.isActive = query.status === 'ACTIVE';
+      andClauses.push({ isActive: query.status === 'ACTIVE' });
     }
 
     if (query?.search && query.search.trim()) {
       const s = query.search.trim();
-      where.AND = [
-        ...(where.AND || []),
-        {
-          OR: [
-            { title: { contains: s, mode: 'insensitive' } },
-            { category: { contains: s, mode: 'insensitive' } },
-            { topic: { contains: s, mode: 'insensitive' } },
-          ],
-        },
-      ];
+      andClauses.push({
+        OR: [
+          { title: { contains: s, mode: 'insensitive' } },
+          { category: { contains: s, mode: 'insensitive' } },
+          { topic: { contains: s, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    const where: Prisma.QuizWhereInput = andClauses.length > 0 ? { AND: andClauses } : {};
 
     if (query?.page || query?.limit) {
       const page = Math.max(1, Number(query.page) || 1);

@@ -6,10 +6,12 @@
 # so the previously-working auto-detected build/start commands (and any
 # Start Command override set in the Railway dashboard) are unaffected.
 #
-# IMPORTANT: this assumes the Railway api service's "Root Directory" is the
-# monorepo root (matches the npm-workspace `postinstall` wiring in the root
-# package.json). If the dashboard has it set to apps/api instead, move this
-# file to apps/api/nixpacks.toml and drop the `apps/api/` prefix below.
+# This assumed the Railway api service's "Root Directory" is the monorepo
+# root — confirmed WRONG on 2026-08-17 (production logs showed `spawn ffmpeg
+# ENOENT`, meaning this file was never picked up). An identical config now
+# also lives at apps/api/nixpacks.toml (scoped for Root Directory = apps/api)
+# as a hedge. Once it's confirmed which one Railway actually reads, delete
+# the other to avoid confusion.
 [phases.setup]
 nixPkgs = ["ffmpeg", "whisper-cpp"]
 cmds = ["bash apps/api/scripts/setup-audio-models.sh"]

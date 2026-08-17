@@ -66,9 +66,34 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     const handleRefresh = () => refreshAdminUser();
     window.addEventListener('psc:admin-session-expired', handleExpired);
     window.addEventListener('psc:admin-session-refresh', handleRefresh);
+
+    // Cross-tab synchronization for admin panel: detect when admin/staff logs out in another tab
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === ADMIN_ACCESS_TOKEN_KEY || e.key === ADMIN_USER_KEY) {
+        if (!e.newValue) {
+          // Logged out in another tab
+          setAdminUser(null);
+          const pathname = window.location.pathname;
+          if (pathname.startsWith('/admin') && pathname !== '/admin') {
+            window.location.href = '/admin';
+          }
+        } else if (e.key === ADMIN_USER_KEY && e.newValue) {
+          // Logged in in another tab
+          try {
+            setAdminUser(JSON.parse(e.newValue));
+            refreshAdminUser();
+          } catch (err) {
+            console.error('Error syncing admin user from storage event:', err);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
     return () => {
       window.removeEventListener('psc:admin-session-expired', handleExpired);
       window.removeEventListener('psc:admin-session-refresh', handleRefresh);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 

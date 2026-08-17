@@ -103,7 +103,14 @@ export default function QuizzesPage() {
       try {
         setLoading(true);
         const data = await ApiClient.getPublishedQuizzes();
-        const mapped: StudentQuiz[] = (data as any[]).map((q) => ({
+        const activePublished = (data as any[]).filter((q) => {
+          // Strictly exclude any quiz whose release date/time is in the future
+          if (q.releaseDate && new Date(q.releaseDate).getTime() > Date.now()) {
+            return false;
+          }
+          return true;
+        });
+        const mapped: StudentQuiz[] = activePublished.map((q) => ({
           id: q.id,
           title: q.title,
           category: q.category,
