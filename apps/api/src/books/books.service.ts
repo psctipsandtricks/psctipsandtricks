@@ -376,8 +376,9 @@ export class BooksService {
 
   async reprocessChapterAudio(chapterId: string) {
     const chapter = await this.findChapter(chapterId);
-    if (!chapter.originalAudioUrl) throw new BadRequestException('No original audio to reprocess for this chapter');
-    await this.audioProcessingService.enqueue('chapter', chapterId);
+    const source = chapter.originalAudioUrl ?? chapter.audioUrl;
+    if (!source) throw new BadRequestException('No audio to reprocess for this chapter');
+    await this.audioProcessingService.enqueue('chapter', chapterId, source);
     return this.findChapter(chapterId);
   }
 
@@ -465,8 +466,9 @@ export class BooksService {
 
   async reprocessTopicAudio(topicId: string) {
     const topic = await this.findTopic(topicId);
-    if (!topic.originalAudioUrl) throw new BadRequestException('No original audio to reprocess for this topic');
-    await this.audioProcessingService.enqueue('topic', topicId);
+    const source = topic.originalAudioUrl ?? topic.audioUrl;
+    if (!source) throw new BadRequestException('No audio to reprocess for this topic');
+    await this.audioProcessingService.enqueue('topic', topicId, source);
     return this.findTopic(topicId);
   }
 
@@ -547,73 +549,54 @@ export class BooksService {
 
   async reprocessSubtopicAudio(subtopicId: string) {
     const subtopic = await this.findSubtopic(subtopicId);
-    if (!subtopic.originalAudioUrl) throw new BadRequestException('No original audio to reprocess for this subtopic');
-    await this.audioProcessingService.enqueue('subtopic', subtopicId);
+    const source = subtopic.originalAudioUrl ?? subtopic.audioUrl;
+    if (!source) throw new BadRequestException('No audio to reprocess for this subtopic');
+    await this.audioProcessingService.enqueue('subtopic', subtopicId, source);
     return this.findSubtopic(subtopicId);
   }
 
-  /** One-time/backfill bulk trigger: (re)process every unit that has audio but no successful sync yet. */
-  async reprocessAllAudio() {
+  /**
+   * Admin "Process All Unsynced Audio" backfill, scoped to one book —
+   * (re)processes every chapter/topic/subtopic in it that has audio but no
+   * successful sync yet. Deliberately book-scoped (not global): the button
+   * lives on a single book's Chapters page, and an earlier global version of
+   * this enqueued every book's entire catalog in one request, which was slow
+   * enough to time out.
+   */
+  async reprocessAllAudio(bookId: string) {
+    await this.findOne(bookId);
     const pendingStatuses = ['NONE', 'FAILED'] as const;
 
     const [chapters, topics, subtopics] = await Promise.all([
       this.prisma.chapter.findMany({
-        where: { audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
-        select: { id: true },
+        where: { bookId, audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
+        select: { id: true, audioUrl: true, originalAudioUrl: true },
       }),
       this.prisma.topic.findMany({
-        where: { audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
-        select: { id: true },
+        where: { chapter: { bookId }, audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
+        select: { id: true, audioUrl: true, originalAudioUrl: true },
       }),
       this.prisma.subtopic.findMany({
-        where: { audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
-        select: { id: true },
+        where: { topic: { chapter: { bookId } }, audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
+        select: { id: true, audioUrl: true, originalAudioUrl: true },
       }),
     ]);
 
-    const jobs: { entityType: AudioEntityType; entityId: string }[] = [
-      ...chapters.map((c) => ({ entityType: 'chapter' as const, entityId: c.id })),
-      ...topics.map((t) => ({ entityType: 'topic' as const, entityId: t.id })),
-      ...subtopics.map((s) => ({ entityType: 'subtopic' as const, entityId: s.id })),
+    const toJob =
+      (entityType: AudioEntityType) =>
+      (row: { id: string; audioUrl: string | null; originalAudioUrl: string | null }) => ({
+        entityType,
+        entityId: row.id,
+        originalAudioUrl: (row.originalAudioUrl ?? row.audioUrl) as string,
+      });
+
+    const jobs = [
+      ...chapters.map(toJob('chapter')),
+      ...topics.map(toJob('topic')),
+      ...subtopics.map(toJob('subtopic')),
     ];
 
-    for (const job of jobs) {
-      // Pre-existing rows (uploaded before this feature) have no
-      // originalAudioUrl yet — backfill it from audioUrl so the pipeline has
-      // a source file to denoise from.
-      await this.backfillOriginalAudioUrl(job.entityType, job.entityId);
-      await this.audioProcessingService.enqueue(job.entityType, job.entityId);
-    }
-
+    await this.audioProcessingService.enqueueBulk(jobs);
     return { enqueued: jobs.length };
-  }
-
-  private async backfillOriginalAudioUrl(entityType: AudioEntityType, entityId: string) {
-    switch (entityType) {
-      case 'chapter': {
-        const chapter = await this.prisma.chapter.findUniqueOrThrow({ where: { id: entityId } });
-        if (!chapter.originalAudioUrl && chapter.audioUrl) {
-          await this.prisma.chapter.update({ where: { id: entityId }, data: { originalAudioUrl: chapter.audioUrl } });
-        }
-        return;
-      }
-      case 'topic': {
-        const topic = await this.prisma.topic.findUniqueOrThrow({ where: { id: entityId } });
-        if (!topic.originalAudioUrl && topic.audioUrl) {
-          await this.prisma.topic.update({ where: { id: entityId }, data: { originalAudioUrl: topic.audioUrl } });
-        }
-        return;
-      }
-      case 'subtopic': {
-        const subtopic = await this.prisma.subtopic.findUniqueOrThrow({ where: { id: entityId } });
-        if (!subtopic.originalAudioUrl && subtopic.audioUrl) {
-          await this.prisma.subtopic.update({
-            where: { id: entityId },
-            data: { originalAudioUrl: subtopic.audioUrl },
-          });
-        }
-        return;
-      }
-    }
   }
 }

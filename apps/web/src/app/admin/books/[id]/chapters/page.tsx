@@ -39,7 +39,7 @@ export default function BookChaptersPage() {
       uploadAudio={(chapterId, file) => ApiClient.uploadChapterAudio(chapterId, file)}
       uploadPdf={(chapterId, file) => ApiClient.uploadChapterPdf(chapterId, file)}
       reprocessAudio={(chapterId) => ApiClient.reprocessChapterAudio(chapterId)}
-      onReprocessAll={() => ApiClient.reprocessAllAudio()}
+      onReprocessAll={() => ApiClient.reprocessAllAudio(bookId)}
       getChildHref={(item) => `/admin/books/${bookId}/chapters/${item.id}/topics`}
     />
   );

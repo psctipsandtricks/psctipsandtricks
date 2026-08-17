@@ -393,14 +393,14 @@ export class BooksController {
 
   @ApiOperation({
     summary:
-      'Enqueue AI noise removal + PDF sync for every chapter/topic/subtopic with audio that has not been synced yet (Admin / Staff with manage_books)',
+      "Enqueue AI noise removal + PDF sync for every chapter/topic/subtopic in this book with audio that hasn't been synced yet (Admin / Staff with manage_books)",
   })
   @ApiBearerAuth()
   @UseGuards(...MANAGE_BOOKS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageBooks')
-  @Post('audio/reprocess-all')
-  async reprocessAllAudio() {
-    return this.booksService.reprocessAllAudio();
+  @Post(':id/audio/reprocess-all')
+  async reprocessAllAudio(@Param('id') id: string) {
+    return this.booksService.reprocessAllAudio(id);
   }
 }

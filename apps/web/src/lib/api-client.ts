@@ -428,7 +428,8 @@ export const ApiClient = {
   uploadSubtopicPdf: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/pdf`, file),
   reprocessSubtopicAudio: (subtopicId: string) =>
     fetcher<Subtopic>(`/books/subtopics/${subtopicId}/audio/reprocess`, { method: 'POST' }),
-  reprocessAllAudio: () => fetcher<{ enqueued: number }>('/books/audio/reprocess-all', { method: 'POST' }),
+  reprocessAllAudio: (bookId: string) =>
+    fetcher<{ enqueued: number }>(`/books/${bookId}/audio/reprocess-all`, { method: 'POST' }),
 
   // Video Library (Exam → Chapter → Video)
   // The same endpoints serve students and the admin panel; the API decides

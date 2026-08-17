@@ -36,12 +36,30 @@ export class AudioProcessingService {
   /**
    * Enqueues an entity's currently-uploaded audio for AI noise removal (and,
    * if a PDF is also present, transcription + PDF sync). Used both for
-   * fresh uploads and for admin-triggered reprocessing.
+   * fresh uploads and for admin-triggered reprocessing. `originalAudioUrl`
+   * is only written when provided (e.g. backfilling a legacy row that
+   * predates this feature) — omit it to leave the existing value alone.
    */
-  async enqueue(entityType: AudioEntityType, entityId: string): Promise<void> {
-    await this.setStatus(entityType, entityId, 'PENDING', null);
+  async enqueue(entityType: AudioEntityType, entityId: string, originalAudioUrl?: string): Promise<void> {
+    const data: Record<string, unknown> = { audioSyncStatus: 'PENDING' as SyncStatus, audioSyncError: null };
+    if (originalAudioUrl) data.originalAudioUrl = originalAudioUrl;
+    await this.updateEntity(entityType, entityId, data);
     const message: AudioSyncJobMessage = { entityType, entityId };
     await this.queueService.send(QUEUE_NAME, message as unknown as Record<string, unknown>);
+  }
+
+  /**
+   * Bulk variant for the admin "Process All Unsynced Audio" backfill —
+   * batches enqueue calls with bounded concurrency instead of one job at a
+   * time, since a book's catalog can easily be 100+ chapters/topics and a
+   * fully sequential loop was slow enough to time out the HTTP request.
+   */
+  async enqueueBulk(jobs: { entityType: AudioEntityType; entityId: string; originalAudioUrl: string }[]): Promise<void> {
+    const CONCURRENCY = 5;
+    for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+      const batch = jobs.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map((job) => this.enqueue(job.entityType, job.entityId, job.originalAudioUrl)));
+    }
   }
 
   async process(message: AudioSyncJobMessage): Promise<void> {

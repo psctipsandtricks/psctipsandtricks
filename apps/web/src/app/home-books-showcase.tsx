@@ -80,34 +80,44 @@ export function HomeBooksShowcase() {
   const router = useRouter();
 
   useEffect(() => {
+    let isMounted = true;
     const fetchBooks = async () => {
       try {
+        setLoading(true);
         const res = await ApiClient.getBooks();
         const list: Book[] = Array.isArray(res) ? res : res?.data || [];
         const published = list.filter((b: Book) => b.isPublished);
-        if (published.length > 0) {
-          setBooks(published);
-        } else {
-          setBooks(CURATED_FEATURED_BOOKS as Book[]);
+        if (isMounted) {
+          if (published.length > 0) {
+            setBooks(published);
+          } else {
+            setBooks(CURATED_FEATURED_BOOKS as Book[]);
+          }
         }
       } catch {
-        setBooks(CURATED_FEATURED_BOOKS as Book[]);
+        if (isMounted) {
+          setBooks(CURATED_FEATURED_BOOKS as Book[]);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
     fetchBooks();
+    return () => {
+      isMounted = false;
+    };
   }, []);
-
-  const displayBooks = books.length > 0 ? books : (CURATED_FEATURED_BOOKS as Book[]);
 
   // De-duplicate categories case-insensitively
   const categoryMap = new Map<string, string>();
-  displayBooks.forEach((b) => {
+  books.forEach((b) => {
     if (b.category?.trim()) {
-      const key = b.category.trim().toUpperCase();
+      const raw = b.category.trim();
+      const key = raw.toUpperCase();
       if (!categoryMap.has(key)) {
-        categoryMap.set(key, b.category.trim());
+        categoryMap.set(key, raw);
       }
     }
   });
@@ -116,8 +126,8 @@ export function HomeBooksShowcase() {
 
   const filteredBooks =
     selectedCategory === 'ALL'
-      ? displayBooks
-      : displayBooks.filter((b) => b.category?.trim().toUpperCase() === selectedCategory);
+      ? books
+      : books.filter((b) => b.category?.trim().toUpperCase() === selectedCategory);
 
   const handleOpenBook = (bookId: string) => {
     router.push(`/books/${bookId}/read`);
@@ -131,6 +141,42 @@ export function HomeBooksShowcase() {
       router.push(targetUrl);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="space-y-8 w-full">
+        {/* Category Tabs Skeleton */}
+        <div className="flex items-center justify-center gap-2 overflow-x-auto pb-2">
+          <div className="h-8 w-32 rounded-xl bg-slate-200 dark:bg-slate-800/80 animate-pulse" />
+          <div className="h-8 w-28 rounded-xl bg-slate-200 dark:bg-slate-800/80 animate-pulse" />
+          <div className="h-8 w-36 rounded-xl bg-slate-200 dark:bg-slate-800/80 animate-pulse" />
+        </div>
+
+        {/* Book Grid Skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 w-full">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] shadow-lg flex flex-col overflow-hidden animate-pulse"
+            >
+              <div className="h-60 sm:h-72 md:h-[300px] w-full bg-slate-200 dark:bg-slate-800/60" />
+              <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-5 w-full rounded bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-4 w-3/4 rounded bg-slate-200 dark:bg-slate-800" />
+                </div>
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                  <div className="h-6 w-16 rounded bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-8 w-20 rounded-xl bg-slate-200 dark:bg-slate-800" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 w-full">
@@ -155,18 +201,27 @@ export function HomeBooksShowcase() {
       )}
 
       {/* Dynamic Full-Width Book Grid */}
-      <div
-        className={`grid gap-6 w-full ${
-          filteredBooks.length === 1
-            ? 'grid-cols-1 max-w-xl mx-auto'
-            : filteredBooks.length === 2
-              ? 'grid-cols-1 md:grid-cols-2 w-full'
-              : filteredBooks.length === 3
-                ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full'
-                : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 w-full'
-        }`}
-      >
-        {filteredBooks.slice(0, 8).map((book) => {
+      {filteredBooks.length === 0 ? (
+        <div className="text-center py-12 space-y-3 bg-slate-100/50 dark:bg-[#091124]/50 rounded-3xl border border-slate-200/80 dark:border-slate-800/80">
+          <BookOpen className="w-10 h-10 mx-auto text-slate-400" />
+          <p className="text-sm font-semibold text-slate-500">No books found in this category.</p>
+          <Button size="sm" variant="outline" onClick={() => setSelectedCategory('ALL')}>
+            View All E-Books
+          </Button>
+        </div>
+      ) : (
+        <div
+          className={`grid gap-6 w-full ${
+            filteredBooks.length === 1
+              ? 'grid-cols-1 max-w-xl mx-auto'
+              : filteredBooks.length === 2
+                ? 'grid-cols-1 md:grid-cols-2 w-full'
+                : filteredBooks.length === 3
+                  ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full'
+                  : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 w-full'
+          }`}
+        >
+          {filteredBooks.slice(0, 8).map((book) => {
           const originalPrice = book.price || 0;
           const discount = book.discountPercent || 0;
           const effectivePrice = book.finalPrice ?? (discount > 0 ? Math.round(originalPrice * (1 - discount / 100)) : originalPrice);
@@ -274,6 +329,7 @@ export function HomeBooksShowcase() {
           );
         })}
       </div>
+      )}
 
       {/* View All E-Books Link */}
       <div className="flex justify-center pt-2">
