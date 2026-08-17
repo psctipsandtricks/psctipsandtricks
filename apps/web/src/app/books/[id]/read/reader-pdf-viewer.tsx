@@ -6,7 +6,11 @@ import { FileWarning, Loader2, ChevronsDown, FileText, ShieldAlert } from 'lucid
 import { ReaderWatermarkOverlay } from './reader-watermark-overlay';
 import { AudioSyncSegment } from '@psc/shared-types';
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
+// A plain static path, not `new URL(..., import.meta.url)`: that pattern makes
+// webpack emit the worker as a build asset and then run it through Terser during
+// production builds, which fails on the worker's `import.meta` usage. The file
+// itself is copied into public/ at install/build time — see scripts/copy-pdf-worker.js.
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
 interface ReaderPdfViewerProps {
   url: string;

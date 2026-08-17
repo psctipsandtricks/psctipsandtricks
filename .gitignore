@@ -43,6 +43,9 @@ apps/api/prisma/migrations/
 # Audio pipeline models (downloaded at build time, see nixpacks.toml)
 apps/api/models/
 
+# pdfjs-dist worker (copied at install/build time, see apps/web/scripts/copy-pdf-worker.js)
+apps/web/public/pdf.worker.min.mjs
+
 # Flutter / Dart
 mobile/.dart_tool/
 mobile/.idea/
