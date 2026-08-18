@@ -93,14 +93,6 @@ export interface Book {
     createdAt: string;
     updatedAt: string;
 }
-export type AudioSyncStatus = 'NONE' | 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
-/** One spoken sentence, pre-aligned to its position in the PDF and its audio timestamps. */
-export interface AudioSyncSegment {
-    pageNumber: number;
-    text: string;
-    startTime: number;
-    endTime: number;
-}
 export interface Chapter {
     id: string;
     bookId: string;
@@ -113,8 +105,6 @@ export interface Chapter {
     audioUrl?: string | null;
     audioDurationSeconds?: number | null;
     pdfUrl?: string | null;
-    audioSyncStatus?: AudioSyncStatus;
-    audioSyncSegments?: AudioSyncSegment[] | null;
     topicsCount?: number;
     topics?: Topic[];
     createdAt: string;
@@ -130,8 +120,6 @@ export interface Topic {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
-    audioSyncStatus?: AudioSyncStatus;
-    audioSyncSegments?: AudioSyncSegment[] | null;
     subtopicsCount?: number;
     subtopics?: Subtopic[];
     createdAt: string;
@@ -147,8 +135,6 @@ export interface Subtopic {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
-    audioSyncStatus?: AudioSyncStatus;
-    audioSyncSegments?: AudioSyncSegment[] | null;
     createdAt: string;
     updatedAt: string;
 }

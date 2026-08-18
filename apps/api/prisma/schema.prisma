@@ -190,14 +190,6 @@ model Book {
   @@index([category])
 }
 
-enum AudioSyncStatus {
-  NONE
-  PENDING
-  PROCESSING
-  READY
-  FAILED
-}
-
 model Chapter {
   id                   String            @id @default(uuid())
   bookId               String
@@ -211,15 +203,6 @@ model Chapter {
   audioUrl             String?
   audioDurationSeconds Int?
   pdfUrl               String?
-  /// Raw admin-uploaded audio, kept so "Reprocess" never re-denoises an
-  /// already-denoised file. `audioUrl` is overwritten with the AI-cleaned
-  /// version once processing succeeds.
-  originalAudioUrl     String?
-  audioSyncStatus      AudioSyncStatus   @default(NONE)
-  audioSyncError       String?
-  /// { pageNumber: number; text: string; startTime: number; endTime: number }[]
-  audioSyncSegments    Json?
-  audioSyncedAt        DateTime?
   topics               Topic[]
   readingProgress      ReadingProgress[]
   createdAt            DateTime          @default(now())
@@ -237,11 +220,6 @@ model Topic {
   youtubeUrl        String?
   audioUrl          String?
   pdfUrl            String?
-  originalAudioUrl  String?
-  audioSyncStatus   AudioSyncStatus   @default(NONE)
-  audioSyncError    String?
-  audioSyncSegments Json?
-  audioSyncedAt     DateTime?
   subtopics         Subtopic[]
   readingProgress   ReadingProgress[]
   createdAt         DateTime          @default(now())
@@ -259,11 +237,6 @@ model Subtopic {
   youtubeUrl        String?
   audioUrl          String?
   pdfUrl            String?
-  originalAudioUrl  String?
-  audioSyncStatus   AudioSyncStatus @default(NONE)
-  audioSyncError    String?
-  audioSyncSegments Json?
-  audioSyncedAt     DateTime?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 }

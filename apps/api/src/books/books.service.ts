@@ -3,8 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { BookAccessService } from '../common/access/book-access.service';
 import { AccessActor } from '../common/access/quiz-access.service';
-import { AudioProcessingService } from '../audio-processing/audio-processing.service';
-import { AudioEntityType } from '../audio-processing/audio-processing.types';
 import { CreateBookDto } from './dto/create-book.dto';
 import { UpdateBookDto } from './dto/update-book.dto';
 import { CreateChapterDto } from './dto/create-chapter.dto';
@@ -23,7 +21,6 @@ export class BooksService {
     private prisma: PrismaService,
     private storageService: StorageService,
     private bookAccess: BookAccessService,
-    private audioProcessingService: AudioProcessingService,
   ) {}
 
   async findAll(
@@ -191,22 +188,8 @@ export class BooksService {
         coverUrl: book.coverUrl,
         category: book.category,
       },
-      chapters: chapters.map((chapter) => ({
-        ...BooksService.stripAdminAudioFields(chapter),
-        topics: chapter.topics.map((topic) => ({
-          ...BooksService.stripAdminAudioFields(topic),
-          subtopics: topic.subtopics.map((subtopic) => BooksService.stripAdminAudioFields(subtopic)),
-        })),
-      })),
+      chapters,
     };
-  }
-
-  /** originalAudioUrl/audioSyncError are for the admin panel only — the reader only needs status + segments. */
-  private static stripAdminAudioFields<T extends { originalAudioUrl?: unknown; audioSyncError?: unknown }>(
-    entity: T,
-  ): Omit<T, 'originalAudioUrl' | 'audioSyncError'> {
-    const { originalAudioUrl, audioSyncError, ...rest } = entity;
-    return rest;
   }
 
   /** Gates the actual PDF handover and counts it — this is the only place downloadCount moves. */
@@ -384,12 +367,10 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    const updated = await this.prisma.chapter.update({
+    return this.prisma.chapter.update({
       where: { id: chapterId },
-      data: { audioUrl: url, originalAudioUrl: url },
+      data: { audioUrl: url },
     });
-    await this.audioProcessingService.enqueue('chapter', chapterId);
-    return updated;
   }
 
   async uploadChapterPdf(chapterId: string, file: Express.Multer.File) {
@@ -400,22 +381,10 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    const updated = await this.prisma.chapter.update({
+    return this.prisma.chapter.update({
       where: { id: chapterId },
       data: { pdfUrl: url },
     });
-    // Audio might already exist — the PDF can arrive before or after it via
-    // the admin's two separate upload requests, so (re)trigger sync either way.
-    if (chapter.audioUrl) await this.audioProcessingService.enqueue('chapter', chapterId);
-    return updated;
-  }
-
-  async reprocessChapterAudio(chapterId: string) {
-    const chapter = await this.findChapter(chapterId);
-    const source = chapter.originalAudioUrl ?? chapter.audioUrl;
-    if (!source) throw new BadRequestException('No audio to reprocess for this chapter');
-    await this.audioProcessingService.enqueue('chapter', chapterId, source);
-    return this.findChapter(chapterId);
   }
 
   // --- Topics ---
@@ -479,33 +448,21 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    const updated = await this.prisma.topic.update({
+    return this.prisma.topic.update({
       where: { id: topicId },
-      data: { audioUrl: url, originalAudioUrl: url },
+      data: { audioUrl: url },
     });
-    await this.audioProcessingService.enqueue('topic', topicId);
-    return updated;
   }
 
   async uploadTopicPdf(topicId: string, file: Express.Multer.File) {
-    const topic = await this.findTopic(topicId);
+    await this.findTopic(topicId);
     const url = await this.storageService.upload(
       'topic-pdfs',
       `${topicId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    const updated = await this.prisma.topic.update({ where: { id: topicId }, data: { pdfUrl: url } });
-    if (topic.audioUrl) await this.audioProcessingService.enqueue('topic', topicId);
-    return updated;
-  }
-
-  async reprocessTopicAudio(topicId: string) {
-    const topic = await this.findTopic(topicId);
-    const source = topic.originalAudioUrl ?? topic.audioUrl;
-    if (!source) throw new BadRequestException('No audio to reprocess for this topic');
-    await this.audioProcessingService.enqueue('topic', topicId, source);
-    return this.findTopic(topicId);
+    return this.prisma.topic.update({ where: { id: topicId }, data: { pdfUrl: url } });
   }
 
   // --- Subtopics ---
@@ -562,77 +519,20 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    const updated = await this.prisma.subtopic.update({
+    return this.prisma.subtopic.update({
       where: { id: subtopicId },
-      data: { audioUrl: url, originalAudioUrl: url },
+      data: { audioUrl: url },
     });
-    await this.audioProcessingService.enqueue('subtopic', subtopicId);
-    return updated;
   }
 
   async uploadSubtopicPdf(subtopicId: string, file: Express.Multer.File) {
-    const subtopic = await this.findSubtopic(subtopicId);
+    await this.findSubtopic(subtopicId);
     const url = await this.storageService.upload(
       'subtopic-pdfs',
       `${subtopicId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    const updated = await this.prisma.subtopic.update({ where: { id: subtopicId }, data: { pdfUrl: url } });
-    if (subtopic.audioUrl) await this.audioProcessingService.enqueue('subtopic', subtopicId);
-    return updated;
-  }
-
-  async reprocessSubtopicAudio(subtopicId: string) {
-    const subtopic = await this.findSubtopic(subtopicId);
-    const source = subtopic.originalAudioUrl ?? subtopic.audioUrl;
-    if (!source) throw new BadRequestException('No audio to reprocess for this subtopic');
-    await this.audioProcessingService.enqueue('subtopic', subtopicId, source);
-    return this.findSubtopic(subtopicId);
-  }
-
-  /**
-   * Admin "Process All Unsynced Audio" backfill, scoped to one book —
-   * (re)processes every chapter/topic/subtopic in it that has audio but no
-   * successful sync yet. Deliberately book-scoped (not global): the button
-   * lives on a single book's Chapters page, and an earlier global version of
-   * this enqueued every book's entire catalog in one request, which was slow
-   * enough to time out.
-   */
-  async reprocessAllAudio(bookId: string) {
-    await this.findOne(bookId);
-    const pendingStatuses = ['NONE', 'FAILED'] as const;
-
-    const [chapters, topics, subtopics] = await Promise.all([
-      this.prisma.chapter.findMany({
-        where: { bookId, audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
-        select: { id: true, audioUrl: true, originalAudioUrl: true },
-      }),
-      this.prisma.topic.findMany({
-        where: { chapter: { bookId }, audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
-        select: { id: true, audioUrl: true, originalAudioUrl: true },
-      }),
-      this.prisma.subtopic.findMany({
-        where: { topic: { chapter: { bookId } }, audioUrl: { not: null }, audioSyncStatus: { in: [...pendingStatuses] } },
-        select: { id: true, audioUrl: true, originalAudioUrl: true },
-      }),
-    ]);
-
-    const toJob =
-      (entityType: AudioEntityType) =>
-      (row: { id: string; audioUrl: string | null; originalAudioUrl: string | null }) => ({
-        entityType,
-        entityId: row.id,
-        originalAudioUrl: (row.originalAudioUrl ?? row.audioUrl) as string,
-      });
-
-    const jobs = [
-      ...chapters.map(toJob('chapter')),
-      ...topics.map(toJob('topic')),
-      ...subtopics.map(toJob('subtopic')),
-    ];
-
-    await this.audioProcessingService.enqueueBulk(jobs);
-    return { enqueued: jobs.length };
+    return this.prisma.subtopic.update({ where: { id: subtopicId }, data: { pdfUrl: url } });
   }
 }

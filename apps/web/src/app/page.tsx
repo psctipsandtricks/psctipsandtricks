@@ -44,8 +44,8 @@ const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
 const READER_FEATURES = [
   {
     icon: Music,
-    title: 'Synchronized Audio Lessons',
-    description: 'Listen to experienced teachers explain key concepts while your PDF notes automatically pace along with the audio.',
+    title: 'Teacher Audio Lessons',
+    description: 'Listen to experienced teachers explain key concepts alongside your PDF notes, right within the reader.',
     color: 'cyan',
   },
   {
@@ -56,8 +56,8 @@ const READER_FEATURES = [
   },
   {
     icon: Sliders,
-    title: 'Voice Clarity DSP & Auto-Scroll',
-    description: 'Hardware-accelerated speech filtering removes background noise, paired with smart page-locking so you never lose your place.',
+    title: 'Voice Clarity DSP',
+    description: 'Real-time speech filtering smooths out background noise while you listen, right in the reader.',
     color: 'emerald',
   },
   {
@@ -98,12 +98,12 @@ const FAQS = [
   {
     question: 'How do PSC Tips And Tricks E-Books work?',
     answer:
-      'Our E-Books are interactive multimedia study modules. Instead of boring static PDFs, each book is broken into structured chapters with synchronized audio narrations, SCERT notes, and video classes you can study anywhere.',
+      'Our E-Books are interactive multimedia study modules. Instead of boring static PDFs, each book is broken into structured chapters with audio narrations, SCERT notes, and video classes you can study anywhere.',
   },
   {
     question: 'Can I listen to audio explanations while reading?',
     answer:
-      'Yes! Every topic includes a teacher audio lesson. When you press play, the reader automatically synchronizes with the audio, and you can toggle Voice Clarity to filter background noise.',
+      'Yes! Every topic includes a teacher audio lesson you can play alongside your notes, and you can toggle Voice Clarity to filter background noise.',
   },
   {
     question: 'Are SCERT textbooks from Class 5 to 10 covered?',
@@ -186,7 +186,7 @@ export default function HomePage() {
           </h1>
 
           <p className="text-slate-600 dark:text-slate-300 text-lg leading-relaxed font-medium">
-            Study SCERT Class 5–10 textbook notes with synchronized audio teacher explanations, video lessons,
+            Study SCERT Class 5–10 textbook notes with audio teacher explanations, video lessons,
             and memory shortcuts designed specifically for Kerala PSC top-rank preparation.
           </p>
 
@@ -208,7 +208,7 @@ export default function HomePage() {
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2 justify-center lg:justify-start text-xs font-semibold text-slate-500 dark:text-slate-400">
             <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Synchronized Audio Lessons
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Teacher Audio Lessons
             </span>
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-500" /> SCERT Class 5–10 Mapped
@@ -252,7 +252,7 @@ export default function HomePage() {
               </div>
               <div className="flex items-center gap-2">
                 <FileText className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">PDF Auto-Scroll</span>
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">PDF Notes</span>
               </div>
             </div>
 

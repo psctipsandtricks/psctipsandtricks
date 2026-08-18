@@ -39,7 +39,6 @@ export default function ChapterTopicsPage() {
       reorderItems={(topics) => ApiClient.reorderTopics(chapterId, topics)}
       uploadAudio={(topicId, file) => ApiClient.uploadTopicAudio(topicId, file)}
       uploadPdf={(topicId, file) => ApiClient.uploadTopicPdf(topicId, file)}
-      reprocessAudio={(topicId) => ApiClient.reprocessTopicAudio(topicId)}
       getChildHref={(item) => `/admin/books/${bookId}/chapters/${chapterId}/topics/${item.id}/subtopics`}
     />
   );

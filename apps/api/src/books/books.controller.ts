@@ -231,16 +231,6 @@ export class BooksController {
     return this.booksService.uploadChapterPdf(chapterId, file);
   }
 
-  @ApiOperation({ summary: 'Re-run AI noise removal + PDF sync for a chapter\'s audio (Admin / Staff with manage_books)' })
-  @ApiBearerAuth()
-  @UseGuards(...MANAGE_BOOKS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageBooks')
-  @Post('chapters/:chapterId/audio/reprocess')
-  async reprocessChapterAudio(@Param('chapterId') chapterId: string) {
-    return this.booksService.reprocessChapterAudio(chapterId);
-  }
-
   // --- Topics ---
 
   @ApiOperation({ summary: 'List topics for a chapter' })
@@ -319,16 +309,6 @@ export class BooksController {
     return this.booksService.uploadTopicPdf(topicId, file);
   }
 
-  @ApiOperation({ summary: 'Re-run AI noise removal + PDF sync for a topic\'s audio (Admin / Staff with manage_books)' })
-  @ApiBearerAuth()
-  @UseGuards(...MANAGE_BOOKS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageBooks')
-  @Post('topics/:topicId/audio/reprocess')
-  async reprocessTopicAudio(@Param('topicId') topicId: string) {
-    return this.booksService.reprocessTopicAudio(topicId);
-  }
-
   // --- Subtopics ---
 
   @ApiOperation({ summary: 'List subtopics for a topic' })
@@ -401,28 +381,4 @@ export class BooksController {
     return this.booksService.uploadSubtopicPdf(subtopicId, file);
   }
 
-  @ApiOperation({ summary: 'Re-run AI noise removal + PDF sync for a subtopic\'s audio (Admin / Staff with manage_books)' })
-  @ApiBearerAuth()
-  @UseGuards(...MANAGE_BOOKS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageBooks')
-  @Post('subtopics/:subtopicId/audio/reprocess')
-  async reprocessSubtopicAudio(@Param('subtopicId') subtopicId: string) {
-    return this.booksService.reprocessSubtopicAudio(subtopicId);
-  }
-
-  // --- Bulk audio processing ---
-
-  @ApiOperation({
-    summary:
-      "Enqueue AI noise removal + PDF sync for every chapter/topic/subtopic in this book with audio that hasn't been synced yet (Admin / Staff with manage_books)",
-  })
-  @ApiBearerAuth()
-  @UseGuards(...MANAGE_BOOKS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageBooks')
-  @Post(':id/audio/reprocess-all')
-  async reprocessAllAudio(@Param('id') id: string) {
-    return this.booksService.reprocessAllAudio(id);
-  }
 }

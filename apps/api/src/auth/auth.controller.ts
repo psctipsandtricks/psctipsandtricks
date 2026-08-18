@@ -78,7 +78,7 @@ export class AuthController {
 
   private redirectWithSession(req: any, res: Response) {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    const redirectTarget = req.query?.state || '/dashboard';
+    const redirectTarget = req.body?.state || req.query?.state || '/dashboard';
     const { user, accessToken, refreshToken } = req.user || {};
 
     const cleanRedirect =

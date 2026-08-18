@@ -26,11 +26,12 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         '-----BEGIN PRIVATE KEY-----\nunconfigured\n-----END PRIVATE KEY-----',
       callbackURL: configService.get<string>('APPLE_CALLBACK_URL'),
       scope: ['email', 'name'],
-      passReqToCallback: false,
+      passReqToCallback: true,
     });
   }
 
   async validate(
+    req: any,
     accessToken: string,
     refreshToken: string,
     idToken: string,
@@ -39,12 +40,24 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
   ) {
     try {
       const decoded = decodeIdToken(idToken);
-      const email = decoded.email || profile?.email;
+      const email = decoded.email || profile?.email || req.appleProfile?.email;
       if (!email) {
         return done(new Error('Apple account has no email'));
       }
-      const name = profile?.name
-        ? `${profile.name.firstName || ''} ${profile.name.lastName || ''}`.trim()
+
+      // Apple sends name only on first authorization in req.body.user or req.appleProfile
+      let rawName = req?.appleProfile?.name || profile?.name;
+      if (!rawName && req?.body?.user) {
+        try {
+          const parsed = typeof req.body.user === 'string' ? JSON.parse(req.body.user) : req.body.user;
+          rawName = parsed?.name;
+        } catch {
+          // ignore
+        }
+      }
+
+      const name = rawName
+        ? `${rawName.firstName || ''} ${rawName.lastName || ''}`.trim()
         : email.split('@')[0];
 
       const result = await this.authService.findOrCreateOAuthUser(

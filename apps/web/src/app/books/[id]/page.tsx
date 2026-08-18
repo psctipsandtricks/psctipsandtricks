@@ -336,7 +336,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
                   <Music className="w-4 h-4" />
                 </div>
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Synchronized Teacher Audio Narration
+                  Teacher Audio Narration
                 </span>
               </div>
 
@@ -390,10 +390,10 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
               <div className="p-3 rounded-2xl bg-amber-500/[0.06] border border-amber-500/20 space-y-1">
                 <p className="font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                   <Music className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Synchronized Audio Playback</span>
+                  <span>Teacher Audio Playback</span>
                 </p>
                 <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Listen to expert explanations while the notes automatically pace along with the teacher voice.
+                  Listen to expert explanations alongside your notes, right within the reader.
                 </p>
               </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Play, Pause, Volume2, Sparkles, Sliders, X, ChevronsDown } from 'lucide-react';
+import { Play, Pause, Volume2, X } from 'lucide-react';
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -13,28 +13,24 @@ function formatTime(seconds: number): string {
 export interface ReaderAudioPlayerHandle {
   play: () => void;
   pause: () => void;
-  seek: (time: number) => void;
 }
 
 interface ReaderAudioPlayerProps {
   src: string;
   topicTitle?: string;
   chapterTitle?: string;
-  autoScrollEnabled?: boolean;
-  onToggleAutoScroll?: () => void;
   onPlay?: () => void;
   onPause?: () => void;
-  onTimeUpdate?: (currentTime: number, duration: number) => void;
   onEnded?: () => void;
 }
 
 /**
  * Enhanced audio player with built-in Web Audio API real-time DSP noise filtering
  * and voice clarity enhancement (high-pass rumble cut, hiss reduction, and speech EQ).
- * Displays a fixed bottom floating audio bar when playing with Auto-Scroll controls.
+ * Displays a fixed bottom floating audio bar when playing.
  */
 export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudioPlayerProps>(
-  ({ src, topicTitle, chapterTitle, autoScrollEnabled = true, onToggleAutoScroll, onPlay, onPause, onTimeUpdate, onEnded }, ref) => {
+  ({ src, topicTitle, chapterTitle, onPlay, onPause, onEnded }, ref) => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [current, setCurrent] = useState(0);
@@ -121,11 +117,6 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
         audioRef.current?.play().catch(() => {});
       },
       pause: () => audioRef.current?.pause(),
-      seek: (time: number) => {
-        if (!audioRef.current) return;
-        audioRef.current.currentTime = time;
-        setCurrent(time);
-      },
     }));
 
     const togglePlay = () => {
@@ -165,11 +156,7 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
               onPause?.();
             }}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
-            onTimeUpdate={(e) => {
-              const t = e.currentTarget.currentTime;
-              setCurrent(t);
-              onTimeUpdate?.(t, e.currentTarget.duration || duration);
-            }}
+            onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
             onEnded={() => {
               setIsPlaying(false);
               onEnded?.();
@@ -198,25 +185,6 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
             <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">
               {formatTime(current)} / {formatTime(duration)}
             </span>
-          </div>
-
-          {/* Controls: Auto-Scroll Toggle */}
-          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center flex-wrap">
-            {onToggleAutoScroll && (
-              <button
-                type="button"
-                onClick={onToggleAutoScroll}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                  autoScrollEnabled
-                    ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 shadow-2xs'
-                    : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 border border-slate-300 dark:border-slate-700'
-                }`}
-                title={autoScrollEnabled ? 'Auto-Scroll Active: PDF scrolls with audio playback' : 'Auto-Scroll Disabled'}
-              >
-                <ChevronsDown className={`w-3 h-3 ${autoScrollEnabled ? 'text-cyan-500 animate-bounce' : 'text-slate-400'}`} />
-                <span>{autoScrollEnabled ? 'Auto-Scroll ON' : 'Auto-Scroll OFF'}</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -272,24 +240,6 @@ export const ReaderAudioPlayer = forwardRef<ReaderAudioPlayerHandle, ReaderAudio
 
               {/* Right: Action Toggles & Close/Pause */}
               <div className="flex items-center gap-1.5 shrink-0">
-                {onToggleAutoScroll && (
-                  <button
-                    type="button"
-                    onClick={onToggleAutoScroll}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      autoScrollEnabled
-                        ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400'
-                    }`}
-                    title={autoScrollEnabled ? 'Auto-Scroll Active' : 'Auto-Scroll Off'}
-                  >
-                    <ChevronsDown className={`w-2.5 h-2.5 ${autoScrollEnabled ? 'text-cyan-500 animate-bounce' : 'text-slate-400'}`} />
-                    <span className="hidden xs:inline">{autoScrollEnabled ? 'Scroll ON' : 'Scroll OFF'}</span>
-                    <span className="xs:hidden">{autoScrollEnabled ? 'ON' : 'OFF'}</span>
-                  </button>
-                )}
-
-
                 <button
                   type="button"
                   onClick={() => {

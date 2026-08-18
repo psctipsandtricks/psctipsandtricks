@@ -395,8 +395,6 @@ export const ApiClient = {
     fetcher<Chapter[]>(`/books/${bookId}/chapters/reorder`, { method: 'PATCH', body: JSON.stringify({ chapters }) }),
   uploadChapterAudio: (chapterId: string, file: File) => uploadFetcher<Chapter>(`/books/chapters/${chapterId}/audio`, file),
   uploadChapterPdf: (chapterId: string, file: File) => uploadFetcher<Chapter>(`/books/chapters/${chapterId}/pdf`, file),
-  reprocessChapterAudio: (chapterId: string) =>
-    fetcher<Chapter>(`/books/chapters/${chapterId}/audio/reprocess`, { method: 'POST' }),
 
   // Topics (Admin)
   getTopics: (chapterId: string) => fetcher<Topic[]>(`/books/chapters/${chapterId}/topics`),
@@ -420,7 +418,6 @@ export const ApiClient = {
     fetcher<Topic[]>(`/books/chapters/${chapterId}/topics/reorder`, { method: 'PATCH', body: JSON.stringify({ topics }) }),
   uploadTopicAudio: (topicId: string, file: File) => uploadFetcher<Topic>(`/books/topics/${topicId}/audio`, file),
   uploadTopicPdf: (topicId: string, file: File) => uploadFetcher<Topic>(`/books/topics/${topicId}/pdf`, file),
-  reprocessTopicAudio: (topicId: string) => fetcher<Topic>(`/books/topics/${topicId}/audio/reprocess`, { method: 'POST' }),
 
   // Subtopics (Admin)
   getSubtopics: (topicId: string) => fetcher<Subtopic[]>(`/books/topics/${topicId}/subtopics`),
@@ -443,10 +440,6 @@ export const ApiClient = {
     fetcher<Subtopic[]>(`/books/topics/${topicId}/subtopics/reorder`, { method: 'PATCH', body: JSON.stringify({ subtopics }) }),
   uploadSubtopicAudio: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/audio`, file),
   uploadSubtopicPdf: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/pdf`, file),
-  reprocessSubtopicAudio: (subtopicId: string) =>
-    fetcher<Subtopic>(`/books/subtopics/${subtopicId}/audio/reprocess`, { method: 'POST' }),
-  reprocessAllAudio: (bookId: string) =>
-    fetcher<{ enqueued: number }>(`/books/${bookId}/audio/reprocess-all`, { method: 'POST' }),
 
   // Video Library (Exam → Chapter → Video)
   // The same endpoints serve students and the admin panel; the API decides

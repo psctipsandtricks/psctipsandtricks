@@ -23,11 +23,7 @@ import {
   ExternalLink,
   CheckCircle2,
   UploadCloud,
-  RefreshCw,
-  Sparkles,
-  AlertTriangle,
 } from 'lucide-react';
-import type { AudioSyncStatus } from '@psc/shared-types';
 
 export interface ContentNode {
   id: string;
@@ -38,8 +34,6 @@ export interface ContentNode {
   youtubeUrl?: string | null;
   audioUrl?: string | null;
   pdfUrl?: string | null;
-  audioSyncStatus?: AudioSyncStatus | null;
-  audioSyncError?: string | null;
   topicsCount?: number;
   topics?: {
     id: string;
@@ -50,8 +44,6 @@ export interface ContentNode {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
-    audioSyncStatus?: AudioSyncStatus | null;
-    audioSyncError?: string | null;
     subtopicsCount?: number;
   }[];
   subtopicsCount?: number;
@@ -64,46 +56,7 @@ export interface ContentNode {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
-    audioSyncStatus?: AudioSyncStatus | null;
-    audioSyncError?: string | null;
   }[];
-}
-
-/** Small status pill for the AI noise-cleanup / PDF-sync pipeline. */
-function AudioSyncBadge({ status, error }: { status?: AudioSyncStatus | null; error?: string | null }) {
-  if (!status || status === 'NONE') return null;
-  const config: Record<Exclude<AudioSyncStatus, 'NONE'>, { label: string; className: string; icon: React.ReactNode }> = {
-    PENDING: {
-      label: 'Queued',
-      className: 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700',
-      icon: <RefreshCw className="w-2.5 h-2.5" />,
-    },
-    PROCESSING: {
-      label: 'Processing…',
-      className: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
-      icon: <RefreshCw className="w-2.5 h-2.5 animate-spin" />,
-    },
-    READY: {
-      label: 'AI Synced',
-      className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-      icon: <Sparkles className="w-2.5 h-2.5" />,
-    },
-    FAILED: {
-      label: 'Sync Failed',
-      className: 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30',
-      icon: <AlertTriangle className="w-2.5 h-2.5" />,
-    },
-  };
-  const c = config[status];
-  return (
-    <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0 ${c.className}`}
-      title={status === 'FAILED' && error ? error : undefined}
-    >
-      {c.icon}
-      {c.label}
-    </span>
-  );
 }
 
 export interface ContentHierarchyPageProps {
@@ -131,10 +84,6 @@ export interface ContentHierarchyPageProps {
   reorderItems: (items: { id: string; orderIndex: number }[]) => Promise<any>;
   uploadAudio: (id: string, file: File) => Promise<ContentNode>;
   uploadPdf: (id: string, file: File) => Promise<ContentNode>;
-  /** Re-runs AI noise removal + PDF sync on the item's already-uploaded audio. */
-  reprocessAudio: (id: string) => Promise<ContentNode>;
-  /** Bulk backfill trigger, shown as a page-level action when provided (wired on the Chapters page only — one click covers the whole book). */
-  onReprocessAll?: () => Promise<{ enqueued: number }>;
   /** When present, each row links deeper into the hierarchy (Chapter -> Topics, Topic -> Subtopics). Omitted at the leaf (Subtopic) level. */
   getChildHref?: (item: ContentNode) => string;
 }
@@ -160,8 +109,6 @@ export function ContentHierarchyPage({
   reorderItems,
   uploadAudio,
   uploadPdf,
-  reprocessAudio,
-  onReprocessAll,
   getChildHref,
 }: ContentHierarchyPageProps) {
   const [loading, setLoading] = useState(true);
@@ -175,8 +122,6 @@ export function ContentHierarchyPage({
   const [deleteTarget, setDeleteTarget] = useState<ContentNode | null>(null);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
-  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
-  const [bulkReprocessing, setBulkReprocessing] = useState(false);
 
   const toggleExpand = (id: string, e?: React.MouseEvent) => {
     if (e) {
@@ -284,36 +229,6 @@ export function ContentHierarchyPage({
     }
   };
 
-  const handleReprocessAudio = async (id: string) => {
-    setReprocessingId(id);
-    try {
-      await reprocessAudio(id);
-      await load();
-    } catch (err: any) {
-      setPageError(err.message || 'Failed to queue audio for reprocessing.');
-    } finally {
-      setReprocessingId(null);
-    }
-  };
-
-  const handleReprocessAll = async () => {
-    if (!onReprocessAll) return;
-    setBulkReprocessing(true);
-    try {
-      const result = await onReprocessAll();
-      await load();
-      setPageError(
-        result.enqueued > 0
-          ? ''
-          : 'Nothing to process — every item with audio is already synced or already queued.',
-      );
-    } catch (err: any) {
-      setPageError(err.message || 'Failed to queue bulk audio reprocessing.');
-    } finally {
-      setBulkReprocessing(false);
-    }
-  };
-
   const move = async (currentIndex: number, direction: 'UP' | 'DOWN') => {
     const targetIndex = direction === 'UP' ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= items.length) return;
@@ -357,18 +272,6 @@ export function ContentHierarchyPage({
             {pageSubtitle && <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1">{pageSubtitle}</p>}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {onReprocessAll && (
-              <Button
-                variant="outline"
-                className="font-bold text-xs shrink-0"
-                onClick={handleReprocessAll}
-                isLoading={bulkReprocessing}
-                title="Re-run AI noise removal + PDF sync for every item in this book that isn't synced yet"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Process All Unsynced Audio</span>
-              </Button>
-            )}
             <Button variant="gold" className="font-bold text-xs shadow-md shadow-cyan-500/20 shrink-0" onClick={handleOpenCreate}>
               <Plus className="w-4 h-4" />
               <span>Add {nounSingular}</span>
@@ -447,7 +350,6 @@ export function ContentHierarchyPage({
                     {item.pdfUrl && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400"><FileText className="w-3 h-3" /> PDF</span>
                     )}
-                    <AudioSyncBadge status={item.audioSyncStatus} error={item.audioSyncError} />
                   </div>
                 </div>
 
@@ -726,39 +628,17 @@ export function ContentHierarchyPage({
                     <span className="text-xs font-bold text-cyan-800 dark:text-cyan-300 truncate">
                       Current Audio File Attached
                     </span>
-                    <AudioSyncBadge status={editingItem.audioSyncStatus} error={editingItem.audioSyncError} />
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleReprocessAudio(editingItem.id)}
-                      disabled={
-                        reprocessingId === editingItem.id ||
-                        editingItem.audioSyncStatus === 'PENDING' ||
-                        editingItem.audioSyncStatus === 'PROCESSING'
-                      }
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                      title="Re-run AI noise removal + PDF sync if the audio quality isn't good enough"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${reprocessingId === editingItem.id ? 'animate-spin' : ''}`} />
-                      <span>Reprocess Audio</span>
-                    </button>
-                    <a
-                      href={editingItem.audioUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline shrink-0"
-                    >
-                      <span>Open File</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
+                  <a
+                    href={editingItem.audioUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline shrink-0"
+                  >
+                    <span>Open File</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
                 </div>
-                {editingItem.audioSyncStatus === 'FAILED' && editingItem.audioSyncError && (
-                  <p className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold">
-                    {editingItem.audioSyncError}
-                  </p>
-                )}
                 <audio src={editingItem.audioUrl} controls className="w-full h-8" preload="metadata" />
               </div>
             )}

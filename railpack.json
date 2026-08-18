@@ -1,7 +1,0 @@
-{
-  "$schema": "https://schema.railpack.com",
-  "buildAptPackages": ["...", "build-essential", "cmake", "git"],
-  "deploy": {
-    "aptPackages": ["...", "ffmpeg", "libgomp1", "libstdc++6"]
-  }
-}

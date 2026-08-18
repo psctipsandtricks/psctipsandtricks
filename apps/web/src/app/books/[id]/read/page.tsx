@@ -15,7 +15,6 @@ import { ReaderYoutubeEmbed } from './reader-youtube-embed';
 import { ReaderProgressSidebar } from './reader-progress-sidebar';
 import { useReaderProtection } from './use-reader-protection';
 import { flattenChapters, buildChapterSummaries, ReadingUnit } from './reader-types';
-import { useAudioSync } from './use-audio-sync';
 
 const ReaderPdfViewer = dynamic(() => import('./reader-pdf-viewer').then((m) => m.ReaderPdfViewer), {
   ssr: false,
@@ -41,9 +40,6 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
   const [maxReadIndex, setMaxReadIndex] = useState(0);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [autoPlayVideo, setAutoPlayVideo] = useState(false);
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
-  const [syncState, setSyncState] = useState<{ unitIndex: number; currentTime: number; duration: number } | null>(null);
-  const [numPagesByUnit, setNumPagesByUnit] = useState<Record<number, number>>({});
 
   const unitRefs = useRef<(HTMLElement | null)[]>([]);
   const audioRefs = useRef<Record<number, ReaderAudioPlayerHandle | null>>({});
@@ -232,13 +228,6 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
   const overallPercent = units.length > 0 ? Math.round(((furthestIndex + 1) / units.length) * 100) : 0;
   const activeUnit = units[activeUnitIndex];
   const isFinished = units.length > 0 && furthestIndex >= units.length - 1;
-
-  // Only trust `syncState.currentTime` when it belongs to the currently active unit —
-  // otherwise (e.g. right after switching topics) fall back to 0 so no stale segment
-  // from the previous unit stays highlighted.
-  const activeUnitCurrentTime =
-    syncState && syncState.unitIndex === activeUnitIndex && syncState.duration > 0 ? syncState.currentTime : 0;
-  const { activeIndex: activeSyncSegmentIndex } = useAudioSync(activeUnit?.audioSyncSegments, activeUnitCurrentTime);
 
   if (!mounted || authLoading || loading) {
     return <BookReaderSkeleton />;
@@ -464,11 +453,8 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
                       src={activeUnit.audioUrl}
                       topicTitle={activeUnit.title}
                       chapterTitle={`Chapter ${activeUnit.chapterNumber} · ${activeUnit.chapterTitle}`}
-                      autoScrollEnabled={autoScrollEnabled}
-                      onToggleAutoScroll={() => setAutoScrollEnabled((prev) => !prev)}
                       onPlay={() => handleAudioPlay(activeUnitIndex)}
                       onPause={() => handleAudioPause(activeUnitIndex)}
-                      onTimeUpdate={(currentTime, duration) => setSyncState({ unitIndex: activeUnitIndex, currentTime, duration })}
                       onEnded={() => handleAudioEnded(activeUnitIndex)}
                     />
                   )}
@@ -488,22 +474,6 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
                       key={activeUnit.pdfUrl}
                       url={activeUnit.pdfUrl}
                       user={user}
-                      activePage={
-                        syncState && syncState.unitIndex === activeUnitIndex && numPagesByUnit[activeUnitIndex] && syncState.duration > 0
-                          ? Math.min(numPagesByUnit[activeUnitIndex], Math.max(1, Math.ceil((syncState.currentTime / syncState.duration) * numPagesByUnit[activeUnitIndex])))
-                          : null
-                      }
-                      audioProgress={
-                        syncState && syncState.unitIndex === activeUnitIndex && syncState.duration > 0
-                          ? syncState.currentTime / syncState.duration
-                          : null
-                      }
-                      autoScrollEnabled={autoScrollEnabled}
-                      onToggleAutoScroll={() => setAutoScrollEnabled((prev) => !prev)}
-                      onLoadSuccess={(n) => setNumPagesByUnit((prev) => ({ ...prev, [activeUnitIndex]: n }))}
-                      segments={activeUnit.audioSyncStatus === 'READY' ? activeUnit.audioSyncSegments : null}
-                      activeSegmentIndex={activeSyncSegmentIndex}
-                      onSeekRequest={(time) => audioRefs.current[activeUnitIndex]?.seek(time)}
                     />
                   )}
 
