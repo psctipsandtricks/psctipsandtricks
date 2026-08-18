@@ -19,6 +19,28 @@ export async function denoiseAudio(
   await execFileAsync(
     options.ffmpegPath,
     ['-y', '-i', inputPath, '-af', filter, '-ar', '16000', '-ac', '1', outputPath],
-    { maxBuffer: 1024 * 1024 * 64 },
+    { maxBuffer: 1024 * 1024 * 64, timeout: 10 * 60 * 1000 },
+  );
+}
+
+/**
+ * Encodes the denoised WAV down to a compressed MP3 for storage/playback.
+ * The WAV itself stays uncompressed on disk for whisper.cpp (which wants
+ * raw PCM) — this is a separate output purely for what gets uploaded and
+ * served to listeners. 96kbps mono is more than sufficient for spoken-word
+ * audio and keeps even a very long (20+ minute) recording well under
+ * typical object storage size limits (a 21-minute WAV is ~40MB uncompressed
+ * vs. ~15MB at 96kbps), which previously caused upload failures for long
+ * chapters.
+ */
+export async function encodeForPlayback(
+  wavPath: string,
+  outputPath: string,
+  options: { ffmpegPath: string },
+): Promise<void> {
+  await execFileAsync(
+    options.ffmpegPath,
+    ['-y', '-i', wavPath, '-c:a', 'libmp3lame', '-b:a', '96k', '-ac', '1', outputPath],
+    { maxBuffer: 1024 * 1024 * 64, timeout: 10 * 60 * 1000 },
   );
 }

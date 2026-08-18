@@ -21,6 +21,13 @@ interface WhisperJsonOutput {
  * binary's `--help` output (whisper.cpp's CLI surface, and even the binary
  * name — `main` vs `whisper-cli` — has changed across versions/forks); this
  * was not validated against a live nixpkgs build.
+ *
+ * `-bs 1 -bo 1` forces greedy decoding instead of whisper.cpp's default
+ * 5-beams-plus-best-of-5 search, which is dramatically cheaper on CPU and
+ * memory for long audio — this is best-effort sentence alignment, not a
+ * transcript users read directly, so the accuracy trade-off is worth it. A
+ * hard `timeout` also ensures a stuck/runaway process gets killed rather
+ * than left to consume memory indefinitely.
  */
 export async function transcribeWithWhisper(
   wavPath: string,
@@ -33,12 +40,14 @@ export async function transcribeWithWhisper(
       '-m', options.modelPath,
       '-f', wavPath,
       '-ml', '1',
+      '-bs', '1',
+      '-bo', '1',
       '-oj',
       '-of', outputPrefix,
       '-l', options.language || 'auto',
       '-nt',
     ],
-    { maxBuffer: 1024 * 1024 * 64 },
+    { maxBuffer: 1024 * 1024 * 64, timeout: 15 * 60 * 1000 },
   );
 
   const jsonPath = `${outputPrefix}.json`;

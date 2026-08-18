@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { SupabaseQueueService } from '../queue/queue.service';
 import { AudioEntityType, AudioSyncJobMessage, AudioSyncSegment } from './audio-processing.types';
-import { denoiseAudio } from './ffmpeg-denoise.util';
+import { denoiseAudio, encodeForPlayback } from './ffmpeg-denoise.util';
 import { transcribeWithWhisper } from './whisper-transcribe.util';
 import { extractPdfGroundTruth } from './pdf-text-extractor.util';
 import { buildAudioSyncSegments } from './text-alignment.util';
@@ -85,18 +85,26 @@ export class AudioProcessingService {
       const inputPath = path.join(tmpDir, 'input');
       await this.downloadToFile(sourceAudioUrl, inputPath);
 
+      const ffmpegPath = this.configService.get<string>('FFMPEG_PATH') || 'ffmpeg';
       const denoisedPath = path.join(tmpDir, 'denoised.wav');
       await denoiseAudio(inputPath, denoisedPath, {
-        ffmpegPath: this.configService.get<string>('FFMPEG_PATH') || 'ffmpeg',
+        ffmpegPath,
         rnnoiseModelPath: this.resolveLocalPath(this.configService.get<string>('RNNOISE_MODEL_PATH')),
       });
 
-      const processedBuffer = await fs.readFile(denoisedPath);
+      // Upload a compressed copy, not the raw WAV — a long chapter's
+      // uncompressed 16kHz WAV can be tens of MB, which was exceeding the
+      // storage bucket's object size limit. Whisper still gets the
+      // uncompressed WAV below (better transcription input).
+      const playbackPath = path.join(tmpDir, 'playback.mp3');
+      await encodeForPlayback(denoisedPath, playbackPath, { ffmpegPath });
+
+      const processedBuffer = await fs.readFile(playbackPath);
       const processedUrl = await this.storageService.upload(
         PROCESSED_AUDIO_BUCKETS[entityType],
-        `${entityId}/${Date.now()}-denoised.wav`,
+        `${entityId}/${Date.now()}-denoised.mp3`,
         processedBuffer,
-        'audio/wav',
+        'audio/mpeg',
       );
 
       const segments = entity.pdfUrl
