@@ -349,6 +349,10 @@ export class OrdersService {
         quiz: { select: { title: true } },
       },
       orderBy: { createdAt: 'desc' },
+      // Safety net for a caller that omits page/limit — the order table
+      // already has 40k+ rows, so an unbounded query here is a real risk,
+      // not just a theoretical one.
+      take: 500,
     });
   }
 

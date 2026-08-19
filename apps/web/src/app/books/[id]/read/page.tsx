@@ -4,7 +4,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, BookOpen, CheckCircle2, PartyPopper, PlayCircle, X, FileText, Layers, ChevronLeft, ChevronRight, Youtube, Music, Shield } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, PartyPopper, PlayCircle, X, FileText, Layers, ChevronLeft, ChevronRight, Youtube, Music } from 'lucide-react';
 import { Button } from '@psc/ui';
 import { useAuth } from '../../../auth-provider';
 import { ApiClient } from '@/lib/api-client';
@@ -13,7 +13,6 @@ import { BookReaderSkeleton } from '../../../skeletons/page-skeletons';
 import { ReaderAudioPlayer, ReaderAudioPlayerHandle } from './reader-audio-player';
 import { ReaderYoutubeEmbed } from './reader-youtube-embed';
 import { ReaderProgressSidebar } from './reader-progress-sidebar';
-import { useReaderProtection } from './use-reader-protection';
 import { flattenChapters, buildChapterSummaries, ReadingUnit } from './reader-types';
 
 const ReaderPdfViewer = dynamic(() => import('./reader-pdf-viewer').then((m) => m.ReaderPdfViewer), {
@@ -26,7 +25,6 @@ const MANUAL_SCROLL_QUIET_MS = 4000;
 
 function BookReaderContentView({ bookId }: { bookId: string }) {
   const { user, isLoading: authLoading } = useAuth();
-  const { isObscured, resumeReading } = useReaderProtection();
   const router = useRouter();
   const searchParams = useSearchParams();
   const autoResume = searchParams?.get('resume') === '1';
@@ -236,9 +234,25 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
   if (!content) return null;
 
   return (
-    <div className="pb-16">
-      <div className="flex gap-6 items-start">
-        <div className="flex-1 min-w-0 max-w-3xl space-y-6">
+    <div className="pb-16 w-full">
+      <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
+        {/* Left-most Chapters & Lessons Sidebar */}
+        {units.length > 0 && (
+          <ReaderProgressSidebar
+            bookTitle={content.book.title}
+            chapters={chapterSummaries}
+            activeUnitIndex={activeUnitIndex}
+            totalUnits={units.length}
+            playingUnitIndex={currentlyPlayingIndexRef.current}
+            isPlayingAudio={isPlayingAudio}
+            onJumpToUnit={jumpToUnit}
+            onTogglePlayAudio={handleTogglePlayAudio}
+            onPlayYoutubeVideo={handlePlayYoutubeVideo}
+          />
+        )}
+
+        {/* Main Content & PDF Area taking all remaining width */}
+        <div className="flex-1 min-w-0 w-full space-y-6">
           {/* Sticky header aligned with reading content column */}
           <div className="sticky top-[72px] z-20 px-3 sm:px-5 py-2.5 bg-white/95 dark:bg-[#050a17]/95 backdrop-blur-md border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl shadow-sm">
             <div className="flex items-center justify-between gap-3">
@@ -312,11 +326,12 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
               <img
                 src={content.book.coverUrl}
                 alt={content.book.title}
-                className="w-12 h-16 rounded-xl object-cover object-top border border-slate-200/90 dark:border-[#1e2e56] shadow-sm shrink-0"
+                className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl object-cover object-center border border-slate-200/90 dark:border-[#1e2e56] shadow-sm shrink-0"
               />
             ) : (
-              <div className="w-12 h-16 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0">
-                <BookOpen className="w-6 h-6" />
+              <div className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex flex-col items-center justify-center text-cyan-400 shrink-0">
+                <BookOpen className="w-5 h-5 opacity-60" />
+                <span className="text-[8px] font-mono text-slate-400 mt-1">No Cover</span>
               </div>
             )}
             <div className="min-w-0 flex-1">
@@ -546,49 +561,7 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
             </div>
           )}
         </div>
-
-        {units.length > 0 && (
-          <ReaderProgressSidebar
-            bookTitle={content.book.title}
-            chapters={chapterSummaries}
-            activeUnitIndex={activeUnitIndex}
-            totalUnits={units.length}
-            playingUnitIndex={currentlyPlayingIndexRef.current}
-            isPlayingAudio={isPlayingAudio}
-            onJumpToUnit={jumpToUnit}
-            onTogglePlayAudio={handleTogglePlayAudio}
-            onPlayYoutubeVideo={handlePlayYoutubeVideo}
-          />
-        )}
       </div>
-
-      {/* Focus & Screenshot Deterrence Blur Shield */}
-      {isObscured && (
-        <div
-          onClick={resumeReading}
-          className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 cursor-pointer select-none animate-in fade-in duration-200"
-          title="Click to resume reading"
-        >
-          <div className="max-w-sm p-6 rounded-2xl border border-cyan-500/30 bg-[#070e22]/95 shadow-2xl space-y-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mx-auto">
-              <Shield className="w-6 h-6" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-base font-black text-white">Reading Session Paused</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Protected eBook material is shielded while the window is in the background.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={resumeReading}
-              className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
-            >
-              Click to Resume Reading
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

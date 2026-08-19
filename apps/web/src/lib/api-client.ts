@@ -89,6 +89,7 @@ export interface VideoWritePayload {
 
 export interface QuizFolderWritePayload {
   name: string;
+  parentId?: string | null;
   description?: string;
   orderIndex?: number;
   isActive?: boolean;
@@ -555,7 +556,10 @@ export const ApiClient = {
   getStudentAttemptHistory: () => fetcher<any[]>('/quizzes/history/me'),
   getMyDashboard: () => fetcher<StudentDashboard>('/analytics/me/dashboard'),
 
-  getQuizFolders: () => fetcher<QuizFolder[]>('/quizzes/folders'),
+  getQuizFolders: (parentId?: string | null) => {
+    const q = parentId !== undefined && parentId !== null ? `?parentId=${encodeURIComponent(parentId)}` : '';
+    return fetcher<QuizFolder[]>(`/quizzes/folders${q}`);
+  },
   createQuizFolder: (payload: QuizFolderWritePayload) =>
     fetcher<QuizFolder>('/quizzes/folders', { method: 'POST', body: JSON.stringify(payload) }),
   updateQuizFolder: (id: string, payload: Partial<QuizFolderWritePayload>) =>

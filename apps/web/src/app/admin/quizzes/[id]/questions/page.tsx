@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -521,16 +521,29 @@ export default function QuizQuestionsStudioPage() {
   };
 
   // Filtered Questions List for Table Search
-  const filteredQuestions = questions.filter((q) =>
-    q.text.toLowerCase().includes(searchTerm.toLowerCase()),
+  const filteredQuestions = useMemo(
+    () => questions.filter((q) => q.text.toLowerCase().includes(searchTerm.toLowerCase())),
+    [questions, searchTerm],
   );
 
   const totalItems = filteredQuestions.length;
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
-  const paginatedQuestions = filteredQuestions.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
+  const paginatedQuestions = useMemo(
+    () => filteredQuestions.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredQuestions, currentPage, pageSize],
   );
+
+  // Maps each question object to its position in the full (unfiltered)
+  // `questions` array — `filteredQuestions`/`paginatedQuestions` only ever
+  // filter/slice `questions`, never clone it, so every `q` here is the exact
+  // same object reference as some entry in `questions`, making a reference
+  // map an O(1) equivalent of the old per-row `questions.findIndex(...)`
+  // scan (which reran, once per visible row, on every render).
+  const questionIndexByRef = useMemo(() => {
+    const map = new Map<QuizQuestion, number>();
+    questions.forEach((q, i) => map.set(q, i));
+    return map;
+  }, [questions]);
 
   if (loading) {
     return (
@@ -769,7 +782,7 @@ export default function QuizQuestionsStudioPage() {
                     </TableRow>
                   ) : (
                     paginatedQuestions.map((q, idx) => {
-                      const foundIndex = questions.findIndex((item) => item.id === q.id || (item.text && item.text === q.text));
+                      const foundIndex = questionIndexByRef.get(q) ?? -1;
                       const actualIndex = foundIndex >= 0 ? foundIndex : (currentPage - 1) * pageSize + idx;
 
                       return (

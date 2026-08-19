@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../utils';
 import {
   Sun,
@@ -59,6 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [localTheme, setLocalTheme] = useState<'dark' | 'light'>('dark');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -379,7 +381,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       type="button"
                       onClick={() => {
                         setDropdownOpen(false);
-                        onLogout();
+                        setShowLogoutModal(true);
                       }}
                       className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer group"
                     >
@@ -445,6 +447,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               {link.label}
             </a>
           ))}
+          {user && onLogout && (
+            <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56]">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setShowLogoutModal(true);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Logout</span>
+              </button>
+            </div>
+          )}
           {!user && (
             <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] flex flex-col space-y-2">
               <a
@@ -471,6 +488,57 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
       )}
+
+      {/* Logout Confirmation Modal Box rendered in Portal */}
+      {mounted &&
+        showLogoutModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setShowLogoutModal(false)}
+          >
+            <div
+              className="relative w-full max-w-md bg-white dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-500 shrink-0 shadow-xs">
+                  <LogOut className="w-6 h-6" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">
+                    Sign Out
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Are you sure you want to log out of <span className="font-bold text-slate-700 dark:text-slate-200">{user?.name || 'your account'}</span>? You will need to sign back in to access your purchased books, quizzes, and notes.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLogoutModal(false);
+                    onLogout?.();
+                  }}
+                  className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-rose-600 hover:bg-rose-500 shadow-md shadow-rose-600/25 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Confirm Logout</span>
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </header>
   );
 };

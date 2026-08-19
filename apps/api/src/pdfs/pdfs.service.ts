@@ -37,6 +37,7 @@ export class PdfsService {
   // --- Exams ---
 
   async listExams(actor?: AccessActor | null) {
+    const isCurator = PdfsService.isCurator(actor);
     const exams = await this.prisma.pdfExam.findMany({
       where: this.activeFilter(actor),
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
@@ -51,26 +52,33 @@ export class PdfsService {
             orderIndex: true,
             isActive: true,
             examId: true,
-            _count: { select: { documents: true } },
+            _count: { select: { documents: isCurator ? true : { where: { isActive: true } } } },
           },
         },
       },
     });
 
-    return exams.map(({ chapters, ...exam }) => ({
-      ...exam,
-      chapterCount: chapters.length,
-      documentCount: chapters.reduce((total, chapter) => total + chapter._count.documents, 0),
-      chapters: chapters.map((c) => ({
-        id: c.id,
-        examId: c.examId,
-        title: c.title,
-        description: c.description,
-        orderIndex: c.orderIndex,
-        isActive: c.isActive,
-        documentCount: c._count.documents,
-      })),
-    }));
+    const mapped = exams.map(({ chapters, ...exam }) => {
+      const activeChapters = isCurator ? chapters : chapters.filter((c) => c._count.documents > 0);
+      const documentCount = activeChapters.reduce((total, chapter) => total + chapter._count.documents, 0);
+
+      return {
+        ...exam,
+        chapterCount: activeChapters.length,
+        documentCount,
+        chapters: activeChapters.map((c) => ({
+          id: c.id,
+          examId: c.examId,
+          title: c.title,
+          description: c.description,
+          orderIndex: c.orderIndex,
+          isActive: c.isActive,
+          documentCount: c._count.documents,
+        })),
+      };
+    });
+
+    return isCurator ? mapped : mapped.filter((exam) => exam.documentCount > 0);
   }
 
   async findExam(examId: string, actor?: AccessActor | null) {
@@ -107,12 +115,13 @@ export class PdfsService {
   // --- Chapters ---
 
   async listChapters(examId: string, actor?: AccessActor | null) {
+    const isCurator = PdfsService.isCurator(actor);
     await this.findExam(examId, actor);
     const chapters = await this.prisma.pdfChapter.findMany({
       where: { examId, ...this.activeFilter(actor) },
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
       include: {
-        _count: { select: { documents: true } },
+        _count: { select: { documents: isCurator ? true : { where: { isActive: true } } } },
         documents: {
           where: this.activeFilter(actor),
           orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
@@ -128,11 +137,13 @@ export class PdfsService {
         },
       },
     });
-    return chapters.map(({ _count, documents, ...chapter }) => ({
+    const mapped = chapters.map(({ _count, documents, ...chapter }) => ({
       ...chapter,
       documentCount: _count.documents,
       documents,
     }));
+
+    return isCurator ? mapped : mapped.filter((chapter) => chapter.documentCount > 0);
   }
 
   async findChapter(chapterId: string, actor?: AccessActor | null) {

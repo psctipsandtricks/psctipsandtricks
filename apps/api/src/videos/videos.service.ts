@@ -44,6 +44,7 @@ export class VideosService {
   // --- Exams ---
 
   async listExams(actor?: AccessActor | null) {
+    const isCurator = VideosService.isCurator(actor);
     const exams = await this.prisma.videoExam.findMany({
       where: this.activeFilter(actor),
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
@@ -58,26 +59,33 @@ export class VideosService {
             orderIndex: true,
             isActive: true,
             examId: true,
-            _count: { select: { videos: true } },
+            _count: { select: { videos: isCurator ? true : { where: { isActive: true } } } },
           },
         },
       },
     });
 
-    return exams.map(({ chapters, ...exam }) => ({
-      ...exam,
-      chapterCount: chapters.length,
-      videoCount: chapters.reduce((total, chapter) => total + chapter._count.videos, 0),
-      chapters: chapters.map((c) => ({
-        id: c.id,
-        examId: c.examId,
-        title: c.title,
-        description: c.description,
-        orderIndex: c.orderIndex,
-        isActive: c.isActive,
-        videoCount: c._count.videos,
-      })),
-    }));
+    const mapped = exams.map(({ chapters, ...exam }) => {
+      const activeChapters = isCurator ? chapters : chapters.filter((c) => c._count.videos > 0);
+      const videoCount = activeChapters.reduce((total, chapter) => total + chapter._count.videos, 0);
+
+      return {
+        ...exam,
+        chapterCount: activeChapters.length,
+        videoCount,
+        chapters: activeChapters.map((c) => ({
+          id: c.id,
+          examId: c.examId,
+          title: c.title,
+          description: c.description,
+          orderIndex: c.orderIndex,
+          isActive: c.isActive,
+          videoCount: c._count.videos,
+        })),
+      };
+    });
+
+    return isCurator ? mapped : mapped.filter((exam) => exam.videoCount > 0);
   }
 
   async findExam(examId: string, actor?: AccessActor | null) {
@@ -114,12 +122,13 @@ export class VideosService {
   // --- Chapters ---
 
   async listChapters(examId: string, actor?: AccessActor | null) {
+    const isCurator = VideosService.isCurator(actor);
     await this.findExam(examId, actor);
     const chapters = await this.prisma.videoChapter.findMany({
       where: { examId, ...this.activeFilter(actor) },
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
       include: {
-        _count: { select: { videos: true } },
+        _count: { select: { videos: isCurator ? true : { where: { isActive: true } } } },
         videos: {
           where: this.activeFilter(actor),
           orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
@@ -133,11 +142,13 @@ export class VideosService {
         },
       },
     });
-    return chapters.map(({ _count, videos, ...chapter }) => ({
+    const mapped = chapters.map(({ _count, videos, ...chapter }) => ({
       ...chapter,
       videoCount: _count.videos,
       videos,
     }));
+
+    return isCurator ? mapped : mapped.filter((chapter) => chapter.videoCount > 0);
   }
 
   async findChapter(chapterId: string, actor?: AccessActor | null) {

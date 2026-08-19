@@ -243,10 +243,13 @@ export interface Question {
 export interface QuizFolder {
     id: string;
     name: string;
+    parentId?: string | null;
+    parentName?: string | null;
     description?: string | null;
     orderIndex: number;
     isActive: boolean;
     quizCount?: number;
+    subFolderCount?: number;
     quizzes?: Quiz[];
     createdAt: string;
     updatedAt: string;
@@ -254,7 +257,8 @@ export interface QuizFolder {
 export interface Quiz {
     id: string;
     title: string;
-    category: string;
+    category?: string;
+    topic?: string | null;
     folderName?: string | null;
     totalQuestions: number;
     durationMinutes: number;

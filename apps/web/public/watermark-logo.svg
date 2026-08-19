@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%" fill="none">
+  <defs>
+    <!-- Text Paths for Circular Arcs -->
+    <path id="wmTopArc" d="M 52,250 A 198,198 0 1,1 448,250" fill="none" />
+    <path id="wmBottomArc" d="M 448,250 A 198,198 0 0,1 52,250" fill="none" />
+  </defs>
+
+  <!-- Semi-transparent Outer Ring -->
+  <circle cx="250" cy="250" r="242" fill="#0B4E99" fill-opacity="0.12" stroke="#0284C7" stroke-opacity="0.35" stroke-width="3" />
+  <circle cx="250" cy="250" r="236" fill="none" stroke="#38BDF8" stroke-opacity="0.25" stroke-width="1.5" stroke-dasharray="6 4" />
+
+  <!-- Inner Medallion Border -->
+  <circle cx="250" cy="250" r="168" fill="none" stroke="#0B4E99" stroke-opacity="0.35" stroke-width="2.5" />
+  <circle cx="250" cy="250" r="164" fill="#0284C7" fill-opacity="0.04" />
+
+  <!-- Top Curved Text: PSC TIPS AND TRICKS -->
+  <text fill="#0B4E99" fill-opacity="0.75" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="34" letter-spacing="4">
+    <textPath href="#wmTopArc" startOffset="50%" text-anchor="middle">
+      PSC TIPS AND TRICKS
+    </textPath>
+  </text>
+
+  <!-- Left & Right Gold Dots -->
+  <circle cx="48" cy="250" r="10" fill="#D97706" fill-opacity="0.75" stroke="#F59E0B" stroke-opacity="0.5" stroke-width="1.5" />
+  <circle cx="452" cy="250" r="10" fill="#D97706" fill-opacity="0.75" stroke="#F59E0B" stroke-opacity="0.5" stroke-width="1.5" />
+
+  <!-- Bottom Curved Text: DEDICATE · EDUCATE · ELEVATE -->
+  <text fill="#0B4E99" fill-opacity="0.75" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="20" letter-spacing="4.5">
+    <textPath href="#wmBottomArc" startOffset="50%" text-anchor="middle">
+      DEDICATE · EDUCATE · ELEVATE
+    </textPath>
+  </text>
+
+  <!-- Central Emblem Elements -->
+  <g transform="translate(0, -6)">
+    <!-- Floating Knowledge Cubes / Pixels -->
+    <rect x="242" y="166" width="22" height="22" rx="3" fill="#0284C7" fill-opacity="0.6" transform="rotate(5 253 177)" />
+    <rect x="268" y="162" width="12" height="12" rx="2" fill="#38BDF8" fill-opacity="0.6" />
+    <rect x="286" y="156" width="13" height="13" rx="2" fill="#F59E0B" fill-opacity="0.6" />
+    <rect x="268" y="188" width="7" height="7" rx="1.5" fill="#0284C7" fill-opacity="0.5" />
+    <rect x="290" y="196" width="12" height="12" rx="2" fill="#0369A1" fill-opacity="0.6" />
+    <rect x="303" y="167" width="10" height="10" rx="1.5" fill="#D97706" fill-opacity="0.55" />
+    <rect x="312" y="208" width="7" height="7" rx="1.5" fill="#F59E0B" fill-opacity="0.6" />
+
+    <!-- Human Head (Central Dot) -->
+    <circle cx="250" cy="232" r="15" fill="#0A3F7A" fill-opacity="0.7" />
+
+    <!-- Upper Gold Accent Wings / Page Flairs -->
+    <path d="M 250,248 C 225,236 178,218 148,218 C 172,234 208,252 232,260 Z" fill="#D97706" fill-opacity="0.65" />
+    <path d="M 250,248 C 275,236 322,218 352,218 C 328,234 292,252 268,260 Z" fill="#D97706" fill-opacity="0.65" />
+
+    <!-- Main Blue Book Pages (Spreading Wings) -->
+    <path d="M 250,252 C 218,245 168,245 125,268 C 158,284 212,290 248,322 C 242,298 242,274 250,252 Z" fill="#0284C7" fill-opacity="0.65" />
+    <path d="M 250,252 C 282,245 332,245 375,268 C 342,284 288,290 252,322 C 258,298 258,274 250,252 Z" fill="#0284C7" fill-opacity="0.65" />
+
+    <!-- Human Body Swoops (Triumphant Figure) -->
+    <path d="M 250,324 C 246,296 230,268 202,242 C 218,254 238,278 246,310 Z" fill="#0A3F7A" fill-opacity="0.7" />
+    <path d="M 250,324 C 254,296 270,268 298,242 C 282,254 262,278 254,310 Z" fill="#0A3F7A" fill-opacity="0.7" />
+
+    <!-- Lower Book Base & Spine Shadow -->
+    <path d="M 125,268 C 160,296 210,314 250,324 C 290,314 340,296 375,268 C 340,290 290,305 250,308 C 210,305 160,290 125,268 Z" fill="#0C4A8A" fill-opacity="0.6" />
+    <path d="M 115,296 C 165,302 215,310 250,328 C 285,310 335,302 385,296 C 340,308 290,320 250,322 C 210,320 160,308 115,296 Z" fill="#083B75" fill-opacity="0.6" />
+
+    <!-- Foundation / Base Arch of the Book -->
+    <path d="M 112,300 C 158,284 206,296 250,326 C 294,296 342,284 388,300 C 344,288 296,298 250,324 C 204,298 156,288 112,300 Z" fill="#0369A1" fill-opacity="0.6" />
+
+    <!-- ESTD. 2020 Text -->
+    <text x="250" y="356" text-anchor="middle" fill="#0B4E99" fill-opacity="0.75" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="14" letter-spacing="4">
+      ESTD. 2020
+    </text>
+  </g>
+</svg>

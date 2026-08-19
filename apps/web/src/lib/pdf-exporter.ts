@@ -366,6 +366,32 @@ function buildFileName(quizTitle: string): string {
   return `${(slug || 'quiz').slice(0, 80)}_solutions.pdf`;
 }
 
+async function loadLogoWatermarkDataUrl(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 500;
+        canvas.height = 500;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, 500, 500);
+          resolve(canvas.toDataURL('image/png'));
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      resolve(null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = '/watermark-logo.svg';
+  });
+}
+
 export async function generateQuizSolutionsPDF({
   quizTitle,
   category = 'PSC Practice Test',
@@ -373,7 +399,10 @@ export async function generateQuizSolutionsPDF({
   totalMarks,
   questions,
 }: ExportPDFOptions) {
-  await ensureMalayalamFont();
+  const [_, logoWatermarkUrl] = await Promise.all([
+    ensureMalayalamFont(),
+    loadLogoWatermarkDataUrl(),
+  ]);
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -632,30 +661,35 @@ export async function generateQuizSolutionsPDF({
   });
 
   // --- OVERLAY WATERMARK PASS ON ALL PAGES ---
-  // Render watermark ON TOP with 14% opacity so it's 100% visible over white & filled cards
+  // Render watermark ON TOP with subtle opacity so it's clearly visible over white & filled cards
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
     try {
       doc.saveGraphicsState();
-      const gState = new (doc as any).GState({ opacity: 0.14 });
+      const gState = new (doc as any).GState({ opacity: 0.12 });
       doc.setGState(gState);
 
+      if (logoWatermarkUrl) {
+        const logoSize = 92; // mm
+        const logoX = (pageWidth - logoSize) / 2;
+        const logoY = (pageHeight - logoSize) / 2 - 10;
+        doc.addImage(logoWatermarkUrl, 'PNG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
+      }
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(42);
+      doc.setFontSize(22);
       doc.setTextColor(71, 85, 105); // slate-600
 
-      // Main diagonal watermark
-      doc.text('PSC TIPS & TRICKS', pageWidth / 2, pageHeight / 2 - 8, {
+      // Watermark text below the central emblem
+      doc.text('PSC TIPS AND TRICKS', pageWidth / 2, pageHeight / 2 + 48, {
         align: 'center',
-        angle: 35,
       });
 
-      doc.setFontSize(16);
+      doc.setFontSize(10);
       doc.setTextColor(100, 116, 139); // slate-500
-      doc.text('OFFICIAL EXAM SOLUTION & RATIONALE GUIDE', pageWidth / 2, pageHeight / 2 + 14, {
+      doc.text('OFFICIAL EXAM SOLUTION & RATIONALE GUIDE', pageWidth / 2, pageHeight / 2 + 55, {
         align: 'center',
-        angle: 35,
       });
 
       doc.restoreGraphicsState();

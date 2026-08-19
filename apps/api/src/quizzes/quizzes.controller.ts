@@ -24,10 +24,11 @@ export class QuizzesController {
   // --- Folders ---
 
   @ApiOperation({ summary: 'List all quiz folders with quiz counts' })
+  @ApiQuery({ name: 'parentId', required: false, type: String })
   @UseGuards(OptionalJwtAuthGuard)
   @Get('folders')
-  async listFolders(@Request() req: any) {
-    return this.quizzesService.listFolders(req.user);
+  async listFolders(@Request() req: any, @Query('parentId') parentId?: string) {
+    return this.quizzesService.listFolders(req.user, parentId);
   }
 
   @ApiOperation({ summary: 'Create a quiz folder (Admin / Staff with manage_quizzes)' })

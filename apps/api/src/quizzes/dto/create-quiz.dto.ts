@@ -8,10 +8,6 @@ export class CreateQuizDto {
 
   @IsOptional()
   @IsString()
-  category?: string;
-
-  @IsOptional()
-  @IsString()
   folderName?: string;
 
   @IsOptional()
@@ -31,10 +27,6 @@ export class CreateQuizDto {
   @IsOptional()
   @IsDateString()
   releaseDate?: string;
-
-  @IsOptional()
-  @IsString()
-  topic?: string;
 
   @IsOptional()
   @IsInt()

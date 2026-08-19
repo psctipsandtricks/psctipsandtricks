@@ -136,15 +136,15 @@ export function ContentHierarchyPage({
     });
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await fetchItems();
       setItems([...data].sort((a, b) => a.orderIndex - b.orderIndex));
     } catch (err: any) {
       setPageError(err.message || `Failed to load ${nounPlural.toLowerCase()}.`);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -159,6 +159,20 @@ export function ContentHierarchyPage({
     onSubmit: async (values, { resetForm, setSubmitting }) => {
       try {
         if (editingItem) {
+          setItems((prev) =>
+            prev.map((i) =>
+              i.id === editingItem.id
+                ? {
+                    ...i,
+                    title: values.title.trim(),
+                    description: values.description?.trim() || undefined,
+                    isActive: values.isActive,
+                    youtubeUrl: values.youtubeUrl?.trim() || undefined,
+                  }
+                : i,
+            ),
+          );
+          setIsDialogOpen(false);
           await updateItem(editingItem.id, {
             title: values.title.trim(),
             description: values.description?.trim() || undefined,
@@ -168,6 +182,7 @@ export function ContentHierarchyPage({
           if (audioFile) await uploadAudio(editingItem.id, audioFile);
           if (pdfFile) await uploadPdf(editingItem.id, pdfFile);
         } else {
+          setIsDialogOpen(false);
           const created = await createItem({
             title: values.title.trim(),
             description: values.description?.trim() || undefined,
@@ -178,12 +193,11 @@ export function ContentHierarchyPage({
           if (audioFile) await uploadAudio(created.id, audioFile);
           if (pdfFile) await uploadPdf(created.id, pdfFile);
         }
-        setIsDialogOpen(false);
         resetForm();
         setAudioFile(null);
         setPdfFile(null);
         setEditingItem(null);
-        load();
+        await load(true);
       } catch (err: any) {
         setPageError(err.message || `Failed to save ${nounSingular.toLowerCase()}.`);
       } finally {
@@ -218,14 +232,13 @@ export function ContentHierarchyPage({
   const handleDelete = async (id: string) => {
     const previous = items;
     setItems((prev) => prev.filter((i) => i.id !== id));
+    setDeleteTarget(null);
     try {
       await deleteItem(id);
-      load();
+      await load(true);
     } catch (err: any) {
       setItems(previous);
       setPageError(err.message || `Failed to delete ${nounSingular.toLowerCase()}.`);
-    } finally {
-      setDeleteTarget(null);
     }
   };
 

@@ -65,19 +65,21 @@ export default function AdminCouponsPage() {
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ type: 'toggle' | 'delete'; coupon: Coupon } | null>(null);
 
-  const fetchCoupons = useCallback(async () => {
+  const fetchCoupons = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const data = await ApiClient.getCoupons();
       const list = Array.isArray(data) ? data : (data as any)?.data || [];
       setCoupons(list);
     } catch (err: any) {
       console.error('Failed to fetch coupons:', err);
-      setError(err?.message || 'Failed to fetch coupons.');
-      setCoupons([]);
+      if (!silent) {
+        setError(err?.message || 'Failed to fetch coupons.');
+        setCoupons([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -102,14 +104,21 @@ export default function AdminCouponsPage() {
       };
       try {
         if (editingCoupon) {
+          setCoupons((prev) =>
+            prev.map((c) => (c.id === editingCoupon.id ? { ...c, ...payload } : c)),
+          );
+          setIsDialogOpen(false);
+          setEditingCoupon(null);
+          resetForm();
           await ApiClient.updateCoupon(editingCoupon.id, payload);
+          await fetchCoupons(true);
         } else {
+          setIsDialogOpen(false);
+          setEditingCoupon(null);
+          resetForm();
           await ApiClient.createCoupon(payload);
+          await fetchCoupons(true);
         }
-        resetForm();
-        setIsDialogOpen(false);
-        setEditingCoupon(null);
-        await fetchCoupons();
       } catch (err: any) {
         setFieldError('code', err.message || `Failed to ${editingCoupon ? 'update' : 'create'} coupon.`);
       } finally {
@@ -144,6 +153,7 @@ export default function AdminCouponsPage() {
     setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: nextActive } : c)));
     try {
       await ApiClient.setCouponActive(coupon.id, nextActive);
+      await fetchCoupons(true);
     } catch (err: any) {
       setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: coupon.isActive } : c)));
       alert(err.message || 'Failed to update coupon status.');
@@ -155,6 +165,7 @@ export default function AdminCouponsPage() {
     setCoupons((prev) => prev.filter((c) => c.id !== id));
     try {
       await ApiClient.deleteCoupon(id);
+      await fetchCoupons(true);
     } catch (err: any) {
       setCoupons(previousCoupons);
       alert(err.message || 'Failed to delete coupon.');
@@ -219,7 +230,7 @@ export default function AdminCouponsPage() {
       {error && (
         <div className="shrink-0 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between gap-3">
           <span>{error}</span>
-          <Button size="sm" variant="outline" onClick={fetchCoupons}>Retry</Button>
+          <Button size="sm" variant="outline" onClick={() => fetchCoupons(false)}>Retry</Button>
         </div>
       )}
 

@@ -1,14 +1,11 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import { FileWarning, Loader2, FileText } from 'lucide-react';
+import { FileWarning, Loader2, FileText, ZoomIn, ZoomOut, RotateCcw, Maximize2 } from 'lucide-react';
 import { ReaderWatermarkOverlay } from './reader-watermark-overlay';
 
-// A plain static path, not `new URL(..., import.meta.url)`: that pattern makes
-// webpack emit the worker as a build asset and then run it through Terser during
-// production builds, which fails on the worker's `import.meta` usage. The file
-// itself is copied into public/ at install/build time — see scripts/copy-pdf-worker.js.
+// Worker path from public directory
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
 interface ReaderPdfViewerProps {
@@ -17,39 +14,256 @@ interface ReaderPdfViewerProps {
   onLoadSuccess?: (numPages: number) => void;
 }
 
+// Highly optimized Lazy-loaded single page component
+const LazyPdfPage = memo(function LazyPdfPage({
+  pageNumber,
+  width,
+  aspectRatio,
+  user,
+  scale = 1.0,
+  onHeightMeasured,
+}: {
+  pageNumber: number;
+  width: number;
+  aspectRatio: number;
+  user?: { id?: string; name?: string; email?: string; phone?: string } | null;
+  scale?: number;
+  onHeightMeasured?: (height: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Always render the first 2 pages immediately for instant first-paint
+  const [isVisible, setIsVisible] = useState(pageNumber <= 2);
+
+  useEffect(() => {
+    if (pageNumber <= 2) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Viewport-aware Intersection Observer: pre-render when 400px away
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry && entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '400px 0px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pageNumber]);
+
+  const estimatedHeight = Math.round(width * (aspectRatio || 1.414));
+  const pixelRatio = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+
+  return (
+    <div
+      ref={containerRef}
+      id={`reader-pdf-page-${pageNumber}`}
+      className={`relative rounded-xl overflow-hidden select-none ring-1 ring-slate-200/90 dark:ring-[#1e2e56] bg-white dark:bg-[#070e22] shadow-sm transition-all ${
+        scale <= 1.0 ? 'mx-auto' : 'ml-0'
+      }`}
+      style={{ width, minWidth: width, minHeight: isVisible ? undefined : estimatedHeight }}
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+    >
+      {/* Forensic Anti-Leak Watermark Layer */}
+      <ReaderWatermarkOverlay
+        userName={user?.name}
+        userId={user?.id}
+        userIdentifier={user?.email || user?.phone}
+        opacity={0.065}
+      />
+
+      {isVisible ? (
+        <Page
+          pageNumber={pageNumber}
+          width={width}
+          renderTextLayer={false}
+          renderAnnotationLayer={false}
+          devicePixelRatio={pixelRatio}
+          loading={
+            <div
+              className="rounded-xl bg-slate-100/80 dark:bg-slate-900/60 animate-pulse flex items-center justify-center text-xs text-slate-400 font-mono"
+              style={{ width, height: estimatedHeight }}
+            >
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-500" />
+                <span>Page {pageNumber}…</span>
+              </div>
+            </div>
+          }
+          onRenderSuccess={(page) => {
+            if (page.height) {
+              onHeightMeasured?.(page.height);
+            }
+          }}
+        />
+      ) : (
+        <div
+          className="rounded-xl bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center text-xs text-slate-400 font-mono"
+          style={{ width, height: estimatedHeight }}
+        >
+          <span>Page {pageNumber}</span>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export function ReaderPdfViewer({ url, user, onLoadSuccess }: ReaderPdfViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
-  const [containerWidth, setContainerWidth] = useState(700);
+  const [containerWidth, setContainerWidth] = useState(720);
+  const [aspectRatio, setAspectRatio] = useState(1.414); // Standard A4 ratio default
   const [retryCount, setRetryCount] = useState(0);
+  const [scale, setScale] = useState(1.0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const startPosRef = useRef({ x: 0, scrollLeft: 0 });
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setContainerWidth(Math.min(760, el.clientWidth));
+    const update = () => setContainerWidth(Math.max(300, el.clientWidth));
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
+  const handleZoomIn = () => {
+    setScale((s) => Math.min(2.5, +(s + 0.15).toFixed(2)));
+  };
+
+  const handleZoomOut = () => {
+    setScale((s) => Math.max(0.6, +(s - 0.15).toFixed(2)));
+  };
+
+  const handleResetZoom = () => {
+    setScale(1.0);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollLeft = 0;
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (scale <= 1.0 || !scrollContainerRef.current) return;
+    setIsPanning(true);
+    startPosRef.current = {
+      x: e.clientX,
+      scrollLeft: scrollContainerRef.current.scrollLeft,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning || !scrollContainerRef.current) return;
+    const dx = e.clientX - startPosRef.current.x;
+    scrollContainerRef.current.scrollLeft = startPosRef.current.scrollLeft - dx;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsPanning(false);
+  };
+
+  const handleHeightMeasured = useCallback(
+    (height: number) => {
+      if (height > 0 && containerWidth > 0) {
+        const ratio = height / containerWidth;
+        if (ratio > 0.5 && ratio < 3.0) {
+          setAspectRatio(ratio);
+        }
+      }
+    },
+    [containerWidth]
+  );
+
+  const documentOptions = useMemo(
+    () => ({
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+    }),
+    []
+  );
+
+  const finalPageWidth = Math.round(containerWidth * scale);
+
   return (
     <div
       ref={containerRef}
-      className="space-y-3 select-none print:hidden scroll-mt-24"
+      className="space-y-4 select-none print:hidden scroll-mt-24 w-full"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="flex items-center gap-1.5 pb-1 text-xs font-bold text-amber-600 dark:text-amber-400">
-        <FileText className="w-4 h-4" />
-        <span>PDF Notes {numPages ? `(${numPages} pages)` : ''}</span>
+      {/* Reader Sticky Header with Zoom Controls */}
+      <div className="sticky top-16 z-30 flex items-center justify-between gap-3 p-2 sm:p-2.5 rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/90 shadow-sm">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+          <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <FileText className="w-4 h-4" />
+          </div>
+          <span>PDF Notes {numPages ? `(${numPages} pages)` : ''}</span>
+          {scale > 1.0 && (
+            <span className="hidden sm:inline-block text-[10px] text-slate-400 dark:text-slate-500 font-normal">
+              (Drag or scroll horizontally to pan)
+            </span>
+          )}
+        </div>
+
+        {/* Zoom Controls Pill */}
+        <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
+          <button
+            type="button"
+            onClick={handleZoomOut}
+            disabled={scale <= 0.6}
+            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer shadow-xs"
+            title="Zoom out (–)"
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleResetZoom}
+            className="px-2 py-0.5 text-xs font-mono font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-all cursor-pointer min-w-[50px] text-center shadow-xs"
+            title="Reset to 100% width"
+          >
+            {Math.round(scale * 100)}%
+          </button>
+
+          <button
+            type="button"
+            onClick={handleZoomIn}
+            disabled={scale >= 2.5}
+            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer shadow-xs"
+            title="Zoom in (+)"
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+
+          {scale !== 1.0 && (
+            <button
+              type="button"
+              onClick={handleResetZoom}
+              className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-cyan-600 dark:text-cyan-400 transition-all cursor-pointer"
+              title="Reset Zoom (Fit Width)"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       <Document
         key={`${url}-${retryCount}`}
         file={url}
+        options={documentOptions}
         loading={
-          <div className="flex items-center justify-center gap-2.5 py-8 text-cyan-600 dark:text-cyan-400 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800">
-            <Loader2 className="w-4 h-4 animate-spin" />
+          <div className="flex flex-col items-center justify-center gap-2.5 py-10 text-cyan-600 dark:text-cyan-400 text-xs font-bold rounded-2xl bg-slate-50 dark:bg-[#070e22]/50 border border-slate-200/60 dark:border-slate-800 shadow-xs">
+            <Loader2 className="w-5 h-5 animate-spin text-cyan-500" />
             <span>Loading PDF notes…</span>
           </div>
         }
@@ -73,35 +287,42 @@ export function ReaderPdfViewer({ url, user, onLoadSuccess }: ReaderPdfViewerPro
           onLoadSuccess?.(n);
         }}
       >
-        {numPages &&
-          Array.from({ length: numPages }, (_, i) => i + 1).map((pageNumber) => (
+        {numPages && (
+          <div
+            ref={scrollContainerRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUpOrLeave}
+            onMouseLeave={handleMouseUpOrLeave}
+            className={`w-full max-w-full overflow-x-auto overflow-y-visible pb-6 pt-1 touch-pan-x ${
+              scale > 1.0 ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''
+            }`}
+            style={{
+              WebkitOverflowScrolling: 'touch',
+            }}
+          >
             <div
-              key={pageNumber}
-              className="relative rounded-lg overflow-hidden mx-auto select-none ring-1 ring-slate-200 dark:ring-[#1e2e56]"
-              onContextMenu={(e) => e.preventDefault()}
-              onDragStart={(e) => e.preventDefault()}
+              className="space-y-4 transition-[width] duration-150 ease-out"
+              style={{
+                width: finalPageWidth,
+                minWidth: finalPageWidth,
+                margin: scale <= 1.0 ? '0 auto' : '0',
+              }}
             >
-              {/* Dynamic User-Specific Forensic Watermark Layer */}
-              <ReaderWatermarkOverlay
-                userName={user?.name}
-                userId={user?.id}
-                userIdentifier={user?.email || user?.phone}
-                opacity={0.065}
-              />
-
-              <Page
-                pageNumber={pageNumber}
-                width={containerWidth}
-                renderTextLayer={false}
-                renderAnnotationLayer={false}
-                loading={
-                  <div className="h-48 rounded-lg bg-slate-100 dark:bg-slate-900 animate-pulse flex items-center justify-center text-xs text-slate-400">
-                    Loading page {pageNumber}…
-                  </div>
-                }
-              />
+              {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNumber) => (
+                <LazyPdfPage
+                  key={pageNumber}
+                  pageNumber={pageNumber}
+                  width={finalPageWidth}
+                  aspectRatio={aspectRatio}
+                  user={user}
+                  scale={scale}
+                  onHeightMeasured={pageNumber === 1 ? handleHeightMeasured : undefined}
+                />
+              ))}
             </div>
-          ))}
+          </div>
+        )}
       </Document>
 
       {/* Print Suppression Stylesheet & Blocker Notice */}

@@ -207,38 +207,44 @@ model Chapter {
   readingProgress      ReadingProgress[]
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
+
+  @@index([bookId, orderIndex])
 }
 
 model Topic {
-  id                String            @id @default(uuid())
-  chapterId         String
-  chapter           Chapter           @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  title             String
-  description       String?           @db.Text
-  orderIndex        Int               @default(0)
-  isActive          Boolean           @default(true)
-  youtubeUrl        String?
-  audioUrl          String?
-  pdfUrl            String?
-  subtopics         Subtopic[]
-  readingProgress   ReadingProgress[]
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  id              String            @id @default(uuid())
+  chapterId       String
+  chapter         Chapter           @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?           @db.Text
+  orderIndex      Int               @default(0)
+  isActive        Boolean           @default(true)
+  youtubeUrl      String?
+  audioUrl        String?
+  pdfUrl          String?
+  subtopics       Subtopic[]
+  readingProgress ReadingProgress[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([chapterId, orderIndex])
 }
 
 model Subtopic {
-  id                String          @id @default(uuid())
-  topicId           String
-  topic             Topic           @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  title             String
-  description       String?         @db.Text
-  orderIndex        Int             @default(0)
-  isActive          Boolean         @default(true)
-  youtubeUrl        String?
-  audioUrl          String?
-  pdfUrl            String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  id          String   @id @default(uuid())
+  topicId     String
+  topic       Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  title       String
+  description String?  @db.Text
+  orderIndex  Int      @default(0)
+  isActive    Boolean  @default(true)
+  youtubeUrl  String?
+  audioUrl    String?
+  pdfUrl      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([topicId, orderIndex])
 }
 
 model ReadingProgress {
@@ -271,7 +277,6 @@ model Bookmark {
 model Quiz {
   id                              String           @id @default(uuid())
   title                           String
-  category                        String
   folderName                      String?          @default("Root")
   accessType                      String           @default("FREE")
   isActive                        Boolean          @default(true)
@@ -282,7 +287,6 @@ model Quiz {
   // `new Date().toISOString()` orders these exactly as timestamps would, and
   // the release gate needs no column migration.
   releaseDate                     String?
-  topic                           String?
   totalQuestions                  Int              @default(0)
   durationMinutes                 Int              @default(30)
   isLiveMock                      Boolean          @default(false)
@@ -310,18 +314,22 @@ model Quiz {
 
   @@index([isActive, createdAt(sort: Desc)])
   @@index([folderName])
-  @@index([category])
   @@index([accessType])
 }
 
 model QuizFolder {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  description String?  @db.Text
-  orderIndex  Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          String       @id @default(uuid())
+  name        String       @unique
+  parentId    String?
+  parent      QuizFolder?  @relation("QuizFolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    QuizFolder[] @relation("QuizFolderHierarchy")
+  description String?      @db.Text
+  orderIndex  Int          @default(0)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([parentId, orderIndex])
 }
 
 model Question {
@@ -373,6 +381,12 @@ model QuizSubmission {
   submittedAt      DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @default(now()) @updatedAt
+
+  @@index([userId, quizId, attemptStatus])
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([userId, attemptStatus, createdAt(sort: Desc)])
+  @@index([quizId, attemptStatus, score(sort: Desc), timeTakenSeconds])
+  @@index([createdAt(sort: Desc)])
 }
 
 model MockTest {
@@ -387,6 +401,8 @@ model MockTest {
   participants MockTestParticipant[]
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
+
+  @@index([status, scheduledAt])
 }
 
 model MockTestParticipant {
@@ -401,6 +417,7 @@ model MockTestParticipant {
   createdAt   DateTime  @default(now())
 
   @@unique([mockTestId, userId])
+  @@index([userId, submittedAt(sort: Desc)])
 }
 
 model Order {
@@ -531,6 +548,9 @@ model ChatMessage {
   mediaUrl    String?
   metadata    Json?
   createdAt   DateTime        @default(now())
+
+  @@index([groupId, createdAt(sort: Desc)])
+  @@index([userId])
 }
 
 model Notification {
@@ -545,6 +565,8 @@ model Notification {
   isRead    Boolean  @default(false)
   type      String?  @default("ANNOUNCEMENT")
   createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model AnnouncementPopup {

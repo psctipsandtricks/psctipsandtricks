@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { ApiClient } from '@/lib/api-client';
+import { QuizFolder } from '@psc/shared-types';
 import {
   Card,
   Table,
@@ -73,11 +74,9 @@ export interface QuizQuestion {
 export interface QuizItem {
   id: string;
   title: string;
-  category: string;
   folderName: string;
   releaseDate?: string;
   passingScore?: number;
-  topic?: string;
   isActive?: boolean;
   showCorrectAnswerAfterSelection?: boolean;
   questionsCount: number;
@@ -96,10 +95,8 @@ interface QuizFormValues {
   title: string;
   releaseDate: string;
   releaseTime: string;
-  category: string;
   duration: string;
   passingScore: string;
-  selectedTopic: string;
   isActive: boolean;
   isLive: boolean;
   mockTestTitle: string;
@@ -119,10 +116,8 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   title: '',
   releaseDate: '',
   releaseTime: '',
-  category: 'General',
   duration: '30',
   passingScore: '60',
-  selectedTopic: '',
   isActive: true,
   isLive: false,
   mockTestTitle: '',
@@ -253,6 +248,7 @@ const DEFAULT_QUIZ_SCHEMA = makeQuizSchema();
 export default function AdminFolderQuizzesPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const rawFolderName = params?.folderName as string;
   const currentFolder = rawFolderName ? decodeURIComponent(rawFolderName) : 'Root';
 
@@ -261,6 +257,25 @@ export default function AdminFolderQuizzesPage() {
   const [mounted, setMounted] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [mockTestByQuizId, setMockTestByQuizId] = useState<Record<string, any>>({});
+
+  // Sub-folders State
+  const [subFolders, setSubFolders] = useState<QuizFolder[]>([]);
+  const [currentFolderData, setCurrentFolderData] = useState<QuizFolder | null>(null);
+  const [isSubFolderDialogOpen, setIsSubFolderDialogOpen] = useState(false);
+  const [editingSubFolder, setEditingSubFolder] = useState<QuizFolder | null>(null);
+  const [parentForNewSubFolder, setParentForNewSubFolder] = useState<QuizFolder | null>(null);
+  const [deleteSubFolderTarget, setDeleteSubFolderTarget] = useState<QuizFolder | null>(null);
+  const [subFolderName, setSubFolderName] = useState('');
+  const [subFolderDesc, setSubFolderDesc] = useState('');
+  const [subFolderActive, setSubFolderActive] = useState(true);
+  const [subFolderError, setSubFolderError] = useState('');
+  const [subFolderSaving, setSubFolderSaving] = useState(false);
+
+  // Hierarchy Tree Expand State
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [subFolderContents, setSubFolderContents] = useState<
+    Record<string, { subFolders: QuizFolder[]; quizzes: QuizItem[]; loading: boolean }>
+  >({});
 
   // Filter & Search
   const [searchTerm, setSearchTerm] = useState('');
@@ -290,11 +305,9 @@ export default function AdminFolderQuizzesPage() {
     return {
       id: apiQuiz.id,
       title: apiQuiz.title,
-      category: apiQuiz.category || 'General',
       folderName: (!apiQuiz.folderName || apiQuiz.folderName === 'Root / No Folder' || apiQuiz.folderName === 'Root') ? 'Root' : apiQuiz.folderName,
       releaseDate: apiQuiz.releaseDate,
       passingScore: apiQuiz.passingMarks,
-      topic: apiQuiz.topic,
       isActive: apiQuiz.isActive ?? true,
       showCorrectAnswerAfterSelection: apiQuiz.showCorrectAnswerAfterSelection ?? true,
       questionsCount: apiQuiz.totalQuestions || (apiQuiz.questions?.length ?? 0),
@@ -325,9 +338,28 @@ export default function AdminFolderQuizzesPage() {
     };
   }, []);
 
-  const fetchQuizzes = useCallback(async () => {
+  const fetchSubFolders = useCallback(async () => {
     try {
-      setLoading(true);
+      const [allFolders, children] = await Promise.all([
+        ApiClient.getQuizFolders(),
+        ApiClient.getQuizFolders(currentFolder),
+      ]);
+      const current = (allFolders || []).find(
+        (f) => f.name.toLowerCase() === currentFolder.toLowerCase() || f.id === currentFolder,
+      );
+      if (current) setCurrentFolderData(current);
+      const validSub = (children || []).filter(
+        (f) => f.name && f.name.toLowerCase() !== 'root' && f.name.toLowerCase() !== currentFolder.toLowerCase(),
+      );
+      setSubFolders(validSub);
+    } catch (err) {
+      console.error('Failed to fetch sub-folders:', err);
+    }
+  }, [currentFolder]);
+
+  const fetchQuizzes = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
       const res = await ApiClient.getQuizzes({
         page: currentPage,
         limit: pageSize,
@@ -344,7 +376,7 @@ export default function AdminFolderQuizzesPage() {
     } catch (err) {
       console.error('Failed to fetch folder quizzes:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [currentPage, pageSize, searchTerm, currentFolder, selectedAccessFilter, selectedStatusFilter, mapApiQuizToLocal]);
 
@@ -381,9 +413,162 @@ export default function AdminFolderQuizzesPage() {
 
   useEffect(() => {
     setMounted(true);
+    fetchSubFolders();
     fetchQuizzes();
     fetchMockTests();
-  }, [fetchQuizzes, fetchMockTests]);
+  }, [fetchSubFolders, fetchQuizzes, fetchMockTests]);
+
+  const handleOpenCreateSubFolder = (parentFolder?: QuizFolder) => {
+    setEditingSubFolder(null);
+    setParentForNewSubFolder(parentFolder || null);
+    setSubFolderName('');
+    setSubFolderDesc('');
+    setSubFolderActive(true);
+    setSubFolderError('');
+    setIsSubFolderDialogOpen(true);
+  };
+
+  const handleOpenEditSubFolder = (sf: QuizFolder) => {
+    setEditingSubFolder(sf);
+    setParentForNewSubFolder(null);
+    setSubFolderName(sf.name);
+    setSubFolderDesc(sf.description || '');
+    setSubFolderActive(sf.isActive !== false);
+    setSubFolderError('');
+    setIsSubFolderDialogOpen(true);
+  };
+
+  const toggleExpandFolder = async (folder: QuizFolder) => {
+    const nextState = !expandedFolders[folder.id];
+    setExpandedFolders((prev) => ({ ...prev, [folder.id]: nextState }));
+
+    if (nextState && !subFolderContents[folder.id]) {
+      setSubFolderContents((prev) => ({
+        ...prev,
+        [folder.id]: { subFolders: [], quizzes: [], loading: true },
+      }));
+      try {
+        const [childrenFolders, quizRes] = await Promise.all([
+          ApiClient.getQuizFolders(folder.id),
+          ApiClient.getQuizzes({ folder: folder.name, limit: 100 }),
+        ]);
+
+        const validChildFolders = (childrenFolders || []).filter(
+          (f) => f.name && f.name.toLowerCase() !== 'root' && f.id !== folder.id,
+        );
+        const quizList = Array.isArray(quizRes?.data) ? quizRes.data : Array.isArray(quizRes) ? quizRes : [];
+
+        setSubFolderContents((prev) => ({
+          ...prev,
+          [folder.id]: {
+            subFolders: validChildFolders,
+            quizzes: quizList.map(mapApiQuizToLocal),
+            loading: false,
+          },
+        }));
+      } catch (err) {
+        console.error('Failed to load inner folder contents:', err);
+        setSubFolderContents((prev) => ({
+          ...prev,
+          [folder.id]: { subFolders: [], quizzes: [], loading: false },
+        }));
+      }
+    }
+  };
+
+  const handleOpenCreateQuizInSubFolder = (targetFolderName: string) => {
+    setEditingQuizId(null);
+    setOriginalReleaseIso(undefined);
+    setFormSubmitError('');
+    formik.resetForm({
+      values: {
+        ...DEFAULT_QUIZ_FORM_VALUES,
+        selectedFolder: targetFolderName,
+      },
+    });
+    setIsDialogOpen(true);
+  };
+
+  useEffect(() => {
+    if (searchParams?.get('action') === 'createQuiz' || searchParams?.get('createQuiz') === 'true') {
+      const targetFolder = searchParams.get('targetFolder') || currentFolder;
+      handleOpenCreateQuizInSubFolder(targetFolder);
+    }
+  }, [searchParams, currentFolder]);
+
+  const handleSaveSubFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = subFolderName.trim();
+    if (!name) {
+      setSubFolderError('Folder name is required.');
+      return;
+    }
+    setSubFolderSaving(true);
+    setSubFolderError('');
+    try {
+      if (editingSubFolder) {
+        setSubFolders((prev) =>
+          prev.map((f) =>
+            f.id === editingSubFolder.id
+              ? { ...f, name, description: subFolderDesc.trim() || null, isActive: subFolderActive }
+              : f,
+          ),
+        );
+        setIsSubFolderDialogOpen(false);
+        setToastMsg({ type: 'success', text: `Sub-folder "${name}" updated.` });
+        await ApiClient.updateQuizFolder(editingSubFolder.id, {
+          name,
+          description: subFolderDesc.trim() || undefined,
+          isActive: subFolderActive,
+        });
+        fetchSubFolders();
+      } else {
+        const targetParentId = parentForNewSubFolder?.id || currentFolderData?.id || null;
+        const targetParentName = parentForNewSubFolder?.name || currentFolder;
+        const tempId = `temp-${Date.now()}`;
+        const newFolder: QuizFolder = {
+          id: tempId,
+          name,
+          parentId: targetParentId,
+          parentName: targetParentName,
+          description: subFolderDesc.trim() || null,
+          orderIndex: subFolders.length,
+          isActive: subFolderActive,
+          quizCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setSubFolders((prev) => [...prev, newFolder]);
+        setIsSubFolderDialogOpen(false);
+        setToastMsg({ type: 'success', text: `Sub-folder "${name}" created.` });
+        await ApiClient.createQuizFolder({
+          name,
+          parentId: targetParentId || targetParentName,
+          description: subFolderDesc.trim() || undefined,
+          orderIndex: subFolders.length,
+          isActive: subFolderActive,
+        });
+        fetchSubFolders();
+      }
+    } catch (err: any) {
+      setSubFolderError(err.message || 'Failed to save sub-folder.');
+    } finally {
+      setSubFolderSaving(false);
+    }
+  };
+
+  const handleDeleteSubFolder = async (sf: QuizFolder) => {
+    const previous = subFolders;
+    setSubFolders((prev) => prev.filter((f) => f.id !== sf.id));
+    setToastMsg({ type: 'success', text: `Sub-folder "${sf.name}" deleted.` });
+    try {
+      await ApiClient.deleteQuizFolder(sf.id);
+      fetchSubFolders();
+    } catch (err: any) {
+      setSubFolders(previous);
+      setToastMsg({ type: 'error', text: err.message || 'Failed to delete sub-folder.' });
+    }
+  };
 
   const syncLiveMockTest = useCallback(
     async (quizId: string, values: QuizFormValues) => {
@@ -424,13 +609,11 @@ export default function AdminFolderQuizzesPage() {
 
       const apiPayload = {
         title: values.title.trim(),
-        category: values.category || 'General',
         folderName: currentFolder,
         accessType: values.accessType || 'FREE',
         isActive: values.isActive,
         showCorrectAnswerAfterSelection: values.showCorrectAnswerAfterSelection,
         releaseDate: isAlreadyReleased ? undefined : (fullReleaseIso || undefined),
-        topic: values.selectedTopic || undefined,
         durationMinutes: Number(values.duration) || 30,
         isLiveMock: values.isLive,
         isPremium: values.accessType === 'PAID',
@@ -446,21 +629,36 @@ export default function AdminFolderQuizzesPage() {
       try {
         let createdOrUpdated: any = null;
         if (editingQuizId) {
+          // Optimistically update edited quiz in table
+          setQuizzes((prev) =>
+            prev.map((q) =>
+              q.id === editingQuizId
+                ? {
+                    ...q,
+                    title: apiPayload.title,
+                    accessType: apiPayload.accessType as 'FREE' | 'PAID',
+                    isActive: apiPayload.isActive,
+                    durationMinutes: apiPayload.durationMinutes,
+                    isLiveMock: apiPayload.isLiveMock,
+                    price: apiPayload.price,
+                  }
+                : q,
+            ),
+          );
+          setIsDialogOpen(false);
+          setToastMsg({ type: 'success', text: 'Quiz updated successfully.' });
+
           await ApiClient.updateQuiz(editingQuizId, apiPayload);
           await syncLiveMockTest(editingQuizId, values);
-          setToastMsg({ type: 'success', text: 'Quiz updated successfully.' });
-          setIsDialogOpen(false);
-          await Promise.all([fetchQuizzes(), fetchMockTests()]);
+          await Promise.all([fetchQuizzes(true), fetchMockTests()]);
         } else {
+          setIsDialogOpen(false);
           createdOrUpdated = await ApiClient.createQuiz(apiPayload);
           if (createdOrUpdated?.id) {
             await syncLiveMockTest(createdOrUpdated.id, values);
-          }
-          setIsDialogOpen(false);
-          if (createdOrUpdated?.id) {
             router.push(`/admin/quizzes/${createdOrUpdated.id}/questions`);
           } else {
-            await Promise.all([fetchQuizzes(), fetchMockTests()]);
+            await Promise.all([fetchQuizzes(true), fetchMockTests()]);
           }
         }
       } catch (err: any) {
@@ -498,10 +696,8 @@ export default function AdminFolderQuizzesPage() {
         title: quiz.title,
         releaseDate: relDate,
         releaseTime: relTime,
-        category: quiz.category || 'General',
         duration: String(quiz.durationMinutes),
         passingScore: quiz.passingScore ? String(quiz.passingScore) : '60',
-        selectedTopic: quiz.topic || '',
         isActive: quiz.isActive !== undefined ? quiz.isActive : true,
         isLive: quiz.isLiveMock,
         mockTestTitle: existingMockTest?.title || quiz.title,
@@ -522,13 +718,16 @@ export default function AdminFolderQuizzesPage() {
 
   const handleDeleteQuiz = async (id: string) => {
     const previous = quizzes;
+    const previousTotal = totalCount;
     setQuizzes((prev) => prev.filter((q) => q.id !== id));
+    setTotalCount((prev) => Math.max(0, prev - 1));
+    setToastMsg({ type: 'success', text: 'Quiz deleted successfully.' });
     try {
       await ApiClient.deleteQuiz(id);
-      setToastMsg({ type: 'success', text: 'Quiz deleted successfully.' });
-      await fetchQuizzes();
+      fetchQuizzes(true);
     } catch (err: any) {
       setQuizzes(previous);
+      setTotalCount(previousTotal);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete quiz.' });
     }
   };
@@ -581,6 +780,20 @@ export default function AdminFolderQuizzesPage() {
     );
   }
 
+  const filteredSubFolders = subFolders.filter((sf) => {
+    if (selectedAccessFilter !== 'ALL') {
+      return false;
+    }
+    const matchesSearch =
+      !searchTerm ||
+      sf.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (sf.description && sf.description.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesStatus =
+      selectedStatusFilter === 'ALL' ||
+      (selectedStatusFilter === 'ACTIVE' ? sf.isActive !== false : sf.isActive === false);
+    return matchesSearch && matchesStatus;
+  });
+
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   return (
@@ -605,18 +818,33 @@ export default function AdminFolderQuizzesPage() {
 
       {/* Header & Breadcrumb */}
       <div className="shrink-0 space-y-2">
-        <Link
-          href="/admin/quizzes"
-          className="inline-flex items-center space-x-1.5 text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to All Folders</span>
-        </Link>
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
+          <Link
+            href="/admin/quizzes"
+            className="font-bold text-cyan-600 dark:text-cyan-400 hover:underline inline-flex items-center gap-1"
+          >
+            <Folder className="w-3.5 h-3.5 text-amber-500" />
+            <span>Quiz Folders</span>
+          </Link>
+          {currentFolderData?.parentName && (
+            <>
+              <ChevronRight className="w-3 h-3 text-slate-400" />
+              <Link
+                href={`/admin/quizzes/folder/${encodeURIComponent(currentFolderData.parentName)}`}
+                className="font-bold text-cyan-600 dark:text-cyan-400 hover:underline"
+              >
+                {currentFolderData.parentName}
+              </Link>
+            </>
+          )}
+          <ChevronRight className="w-3 h-3 text-slate-400" />
+          <span className="font-extrabold text-slate-900 dark:text-white">{currentFolder}</span>
+        </div>
 
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0 shadow-inner">
                 <Folder className="w-4.5 h-4.5" />
               </div>
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
@@ -625,15 +853,30 @@ export default function AdminFolderQuizzesPage() {
               <Badge variant="gold" className="font-extrabold text-xs">
                 {totalCount} {totalCount === 1 ? 'Quiz' : 'Quizzes'}
               </Badge>
+              {subFolders.length > 0 && (
+                <Badge variant="default" className="font-bold text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  {subFolders.length} {subFolders.length === 1 ? 'Sub-folder' : 'Sub-folders'}
+                </Badge>
+              )}
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1">
-              Manage questions, settings, pricing, and live mock tests inside &ldquo;{currentFolder}&rdquo;.
+              Manage sub-folders, questions, settings, pricing, and live mock tests inside &ldquo;{currentFolder}&rdquo;.
             </p>
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
             <Button
+              variant="outline"
+              size="sm"
+              className="font-bold cursor-pointer border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 shadow-2xs"
+              onClick={() => handleOpenCreateSubFolder()}
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Sub-folder</span>
+            </Button>
+            <Button
               variant="gold"
+              size="sm"
               className="font-bold shadow-md shadow-cyan-500/20 cursor-pointer"
               onClick={handleOpenCreateModal}
             >
@@ -649,7 +892,7 @@ export default function AdminFolderQuizzesPage() {
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
               <Input
-                placeholder="Search quiz title..."
+                placeholder="Search quiz or folder title..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 h-9 text-xs"
@@ -681,22 +924,22 @@ export default function AdminFolderQuizzesPage() {
         </Card>
       </div>
 
-      {/* Quizzes Table Card */}
+      {/* Folders & Quizzes Table Card */}
       <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden p-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {loading ? (
             <AdminSkeletonTable rowsCount={5} colsCount={6} />
-          ) : quizzes.length === 0 ? (
+          ) : filteredSubFolders.length === 0 && quizzes.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">
               <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
-                <HelpCircle className="w-6 h-6" />
+                <Folder className="w-6 h-6" />
               </div>
               <div className="space-y-1">
                 <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                  No Quizzes in this Folder
+                  No Folders or Quizzes in &ldquo;{currentFolder}&rdquo;
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
-                  Click &ldquo;Create Quiz in Folder&rdquo; to add your first question bank here.
+                  Click &ldquo;Add Sub-folder&rdquo; to organize topics or &ldquo;Create Quiz in Folder&rdquo; to add quizzes here.
                 </p>
               </div>
             </div>
@@ -704,15 +947,348 @@ export default function AdminFolderQuizzesPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
-                  <TableHead className="font-bold text-xs">Quiz Details</TableHead>
-                  <TableHead className="font-bold text-xs">Access</TableHead>
-                  <TableHead className="font-bold text-xs">Config</TableHead>
+                  <TableHead className="font-bold text-xs">Item Details</TableHead>
+                  <TableHead className="font-bold text-xs">Type / Access</TableHead>
+                  <TableHead className="font-bold text-xs">Config / Contents</TableHead>
                   <TableHead className="font-bold text-xs">Schedule</TableHead>
                   <TableHead className="font-bold text-xs">Status</TableHead>
                   <TableHead className="font-bold text-xs text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* Sub-Folders Rows */}
+                {filteredSubFolders.map((sf) => (
+                  <React.Fragment key={`folder-fragment-${sf.id}`}>
+                    <TableRow
+                      key={`folder-${sf.id}`}
+                      className="border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-amber-500/[0.04] dark:hover:bg-amber-500/[0.04] transition-colors group"
+                    >
+                      {/* Item Details with Expand Chevron */}
+                      <TableCell className="py-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandFolder(sf)}
+                            className="p-1 rounded text-slate-400 hover:text-cyan-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                            title={expandedFolders[sf.id] ? 'Collapse inner contents' : 'Expand inner contents'}
+                          >
+                            <ChevronRight
+                              className={`w-4 h-4 transition-transform duration-200 ${
+                                expandedFolders[sf.id] ? 'rotate-90 text-cyan-500' : ''
+                              }`}
+                            />
+                          </button>
+
+                          <Link
+                            href={`/admin/quizzes/folder/${encodeURIComponent(sf.name)}`}
+                            className="flex items-center gap-2.5 group/link min-w-[260px]"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0 shadow-inner group-hover/link:scale-105 transition-transform">
+                              <Folder className="w-4 h-4" />
+                            </div>
+                            <div className="space-y-0.5 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate group-hover/link:text-amber-600 dark:group-hover/link:text-amber-400 transition-colors">
+                                  {sf.name}
+                                </span>
+                                <Badge variant="default" className="text-[10px] px-1.5 py-0 font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                                  Sub-folder
+                                </Badge>
+                              </div>
+                              {sf.description && (
+                                <p className="text-[11px] text-slate-400 truncate max-w-xs">{sf.description}</p>
+                              )}
+                            </div>
+                          </Link>
+                        </div>
+                      </TableCell>
+
+                      {/* Type / Access */}
+                      <TableCell className="py-3">
+                        <Badge variant="outline" className="font-bold text-xs flex items-center gap-1 border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5">
+                          <Folder className="w-3 h-3" />
+                          <span>Folder</span>
+                        </Badge>
+                      </TableCell>
+
+                      {/* Config / Contents */}
+                      <TableCell className="py-3">
+                        <div className="text-xs space-y-0.5 font-mono">
+                          <p className="font-bold text-cyan-600 dark:text-cyan-400">
+                            {sf.quizCount || 0} {(sf.quizCount || 0) === 1 ? 'Quiz' : 'Quizzes'}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Inside sub-folder
+                          </p>
+                        </div>
+                      </TableCell>
+
+                      {/* Schedule */}
+                      <TableCell className="py-3">
+                        <span className="text-xs text-slate-400 font-mono">—</span>
+                      </TableCell>
+
+                      {/* Status */}
+                      <TableCell className="py-3">
+                        {sf.isActive !== false ? (
+                          <Badge variant="success" className="font-bold text-xs flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Active</span>
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="font-bold text-xs flex items-center gap-1 text-slate-400">
+                            <Eye className="w-3 h-3" />
+                            <span>Hidden</span>
+                          </Badge>
+                        )}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell className="py-3 text-right">
+                        <div className="flex items-center justify-end space-x-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7 px-2 font-bold text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+                            onClick={() => handleOpenCreateQuizInSubFolder(sf.name)}
+                            title={`Create quiz in ${sf.name}`}
+                          >
+                            <Plus className="w-3 h-3 mr-0.5" />
+                            <span>Quiz</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7 px-2 font-bold text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
+                            onClick={() => handleOpenCreateSubFolder(sf)}
+                            title={`Create sub-folder inside ${sf.name}`}
+                          >
+                            <Plus className="w-3 h-3 mr-0.5" />
+                            <span>Folder</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-amber-500 h-7 w-7 p-0 cursor-pointer"
+                            onClick={() => handleOpenEditSubFolder(sf)}
+                            title="Edit Sub-folder"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-rose-500 h-7 w-7 p-0 cursor-pointer"
+                            onClick={() => setDeleteSubFolderTarget(sf)}
+                            title="Delete Sub-folder"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Expanded Dropdown Tree Children */}
+                    {expandedFolders[sf.id] && (
+                      <>
+                        {subFolderContents[sf.id]?.loading ? (
+                          <TableRow className="bg-slate-50/40 dark:bg-[#0c152e]/30 border-b border-slate-100 dark:border-[#1e2e56]/30">
+                            <TableCell colSpan={6} className="py-3 pl-12">
+                              <div className="flex items-center space-x-2 text-xs text-slate-400">
+                                <span className="w-3.5 h-3.5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                                <span>Loading inner contents for &ldquo;{sf.name}&rdquo;...</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (subFolderContents[sf.id]?.quizzes?.length === 0 && subFolderContents[sf.id]?.subFolders?.length === 0) ? (
+                          <TableRow className="bg-slate-50/40 dark:bg-[#0c152e]/30 border-b border-slate-100 dark:border-[#1e2e56]/30">
+                            <TableCell colSpan={6} className="py-3 pl-12">
+                              <div className="flex items-center justify-between py-1 flex-wrap gap-2">
+                                <div className="flex items-center gap-2 text-xs text-slate-400">
+                                  <span className="text-slate-300 dark:text-slate-600 font-mono">└──</span>
+                                  <span>No quizzes or inner folders inside &ldquo;{sf.name}&rdquo; yet.</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 px-2 font-bold text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+                                    onClick={() => handleOpenCreateQuizInSubFolder(sf.name)}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    <span>Add Quiz</span>
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 px-2 font-bold text-amber-600 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
+                                    onClick={() => handleOpenCreateSubFolder(sf)}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    <span>Add Sub-folder</span>
+                                  </Button>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          <>
+                            {/* Inner Nested Sub-Folders */}
+                            {subFolderContents[sf.id]?.subFolders?.map((innerSf) => (
+                              <TableRow
+                                key={`inner-sf-${innerSf.id}`}
+                                className="bg-slate-50/50 dark:bg-[#0c152e]/40 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-amber-500/[0.04] transition-colors"
+                              >
+                                <TableCell className="py-2.5 pl-10">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">├──</span>
+                                    <Link
+                                      href={`/admin/quizzes/folder/${encodeURIComponent(innerSf.name)}`}
+                                      className="flex items-center gap-2 group/inner"
+                                    >
+                                      <div className="w-6 h-6 rounded bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                                        <Folder className="w-3.5 h-3.5" />
+                                      </div>
+                                      <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200 group-hover/inner:text-amber-500">
+                                        {innerSf.name}
+                                      </span>
+                                      <Badge variant="default" className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-600">
+                                        Sub-folder
+                                      </Badge>
+                                    </Link>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-2.5">
+                                  <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/30">
+                                    Folder
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="py-2.5 text-xs font-mono text-cyan-600">
+                                  {innerSf.quizCount || 0} Quizzes
+                                </TableCell>
+                                <TableCell className="py-2.5 text-xs text-slate-400 font-mono">—</TableCell>
+                                <TableCell className="py-2.5">
+                                  {innerSf.isActive !== false ? (
+                                    <Badge variant="success" className="text-[10px]">Active</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[10px] text-slate-400">Hidden</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="py-2.5 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Link href={`/admin/quizzes/folder/${encodeURIComponent(innerSf.name)}`}>
+                                      <Button variant="outline" size="sm" className="text-xs h-6 px-1.5 font-bold cursor-pointer">
+                                        Open
+                                      </Button>
+                                    </Link>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-slate-400 hover:text-amber-500 cursor-pointer"
+                                      onClick={() => handleOpenEditSubFolder(innerSf)}
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                      onClick={() => setDeleteSubFolderTarget(innerSf)}
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+
+                            {/* Inner Nested Quizzes */}
+                            {subFolderContents[sf.id]?.quizzes?.map((innerQuiz) => {
+                              const innerRel = formatReleaseDateTime(innerQuiz.releaseDate);
+                              const innerPaid = innerQuiz.accessType === 'PAID';
+                              return (
+                                <TableRow
+                                  key={`inner-quiz-${innerQuiz.id}`}
+                                  className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-cyan-500/[0.04] transition-colors"
+                                >
+                                  <TableCell className="py-2.5 pl-10">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">└──</span>
+                                      <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                                            {innerQuiz.title}
+                                          </span>
+                                          {innerQuiz.isLiveMock && (
+                                            <Badge variant="gold" className="text-[9px] px-1 py-0 font-bold">
+                                              🔥 Live
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="py-2.5">
+                                    {innerQuiz.accessType === 'PAID' ? (
+                                      <Badge variant="gold" className="text-[10px]">₹{innerQuiz.price || 0}</Badge>
+                                    ) : (
+                                      <Badge variant="success" className="text-[10px]">FREE</Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="py-2.5 text-xs font-mono text-slate-600 dark:text-slate-400">
+                                    {innerQuiz.questionsCount} Qs · {innerQuiz.durationMinutes}m
+                                  </TableCell>
+                                  <TableCell className="py-2.5 text-xs text-slate-400">
+                                    {formatReleaseDateTime(innerQuiz.releaseDate).fullFormatted}
+                                  </TableCell>
+                                  <TableCell className="py-2.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleQuickToggleActive(innerQuiz)}
+                                      className="cursor-pointer"
+                                    >
+                                      <Badge className={`text-[9px] ${innerQuiz.isActive ? 'bg-emerald-500/15 text-emerald-800' : 'bg-rose-500/10 text-rose-700'}`}>
+                                        {innerQuiz.isActive ? 'Active' : 'Hidden'}
+                                      </Badge>
+                                    </button>
+                                  </TableCell>
+                                  <TableCell className="py-2.5 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <Link href={`/admin/quizzes/${innerQuiz.id}/questions`}>
+                                        <Button size="sm" variant="outline" className="text-xs h-6 px-1.5 font-bold border-cyan-500/30 text-cyan-600 cursor-pointer">
+                                          <ListChecks className="w-3 h-3 mr-0.5" />
+                                          <span>Questions</span>
+                                        </Button>
+                                      </Link>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 w-6 p-0 cursor-pointer"
+                                        onClick={() => handleOpenEditModal(innerQuiz)}
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="danger"
+                                        className="h-6 w-6 p-0 cursor-pointer"
+                                        onClick={() => setDeleteTarget(innerQuiz)}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </React.Fragment>
+                ))}
+
+                {/* Quizzes Rows */}
                 {quizzes.map((quiz) => {
                   const rel = formatReleaseDateTime(quiz.releaseDate);
                   const isPaid = quiz.accessType === 'PAID';
@@ -734,10 +1310,6 @@ export default function AdminFolderQuizzesPage() {
                                 🔥 Live Mock
                               </Badge>
                             )}
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                            <span className="font-semibold">{quiz.category}</span>
-                            {quiz.topic && <span>· {quiz.topic}</span>}
                           </div>
                         </div>
                       </TableCell>
@@ -761,84 +1333,79 @@ export default function AdminFolderQuizzesPage() {
                       <TableCell className="py-3">
                         <div className="text-xs space-y-0.5 font-mono">
                           <p className="font-bold text-slate-700 dark:text-slate-300">
-                            {quiz.questionsCount} Qs · {quiz.durationMinutes}m
+                            {quiz.questionsCount} {quiz.questionsCount === 1 ? 'Question' : 'Questions'}
                           </p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            Pass: {quiz.passingScore ?? 40}%
-                            {quiz.negativeMarkingEnabled ? ' · Neg Marking ON' : ''}
+                            {quiz.durationMinutes} Minutes · Pass: {quiz.passingScore ?? 40}%
                           </p>
                         </div>
                       </TableCell>
 
                       {/* Schedule */}
                       <TableCell className="py-3">
-                        <div className="text-xs">
-                          {rel.isUpcoming ? (
-                            <span className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>{rel.fullFormatted}</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-500 dark:text-slate-400">{rel.fullFormatted}</span>
+                        <div className="space-y-0.5 text-xs font-mono">
+                          <p className="font-bold text-slate-800 dark:text-slate-200">
+                            {rel.formattedDate}
+                          </p>
+                          {rel.formattedTime && (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {rel.formattedTime}
+                            </p>
+                          )}
+                          {rel.isUpcoming && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-600 dark:text-amber-400">
+                              Scheduled
+                            </Badge>
                           )}
                         </div>
                       </TableCell>
 
-                      {/* Status Toggle */}
+                      {/* Status */}
                       <TableCell className="py-3">
                         <button
                           type="button"
                           onClick={() => handleQuickToggleActive(quiz)}
-                          disabled={updatingStatusQuizId === quiz.id}
-                          className="cursor-pointer"
+                          className="cursor-pointer transition-transform hover:scale-105"
+                          title="Click to toggle status"
                         >
-                          <Badge
-                            className={`text-[10px] font-extrabold ${
-                              quiz.isActive
-                                ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/30'
-                                : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30'
-                            }`}
-                          >
-                            {updatingStatusQuizId === quiz.id
-                              ? 'Saving…'
-                              : quiz.isActive
-                                ? 'Active'
-                                : 'Hidden'}
-                          </Badge>
+                          {quiz.isActive ? (
+                            <Badge variant="success" className="font-bold text-xs flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Active</span>
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="font-bold text-xs flex items-center gap-1 text-slate-400">
+                              <Eye className="w-3 h-3" />
+                              <span>Hidden</span>
+                            </Badge>
+                          )}
                         </button>
                       </TableCell>
 
                       {/* Actions */}
                       <TableCell className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-end space-x-1.5">
                           <Link href={`/admin/quizzes/${quiz.id}/questions`}>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="px-2.5 py-1 text-xs font-bold flex items-center gap-1 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 cursor-pointer"
-                              title="Manage Questions"
-                            >
-                              <ListChecks className="w-3.5 h-3.5" />
+                            <Button variant="outline" size="sm" className="font-bold text-xs h-7 px-2 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 cursor-pointer">
+                              <ListChecks className="w-3.5 h-3.5 mr-1" />
                               <span>Questions</span>
                             </Button>
                           </Link>
-
                           <Button
+                            variant="ghost"
                             size="sm"
-                            variant="outline"
-                            className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-amber-600 cursor-pointer"
-                            title="Edit Quiz Settings"
+                            className="text-slate-400 hover:text-amber-500 h-7 w-7 p-0 cursor-pointer"
                             onClick={() => handleOpenEditModal(quiz)}
+                            title="Edit Quiz"
                           >
                             <Edit3 className="w-4 h-4" />
                           </Button>
-
                           <Button
+                            variant="ghost"
                             size="sm"
-                            variant="danger"
-                            className="p-1.5 hover:text-rose-600 cursor-pointer"
-                            title="Delete Quiz"
+                            className="text-slate-400 hover:text-rose-500 h-7 w-7 p-0 cursor-pointer"
                             onClick={() => setDeleteTarget(quiz)}
+                            title="Delete Quiz"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -874,8 +1441,14 @@ export default function AdminFolderQuizzesPage() {
       {/* Quiz Builder Dialog */}
       <Dialog
         isOpen={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        title={editingQuizId ? 'Edit Quiz Settings' : `Create New Quiz in "${currentFolder}"`}
+        onClose={() => {
+          setIsDialogOpen(false);
+          setEditingQuizId(null);
+          setOriginalReleaseIso(undefined);
+          setFormSubmitError('');
+        }}
+        title={editingQuizId ? `Edit Quiz: ${formik.values.title}` : `Create New Quiz in "${formik.values.selectedFolder || currentFolder}"`}
+        className="max-w-2xl"
       >
         <form className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto px-1 custom-scrollbar" onSubmit={formik.handleSubmit} noValidate>
           {formSubmitError && (
@@ -893,23 +1466,6 @@ export default function AdminFolderQuizzesPage() {
             onBlur={formik.handleBlur}
             error={formik.touched.title && formik.errors.title ? formik.errors.title : undefined}
           />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Category"
-              name="category"
-              placeholder="e.g. General Knowledge"
-              value={formik.values.category}
-              onChange={formik.handleChange}
-            />
-            <Input
-              label="Topic (Optional)"
-              name="selectedTopic"
-              placeholder="e.g. Modern Indian History"
-              value={formik.values.selectedTopic}
-              onChange={formik.handleChange}
-            />
-          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
@@ -1095,6 +1651,74 @@ export default function AdminFolderQuizzesPage() {
           </Button>
         </form>
       </Dialog>
+
+      {/* Sub-folder Create / Edit Dialog */}
+      <Dialog
+        isOpen={isSubFolderDialogOpen}
+        onClose={() => setIsSubFolderDialogOpen(false)}
+        title={editingSubFolder ? `Edit Sub-folder in "${currentFolder}"` : `Create Sub-folder in "${currentFolder}"`}
+      >
+        <form onSubmit={handleSaveSubFolder} className="space-y-4 pt-2">
+          {subFolderError && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center space-x-2">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{subFolderError}</span>
+            </div>
+          )}
+
+          <Input
+            label="Sub-folder Name"
+            placeholder="e.g. 5th STD Social Science"
+            value={subFolderName}
+            onChange={(e) => setSubFolderName(e.target.value)}
+            required
+            autoFocus
+          />
+
+          <Input
+            label="Description (Optional)"
+            placeholder="Brief notes about quizzes in this sub-folder"
+            value={subFolderDesc}
+            onChange={(e) => setSubFolderDesc(e.target.value)}
+          />
+
+          <ToggleSwitch
+            icon={Eye}
+            variant="emerald"
+            label="Active / Visible to students"
+            description="When OFF, this sub-folder and its quizzes are hidden from students."
+            checked={subFolderActive}
+            onChange={(checked) => setSubFolderActive(checked)}
+          />
+
+          <Button
+            type="submit"
+            variant="gold"
+            className="w-full font-bold shadow-md shadow-cyan-500/20 cursor-pointer"
+            isLoading={subFolderSaving}
+          >
+            {editingSubFolder ? 'Update Sub-folder' : 'Create Sub-folder'}
+          </Button>
+        </form>
+      </Dialog>
+
+      {/* Delete Sub-folder Confirmation */}
+      <ConfirmDialog
+        isOpen={deleteSubFolderTarget !== null}
+        title="Delete Sub-folder"
+        description={
+          deleteSubFolderTarget
+            ? `Are you sure you want to delete sub-folder "${deleteSubFolderTarget.name}"? Quizzes inside will be moved to "${currentFolder}".`
+            : undefined
+        }
+        confirmLabel="Delete Sub-folder"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteSubFolderTarget) handleDeleteSubFolder(deleteSubFolderTarget);
+          setDeleteSubFolderTarget(null);
+        }}
+        onCancel={() => setDeleteSubFolderTarget(null)}
+      />
 
       {/* Delete Confirmation */}
       <ConfirmDialog

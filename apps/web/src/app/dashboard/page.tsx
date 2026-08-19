@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import {
   StatsCard,
@@ -34,19 +35,16 @@ import {
   CheckCircle2,
   PlayCircle,
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  TooltipProps,
-} from 'recharts';
 import type { StudentDashboard } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
+
+// recharts is a heavy dependency only needed once the trend has ≥2 points to
+// actually plot — load it on demand instead of in the dashboard's initial JS.
+const PerformanceTrendChart = dynamic(() => import('./performance-trend-chart'), {
+  ssr: false,
+  loading: () => <div className="h-56 -ml-4 rounded-xl bg-slate-100 dark:bg-slate-900 animate-pulse" />,
+});
 
 /** How often the dashboard silently re-pulls its numbers while the tab is visible. */
 const POLL_INTERVAL_MS = 45_000;
@@ -72,20 +70,6 @@ function scoreTone(percentage: number) {
   if (percentage >= 75) return 'text-emerald-600 dark:text-emerald-400';
   if (percentage >= 40) return 'text-amber-600 dark:text-amber-400';
   return 'text-rose-600 dark:text-rose-400';
-}
-
-function ChartTooltip({ active, payload, label }: TooltipProps<number, string>) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#0c152e]/95 backdrop-blur-md px-3 py-2 shadow-lg">
-      <p className="text-[11px] font-bold text-slate-900 dark:text-white max-w-[180px] truncate">{label}</p>
-      {payload.map((entry) => (
-        <p key={entry.name} className="text-[11px] font-mono font-bold" style={{ color: entry.color }}>
-          {entry.name}: {entry.value}%
-        </p>
-      ))}
-    </div>
-  );
 }
 
 /** Circular gauge for overall accuracy — reads faster than another number in a row of numbers. */
@@ -254,17 +238,6 @@ export default function DashboardPage() {
       ? stats.previousBestRank - stats.bestRank
       : null;
   const passRate = hasAttempts ? Math.round((stats.passedCount / stats.totalAttempts) * 100) : 0;
-  // A trend confined to one day would otherwise repeat the same date on every
-  // tick, so it switches to clock time instead.
-  const trendWithinOneDay =
-    trend.length > 0 &&
-    new Set(trend.map((point) => new Date(point.date).toDateString())).size === 1;
-  const formatTrendTick = (value: string) =>
-    new Date(value).toLocaleString('en-IN',
-      trendWithinOneDay
-        ? { hour: '2-digit', minute: '2-digit' }
-        : { day: 'numeric', month: 'short' },
-    );
 
   return (
     <div className="space-y-4 sm:space-y-8 py-2 sm:py-4 px-1 sm:px-0">
@@ -360,12 +333,13 @@ export default function DashboardPage() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={book.coverUrl}
-                    alt=""
-                    className="w-12 h-16 rounded-xl object-cover border border-slate-200 dark:border-[#1e2e56] shrink-0"
+                    alt={book.title}
+                    className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl object-cover object-center border border-slate-200/90 dark:border-[#1e2e56] shadow-sm shrink-0"
                   />
                 ) : (
-                  <div className="w-12 h-16 rounded-xl bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] flex items-center justify-center text-cyan-400 shrink-0">
-                    <BookOpen className="w-5 h-5" />
+                  <div className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] flex flex-col items-center justify-center text-cyan-400 shrink-0">
+                    <BookOpen className="w-5 h-5 opacity-60" />
+                    <span className="text-[8px] font-mono text-slate-400 mt-1">No Cover</span>
                   </div>
                 )}
 
@@ -460,72 +434,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {trend.length < 2 ? (
-                <div className="h-56 flex flex-col items-center justify-center text-center gap-2">
-                  <BarChart3 className="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs">
-                    One more attempt and your score trend will start plotting here.
-                  </p>
-                </div>
-              ) : (
-                <div className="h-56 -ml-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trend} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                      <defs>
-                        <linearGradient id="scoreFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#06b6d4" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="accuracyFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.25} />
-                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="4 4" stroke="currentColor" className="text-slate-200 dark:text-[#1e2e56]" vertical={false} />
-                      <XAxis
-                        dataKey="date"
-                        tickFormatter={formatTrendTick}
-                        tick={{ fontSize: 10 }}
-                        stroke="currentColor"
-                        className="text-slate-400 dark:text-slate-500"
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        domain={[0, 100]}
-                        tick={{ fontSize: 10 }}
-                        stroke="currentColor"
-                        className="text-slate-400 dark:text-slate-500"
-                        tickLine={false}
-                        axisLine={false}
-                        width={34}
-                        tickFormatter={(value: number) => `${value}%`}
-                      />
-                      <Tooltip content={<ChartTooltip />} labelFormatter={(_, entries) => entries?.[0]?.payload?.label ?? ''} />
-                      <Area
-                        type="monotone"
-                        dataKey="percentage"
-                        name="Score"
-                        stroke="#06b6d4"
-                        strokeWidth={2.5}
-                        fill="url(#scoreFill)"
-                        dot={{ r: 3, fill: '#06b6d4', strokeWidth: 0 }}
-                        activeDot={{ r: 5 }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="accuracy"
-                        name="Accuracy"
-                        stroke="#8b5cf6"
-                        strokeWidth={2}
-                        strokeDasharray="5 4"
-                        fill="url(#accuracyFill)"
-                        dot={false}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
+              <PerformanceTrendChart trend={trend} />
             </Card>
 
             <Card className="space-y-4">

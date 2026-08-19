@@ -40,15 +40,15 @@ export default function AdminChapterPdfsPage() {
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [isReordering, setIsReordering] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await ApiClient.getPdfDocuments(chapterId);
       setDocuments([...data].sort((a, b) => a.orderIndex - b.orderIndex));
     } catch (err: any) {
       setPageError(err.message || 'Failed to load PDFs.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [chapterId]);
 
@@ -86,6 +86,14 @@ export default function AdminChapterPdfsPage() {
           isActive: values.isActive,
         };
 
+        if (editingDocument) {
+          setDocuments((prev) =>
+            prev.map((d) => (d.id === editingDocument.id ? { ...d, ...payload } : d)),
+          );
+        }
+        setIsDialogOpen(false);
+        setEditingDocument(null);
+
         const target = editingDocument
           ? await ApiClient.updatePdfDocument(editingDocument.id, payload)
           : await ApiClient.createPdfDocument(chapterId, { ...payload, orderIndex: documents.length });
@@ -97,9 +105,7 @@ export default function AdminChapterPdfsPage() {
 
         resetForm();
         setPdfFile(null);
-        setIsDialogOpen(false);
-        setEditingDocument(null);
-        await load();
+        await load(true);
       } catch (err: any) {
         setFieldError('title', err.message || 'Failed to save PDF.');
       } finally {
@@ -144,6 +150,7 @@ export default function AdminChapterPdfsPage() {
     setDocuments((prev) => prev.filter((d) => d.id !== id));
     try {
       await ApiClient.deletePdfDocument(id);
+      await load(true);
     } catch (err: any) {
       setDocuments(previous);
       setPageError(err.message || 'Failed to delete PDF.');

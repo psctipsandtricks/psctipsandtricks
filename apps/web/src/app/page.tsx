@@ -3,96 +3,19 @@ import Link from 'next/link';
 import { Button, Card, Badge } from '@psc/ui';
 import {
   Sparkles,
-  Trophy,
   BookOpen,
   ArrowRight,
-  GraduationCap,
-  ListChecks,
-  ClipboardCheck,
-  BarChart3,
-  TrendingUp,
-  Globe2,
-  Newspaper,
-  Landmark,
-  Scale,
-  Compass,
-  FlaskConical,
-  Calculator,
-  SpellCheck,
-  BookText,
-  Brain,
-  Zap,
-  Gem,
   CheckCircle2,
   Music,
   FileText,
-  Youtube,
-  ShieldCheck,
-  Sliders,
-  Eye,
   MessageCircle,
-  Users,
   FileQuestion,
   HelpCircle,
 } from 'lucide-react';
-import { StatCounter } from './home-stat-counter';
 import { HomeBooksShowcase } from './home-books-showcase';
 
 const CONTACT_PHONE_DISPLAY = '+91 88919 30605';
 const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
-
-const READER_FEATURES = [
-  {
-    icon: Music,
-    title: 'Teacher Audio Lessons',
-    description: 'Listen to experienced teachers explain key concepts alongside your PDF notes, right within the reader.',
-    color: 'cyan',
-  },
-  {
-    icon: BookOpen,
-    title: 'SCERT Std 5–10 Subdivisions',
-    description: 'Complete school textbook syllabus organized into easy chapter subtopics (1.1, 1.2, 1.3) matching PSC questions.',
-    color: 'amber',
-  },
-  {
-    icon: Sliders,
-    title: 'Voice Clarity DSP',
-    description: 'Real-time speech filtering smooths out background noise while you listen, right in the reader.',
-    color: 'emerald',
-  },
-  {
-    icon: Youtube,
-    title: 'Embedded Video Masterclasses',
-    description: 'Topic-wise YouTube video classes embedded directly within reading units for immediate visual clarification.',
-    color: 'rose',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Protected Multi-Device Access',
-    description: 'Forensically watermarked, distraction-free reading experience optimized for Android, iOS, tablets, and desktop browsers.',
-    color: 'indigo',
-  },
-] as const;
-
-const SUBJECTS = [
-  { icon: Landmark, name: 'Kerala History & Renaissance' },
-  { icon: Scale, name: 'Indian Constitution & Law' },
-  { icon: FlaskConical, name: 'SCERT Basic Science' },
-  { icon: Globe2, name: 'Social Science & Geography' },
-  { icon: Calculator, name: 'Mathematics & Shortcuts' },
-  { icon: Brain, name: 'Mental Ability & Reasoning' },
-  { icon: Newspaper, name: 'Current Affairs 2026' },
-  { icon: BookText, name: 'Malayalam Grammar & Sahithyam' },
-  { icon: SpellCheck, name: 'English Grammar & Vocabulary' },
-  { icon: Trophy, name: 'Previous Year Solved Papers' },
-] as const;
-
-const STATS = [
-  { icon: BookOpen, value: 500, suffix: '+', label: 'E-Book Chapters' },
-  { icon: Music, value: 1200, suffix: '+', label: 'Audio Lessons' },
-  { icon: Users, value: 25000, suffix: '+', label: 'Active Aspirants' },
-  { icon: FileQuestion, value: 10000, suffix: '+', label: 'Practice Questions' },
-] as const;
 
 const FAQS = [
   {
@@ -103,7 +26,7 @@ const FAQS = [
   {
     question: 'Can I listen to audio explanations while reading?',
     answer:
-      'Yes! Every topic includes a teacher audio lesson you can play alongside your notes, and you can toggle Voice Clarity to filter background noise.',
+      'Yes! Every topic includes a teacher audio lesson you can play alongside your notes, right in the reader.',
   },
   {
     question: 'Are SCERT textbooks from Class 5 to 10 covered?',
@@ -126,14 +49,6 @@ const FAQS = [
       'You can reach our student support team directly via WhatsApp or phone at +91 88919 30605 for instant assistance.',
   },
 ] as const;
-
-const COLOR_CLASSES: Record<string, { bg: string; border: string; text: string; shadow: string }> = {
-  cyan: { bg: 'bg-cyan-500/15', border: 'border-cyan-500/30', text: 'text-cyan-500', shadow: 'hover:shadow-cyan-500/10' },
-  amber: { bg: 'bg-amber-500/15', border: 'border-amber-500/30', text: 'text-amber-500', shadow: 'hover:shadow-amber-500/10' },
-  indigo: { bg: 'bg-indigo-500/15', border: 'border-indigo-500/30', text: 'text-indigo-500', shadow: 'hover:shadow-indigo-500/10' },
-  emerald: { bg: 'bg-emerald-500/15', border: 'border-emerald-500/30', text: 'text-emerald-500', shadow: 'hover:shadow-emerald-500/10' },
-  rose: { bg: 'bg-rose-500/15', border: 'border-rose-500/30', text: 'text-rose-500', shadow: 'hover:shadow-rose-500/10' },
-};
 
 function SectionHeading({
   eyebrow,
@@ -248,7 +163,7 @@ export default function HomePage() {
             <div className="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-100/70 dark:bg-[#070e22]/70 text-xs">
               <div className="flex items-center gap-2">
                 <Music className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Voice Clarity</span>
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Audio Lessons</span>
               </div>
               <div className="flex items-center gap-2">
                 <FileText className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -276,80 +191,7 @@ export default function HomePage() {
         <HomeBooksShowcase />
       </section>
 
-      {/* ── 3. Multimedia Reader Advantage (Why Our E-Books Excel) ── */}
-      <section>
-        <SectionHeading
-          eyebrow="Multimedia E-Book Reader"
-          title="A revolutionary way to study for Kerala PSC"
-          description="Built from the ground up to help you absorb, retain, and revise complex topics 3x faster."
-        />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-          {READER_FEATURES.map((feat) => {
-            const colors = COLOR_CLASSES[feat.color];
-            return (
-              <Card
-                key={feat.title}
-                className={`space-y-3 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl ${colors.shadow}`}
-              >
-                <div
-                  className={`w-12 h-12 rounded-2xl ${colors.bg} border ${colors.border} ${colors.text} flex items-center justify-center shadow-md`}
-                >
-                  <feat.icon className="w-6 h-6" />
-                </div>
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-base">{feat.title}</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{feat.description}</p>
-              </Card>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* ── 4. Subjects Covered Across Our E-Books ─────────────────── */}
-      <section>
-        <SectionHeading
-          eyebrow="Syllabus Coverage"
-          title="Covering every PSC topic from syllabus to exam day"
-          description="Comprehensive topic-wise notes for LDC, LGS, Secretariat Assistant, and Degree Level examinations."
-        />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {SUBJECTS.map((subject) => (
-            <Link
-              key={subject.name}
-              href="/books"
-              className="glass-card p-5 flex flex-col items-center text-center gap-3 group transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-amber-500/10"
-            >
-              <div className="w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
-                <subject.icon className="w-5 h-5" />
-              </div>
-              <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200 leading-snug">
-                {subject.name}
-              </span>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* ── 5. Stats / Achievement Counters ─────────────────────────── */}
-      <section className="relative overflow-hidden rounded-3xl glass-panel p-8 sm:p-12">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[36rem] h-[36rem] ambient-glow-amber rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-          {STATS.map((stat) => (
-            <div key={stat.label} className="text-center space-y-2">
-              <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center">
-                <stat.icon className="w-6 h-6" />
-              </div>
-              <p className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white font-mono">
-                <StatCounter value={stat.value} suffix={stat.suffix} />
-              </p>
-              <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-                {stat.label}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── 6. Secondary & Minimal Quiz Section (Secondary Accent) ──── */}
+      {/* ── 3. Secondary & Minimal Quiz Section (Secondary Accent) ──── */}
       <section className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-gradient-to-r from-slate-50 via-white to-slate-50 dark:from-[#0c152e] dark:via-[#091124] dark:to-[#0c152e] p-6 sm:p-8 shadow-md">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-2 text-center md:text-left max-w-xl">
@@ -384,7 +226,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 7. Frequently Asked Questions ─────────────────────────── */}
+      {/* ── 4. Frequently Asked Questions ─────────────────────────── */}
       <section>
         <SectionHeading
           eyebrow="Got Questions?"
@@ -404,7 +246,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 8. Aspirant Community & Help Hotline Banner ─────────────── */}
+      {/* ── 5. Aspirant Community & Help Hotline Banner ─────────────── */}
       <section className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-cyan-500/10 to-amber-500/10 p-8 sm:p-12 text-center space-y-5">
         <div className="max-w-2xl mx-auto space-y-2">
           <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">

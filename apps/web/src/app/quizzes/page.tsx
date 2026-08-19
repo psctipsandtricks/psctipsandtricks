@@ -1,18 +1,18 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardTitle, CardDescription, Button, Badge, Input, Pagination } from '@psc/ui';
 import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
+import { QuizFolder } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
 import { QuizHubSkeleton } from '../skeletons/page-skeletons';
 
 interface StudentQuiz {
   id: string;
   title: string;
-  category: string;
   folderName: string;
   questions: number;
   duration: number;
@@ -40,13 +40,12 @@ function useCountdown(target: string) {
     hours: Math.floor((totalSeconds % 86400) / 3600),
     minutes: Math.floor((totalSeconds % 3600) / 60),
     seconds: totalSeconds % 60,
-    isStartingNow: diffMs <= 0,
-    // Under 5 minutes: switch the display to an amber "about to start" state.
-    isUrgent: diffMs > 0 && totalSeconds < 300,
+    isStartingNow: totalSeconds <= 0,
+    isUrgent: totalSeconds > 0 && totalSeconds < 3600,
   };
 }
 
-function CountdownUnit({ value, label, urgent }: { value: number; label: string; urgent: boolean }) {
+function CountdownUnit({ value, label, urgent }: { value: number; label: string; urgent?: boolean }) {
   return (
     <div className="flex flex-col items-center min-w-[32px] sm:min-w-[36px]">
       <span
@@ -64,28 +63,40 @@ function CountdownUnit({ value, label, urgent }: { value: number; label: string;
 }
 
 export default function QuizzesPage() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
-  const [quizzes, setQuizzes] = useState<StudentQuiz[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeFolderTab, setActiveFolderTab] = useState<string>('ALL');
-  const [accessFilter, setAccessFilter] = useState<'ALL' | 'FREE' | 'PAID'>('ALL');
-  const [searchTerm, setSearchTerm] = useState('');
 
+  const [quizzes, setQuizzes] = useState<StudentQuiz[]>([]);
+  const [dbFolders, setDbFolders] = useState<QuizFolder[]>([]);
+  const [mockTests, setMockTests] = useState<any[]>([]);
+  const [myMockAttempts, setMyMockAttempts] = useState<Record<string, any>>({});
+  const [attemptedQuizIds, setAttemptedQuizIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  // Filters
+  const [searchTerm, setSearchTerm] = useState('');
+  const [accessFilter, setAccessFilter] = useState<'ALL' | 'FREE' | 'PAID'>('ALL');
+  const [activeFolderTab, setActiveFolderTab] = useState<string>('ALL');
+
+  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(9);
+  const [pageSize, setPageSize] = useState(12);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login?redirect=/quizzes');
+    }
+  }, [user, authLoading, router]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, accessFilter, activeFolderTab]);
 
-  const [mockTests, setMockTests] = useState<any[]>([]);
-  const [myMockAttempts, setMyMockAttempts] = useState<Record<string, any>>({});
-  const [attemptedQuizIds, setAttemptedQuizIds] = useState<Set<string>>(new Set());
+  // Poll reference for mock tests
   const mockTestsRef = useRef<any[]>([]);
 
-  const handleStartTest = (quiz: any) => {
-    const isPaid = quiz.accessType === 'PAID' || quiz.isPremium || (quiz.price ?? 0) > 0;
+  const handleStartQuiz = (quiz: StudentQuiz) => {
+    const isPaid = quiz.accessType === 'PAID';
     const isAlreadyAttempted = attemptedQuizIds.has(quiz.id);
 
     const targetUrl =
@@ -102,7 +113,11 @@ export default function QuizzesPage() {
     async function fetchPublishedQuizzes() {
       try {
         setLoading(true);
-        const data = await ApiClient.getPublishedQuizzes();
+        const [data, foldersData] = await Promise.all([
+          ApiClient.getPublishedQuizzes(),
+          ApiClient.getQuizFolders(),
+        ]);
+        setDbFolders(foldersData || []);
         const activePublished = (data as any[]).filter((q) => {
           // Strictly exclude any quiz whose release date/time is in the future
           if (q.releaseDate && new Date(q.releaseDate).getTime() > Date.now()) {
@@ -113,7 +128,6 @@ export default function QuizzesPage() {
         const mapped: StudentQuiz[] = activePublished.map((q) => ({
           id: q.id,
           title: q.title,
-          category: q.category,
           folderName: (!q.folderName || q.folderName === 'Root / No Folder' || q.folderName === 'Root') ? 'Root' : q.folderName,
           questions: q.totalQuestions || (q.questions?.length ?? 0),
           duration: q.durationMinutes,
@@ -202,6 +216,33 @@ export default function QuizzesPage() {
   const premiumCount = quizzes.filter((q) => q.accessType === 'PAID').length;
   const completedMockTestCount = mockTests.filter((mt) => mt.status === 'COMPLETED').length;
 
+  // Helper to compute active published quizzes in a folder + its descendants
+  const getFolderQuizCount = useCallback(
+    (folderName: string, scopedQuizzes: StudentQuiz[], allDbFolders: QuizFolder[]): number => {
+      const directCount = scopedQuizzes.filter(
+        (q) => q.folderName.toLowerCase() === folderName.toLowerCase(),
+      ).length;
+
+      const record = allDbFolders.find(
+        (f) => f.name.toLowerCase() === folderName.toLowerCase(),
+      );
+
+      if (!record) return directCount;
+
+      const childFolders = allDbFolders.filter(
+        (f) => f.parentId === record.id && f.isActive !== false && f.name.toLowerCase() !== 'root',
+      );
+
+      const descendantCount = childFolders.reduce(
+        (sum, child) => sum + getFolderQuizCount(child.name, scopedQuizzes, allDbFolders),
+        0,
+      );
+
+      return directCount + descendantCount;
+    },
+    [],
+  );
+
   // Browsing is a drill-down: course type → folder → quizzes. `accessFilter`
   // holds level 1 and `activeFolderTab` level 2, both 'ALL' until chosen.
   const browseLevel: 'ACCESS' | 'FOLDER' | 'QUIZ' =
@@ -211,7 +252,40 @@ export default function QuizzesPage() {
   // a folder that holds only premium quizzes.
   const accessScopedQuizzes =
     accessFilter === 'ALL' ? quizzes : quizzes.filter((q) => q.accessType === accessFilter);
-  const folders = Array.from(new Set(accessScopedQuizzes.map((q) => q.folderName)));
+
+  // Top-level folders (those without a parentId, active, and containing at least 1 active quiz in this scope)
+  const topDbFolders = dbFolders.filter(
+    (f) => !f.parentId && f.isActive !== false && f.name.toLowerCase() !== 'root',
+  );
+
+  const topFoldersWithQuizzes = topDbFolders.filter(
+    (f) => getFolderQuizCount(f.name, accessScopedQuizzes, dbFolders) > 0,
+  );
+
+  const quizFoldersSet = new Set(accessScopedQuizzes.map((q) => q.folderName));
+  const folders: string[] = Array.from(
+    new Set([
+      ...topFoldersWithQuizzes.map((f) => f.name),
+      ...Array.from(quizFoldersSet).filter((fn) => {
+        const found = dbFolders.find((df) => df.name.toLowerCase() === fn.toLowerCase());
+        if (!found) return Boolean(fn && fn.toLowerCase() !== 'root');
+        return !found.parentId && found.isActive !== false && getFolderQuizCount(found.name, accessScopedQuizzes, dbFolders) > 0;
+      }),
+    ]),
+  ).filter((f): f is string => Boolean(f && f.toLowerCase() !== 'root'));
+
+  // Currently active folder object and its child sub-folders (only those with active quizzes)
+  const currentFolderRecord = dbFolders.find(
+    (f) => f.name.toLowerCase() === activeFolderTab.toLowerCase(),
+  );
+  const currentSubFolders = dbFolders.filter(
+    (f) =>
+      currentFolderRecord &&
+      f.parentId === currentFolderRecord.id &&
+      f.isActive !== false &&
+      f.name.toLowerCase() !== 'root' &&
+      getFolderQuizCount(f.name, accessScopedQuizzes, dbFolders) > 0,
+  );
 
   const accessLabel = accessFilter === 'PAID' ? 'Premium Quizzes' : 'Free Quizzes';
 
@@ -226,8 +300,7 @@ export default function QuizzesPage() {
 
   const filteredQuizzes = quizzes.filter((quiz) => {
     const matchesSearch =
-      quiz.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      quiz.category.toLowerCase().includes(searchTerm.toLowerCase());
+      quiz.title.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesFolder =
       activeFolderTab === 'ALL' || quiz.folderName === activeFolderTab;
@@ -242,7 +315,7 @@ export default function QuizzesPage() {
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
   const paginatedQuizzes = filteredQuizzes.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  if (loading) {
+  if (loading || authLoading || !user) {
     return <QuizHubSkeleton />;
   }
 
@@ -308,6 +381,17 @@ export default function QuizzesPage() {
               >
                 {accessLabel}
               </button>
+              {currentFolderRecord?.parentName && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600" />
+                  <button
+                    onClick={() => setActiveFolderTab(currentFolderRecord.parentName!)}
+                    className="px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-300 hover:bg-slate-100 dark:hover:bg-[#0c152e] transition-colors cursor-pointer"
+                  >
+                    {currentFolderRecord.parentName}
+                  </button>
+                </>
+              )}
               <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600" />
               <span className="px-2.5 py-1.5 text-cyan-700 dark:text-cyan-300">
                 {activeFolderTab === 'Root / No Folder' ? '🏠 Root Level' : activeFolderTab}
@@ -358,7 +442,7 @@ export default function QuizzesPage() {
         </div>
       )}
 
-      {/* Level 2 — pick a folder inside the chosen course type */}
+      {/* Level 2 — pick a top folder inside the chosen course type */}
       {browseLevel === 'FOLDER' && (
         <div className="space-y-3">
           <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
@@ -376,7 +460,7 @@ export default function QuizzesPage() {
                 <FolderCard
                   key={folder}
                   name={folder}
-                  count={accessScopedQuizzes.filter((q) => q.folderName === folder).length}
+                  count={getFolderQuizCount(folder, accessScopedQuizzes, dbFolders)}
                   accent={accessFilter === 'PAID' ? 'premium' : 'free'}
                   onClick={() => setActiveFolderTab(folder)}
                 />
@@ -386,11 +470,33 @@ export default function QuizzesPage() {
         </div>
       )}
 
-      {/* Level 3 — the quizzes inside the chosen folder */}
+      {/* Level 3 — the quizzes and sub-folders inside the chosen folder */}
       {browseLevel === 'QUIZ' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {paginatedQuizzes.length === 0 ? (
-            <div className="col-span-full py-16 text-center">
+        <div className="space-y-6">
+          {/* If the active folder contains sub-folders, display them */}
+          {currentSubFolders.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
+                <FolderOpen className="w-4 h-4 text-amber-500" />
+                <span>Sub-folders in &ldquo;{activeFolderTab}&rdquo;</span>
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                {currentSubFolders.map((subFolder) => (
+                  <FolderCard
+                    key={subFolder.id}
+                    name={subFolder.name}
+                    count={getFolderQuizCount(subFolder.name, accessScopedQuizzes, dbFolders)}
+                    accent={accessFilter === 'PAID' ? 'premium' : 'free'}
+                    onClick={() => setActiveFolderTab(subFolder.name)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quizzes inside this folder */}
+          {paginatedQuizzes.length === 0 && currentSubFolders.length === 0 ? (
+            <div className="py-16 text-center">
               <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                 <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
                   <Search className="w-6 h-6" />
@@ -403,82 +509,81 @@ export default function QuizzesPage() {
                 </div>
               </div>
             </div>
-          ) : (
-            paginatedQuizzes.map((quiz) => (
-              <Card key={quiz.id} hoverEffect className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 p-5 rounded-2xl">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center gap-2">
-                    <div className="flex items-center space-x-2">
-                      <Badge variant={quiz.isLive ? 'gold' : 'default'}>
-                        {quiz.isLive ? '🔥 Live Mock Test' : quiz.category}
-                      </Badge>
-                      {/* Free vs Paid Access Badge */}
-                      {quiz.accessType === 'FREE' ? (
-                        <Badge variant="success" className="font-bold flex items-center gap-1">
-                          <Unlock className="w-3 h-3" />
-                          <span>FREE</span>
-                        </Badge>
+          ) : paginatedQuizzes.length > 0 ? (
+            <div className="space-y-3">
+              {currentSubFolders.length > 0 && (
+                <h3 className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Quizzes in &ldquo;{activeFolderTab}&rdquo; ({paginatedQuizzes.length})
+                </h3>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {paginatedQuizzes.map((quiz) => (
+                  <Card key={quiz.id} hoverEffect className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 p-5 rounded-2xl">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center space-x-2">
+                          <Badge variant={quiz.isLive ? 'gold' : 'default'}>
+                            {quiz.isLive ? '🔥 Live Mock Test' : 'Quiz'}
+                          </Badge>
+                          {/* Free vs Paid Access Badge */}
+                          {quiz.accessType === 'FREE' ? (
+                            <Badge variant="success" className="font-bold flex items-center gap-1">
+                              <Unlock className="w-3 h-3" />
+                              <span>FREE</span>
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="font-bold flex items-center gap-1 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30">
+                              <Lock className="w-3 h-3 text-cyan-500" />
+                              <span>₹{quiz.price}</span>
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 font-mono">
+                          <Timer className="w-3.5 h-3.5" />
+                          <span>{quiz.duration} mins</span>
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <h3 className="font-bold text-base text-slate-900 dark:text-white line-clamp-1 group-hover:text-cyan-500 transition-colors">
+                          {quiz.title}
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
+                          <span>{quiz.questions} Questions</span>
+                          <span>•</span>
+                          <span>{quiz.totalMarks} Marks</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                      {attemptedQuizIds.has(quiz.id) ? (
+                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Attempted</span>
+                        </span>
                       ) : (
-                        <Badge variant="outline" className="font-bold flex items-center gap-1 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30">
-                          <Lock className="w-3 h-3 text-cyan-500" />
-                          <span>₹{quiz.price}</span>
-                        </Badge>
+                        <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
                       )}
+                      <Button
+                        size="sm"
+                        variant={quiz.accessType === 'PAID' && !attemptedQuizIds.has(quiz.id) ? 'outline' : 'gold'}
+                        className="font-bold cursor-pointer"
+                        onClick={() => handleStartQuiz(quiz)}
+                      >
+                        <span>{attemptedQuizIds.has(quiz.id) ? 'Retake Quiz' : 'Start Quiz'}</span>
+                        <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                      </Button>
                     </div>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 font-mono">
-                      <Timer className="w-3.5 h-3.5" />
-                      <span>{quiz.duration} mins</span>
-                    </span>
-                  </div>
-
-                  {/* Folder pill + Attended/Unattended status */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center space-x-1">
-                      <Folder className="w-3 h-3 text-cyan-500" />
-                      <span>{quiz.folderName || 'Root Level'}</span>
-                    </div>
-                    {attemptedQuizIds.has(quiz.id) && (
-                      <Badge variant="success" className="text-[10px] font-bold flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Attempted</span>
-                      </Badge>
-                    )}
-                  </div>
-
-                  <CardTitle className="text-lg leading-snug">{quiz.title}</CardTitle>
-                  <CardDescription>
-                    {quiz.questions} Questions • {quiz.totalMarks} Marks • 0.33 Negative Marking
-                  </CardDescription>
-                </div>
-
-                <div className="pt-4 border-t border-slate-200/60 dark:border-[#1e2e56] flex justify-between items-center">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center space-x-1">
-                    <Award className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
-                    <span>Pass: {Math.round(quiz.totalMarks * 0.4)} Marks</span>
-                  </span>
-                  <Button
-                    variant={quiz.isLive ? 'gold' : quiz.accessType === 'FREE' ? 'primary' : 'gold'}
-                    size="sm"
-                    className="font-bold cursor-pointer"
-                    onClick={() => handleStartTest(quiz)}
-                  >
-                    <span>
-                      {attemptedQuizIds.has(quiz.id)
-                        ? 'Retake Test'
-                        : quiz.accessType === 'FREE'
-                          ? 'Start Test'
-                          : 'Unlock & Start'}
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 ml-1" />
-                  </Button>
-                </div>
-              </Card>
-            ))
-          )}
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
-      {browseLevel === 'QUIZ' && (
+      {browseLevel === 'QUIZ' && totalPages > 1 && (
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}

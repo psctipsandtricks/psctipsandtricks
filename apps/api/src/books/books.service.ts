@@ -126,6 +126,11 @@ export class BooksService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      // Callers that omit page/limit get every book as a bare array (the
+      // catalog page's current contract) — this cap is a safety net against
+      // the catalog growing unbounded, not real pagination; it doesn't change
+      // behavior at today's catalog size.
+      take: 500,
     });
     const redacted = await this.bookAccess.redactBookList(effectiveActor, books);
     return redacted.map((b: any) => ({
@@ -137,16 +142,22 @@ export class BooksService {
   }
 
   async findOne(id: string, actor?: AccessActor | null) {
-    const book = await this.prisma.book.findUnique({
+    // Book overview page (and every other current caller) only ever reads
+    // top-level Book fields — never the chapter list — so this fetches a
+    // count instead of every chapter's full row (including each chapter's
+    // full-text reading content, audio/PDF URLs), which `getReaderContent`
+    // below already serves properly gated for the actual reader.
+    const result = await this.prisma.book.findUnique({
       where: { id },
-      include: { chapters: { orderBy: { orderIndex: 'asc' } } },
+      include: { _count: { select: { chapters: true } } },
     });
-    if (!book) throw new NotFoundException('Book not found');
+    if (!result) throw new NotFoundException('Book not found');
+    const { _count, ...book } = result;
 
     // The PDF is the whole purchasable asset, so it's described but not
     // handed over until the caller has paid for it.
     const access = await this.bookAccess.getAccessState(actor, book);
-    return { ...this.bookAccess.stripPdfIfLocked(book, access), access };
+    return { ...this.bookAccess.stripPdfIfLocked(book, access), chaptersCount: _count.chapters, access };
   }
 
   /** Full reader tree (chapters → topics → subtopics) for the continuous reader — gated the same way as a download, since it hands over every topic's PDF/audio URL. */

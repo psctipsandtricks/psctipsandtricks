@@ -1,11 +1,31 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TtlCache } from '../common/ttl-cache';
+
+const USAGE_STATS_TTL_MS = 30_000;
+const SUBJECT_PERFORMANCE_TTL_MS = 30_000;
+const STUDENT_DASHBOARD_TTL_MS = 15_000;
+const ADMIN_DASHBOARD_SUMMARY_TTL_MS = 30_000;
 
 @Injectable()
 export class AnalyticsService {
+  private readonly usageStatsCache = new TtlCache<Awaited<ReturnType<AnalyticsService['computeUsageStats']>>>();
+  private readonly subjectPerformanceCache = new TtlCache<Awaited<ReturnType<AnalyticsService['computeSubjectPerformance']>>>();
+  private readonly studentDashboardCache = new TtlCache<Awaited<ReturnType<AnalyticsService['computeStudentDashboard']>>>();
+  private readonly adminDashboardSummaryCache = new TtlCache<Awaited<ReturnType<AnalyticsService['computeAdminDashboardSummary']>>>();
+
   constructor(private prisma: PrismaService) {}
 
   async getUsageStats() {
+    const cached = this.usageStatsCache.get('usageStats');
+    if (cached) return cached;
+    const result = await this.computeUsageStats();
+    this.usageStatsCache.set('usageStats', result, USAGE_STATS_TTL_MS);
+    return result;
+  }
+
+  private async computeUsageStats() {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [totalUsers, activeUsers30d, totalAttempts, totalBookReads, totalOrders, revenue] = await Promise.all([
@@ -31,6 +51,14 @@ export class AnalyticsService {
   }
 
   async getAdminDashboardSummary() {
+    const cached = this.adminDashboardSummaryCache.get('adminDashboardSummary');
+    if (cached) return cached;
+    const result = await this.computeAdminDashboardSummary();
+    this.adminDashboardSummaryCache.set('adminDashboardSummary', result, ADMIN_DASHBOARD_SUMMARY_TTL_MS);
+    return result;
+  }
+
+  private async computeAdminDashboardSummary() {
     const now = new Date();
     const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
@@ -114,6 +142,15 @@ export class AnalyticsService {
    * rank and its accuracy rather than twice with half the numbers each.
    */
   async getStudentDashboard(userId: string) {
+    const cached = this.studentDashboardCache.get(userId);
+    if (cached) return { ...cached, generatedAt: new Date() };
+
+    const result = await this.computeStudentDashboard(userId);
+    this.studentDashboardCache.set(userId, result, STUDENT_DASHBOARD_TTL_MS);
+    return result;
+  }
+
+  private async computeStudentDashboard(userId: string) {
     const now = Date.now();
     const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const twoWeeksAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
@@ -122,7 +159,7 @@ export class AnalyticsService {
       this.prisma.quizSubmission.findMany({
         where: { userId, attemptStatus: 'COMPLETED' },
         include: {
-          quiz: { select: { id: true, title: true, category: true, passingMarks: true } },
+          quiz: { select: { id: true, title: true, passingMarks: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: 200,
@@ -183,7 +220,7 @@ export class AnalyticsService {
         id: s.id,
         quizId: s.quizId,
         title: mock?.mockTest?.title || s.quiz?.title || 'Practice Quiz',
-        category: s.quiz?.category || 'General',
+        category: 'Quiz',
         isMockTest: !!mock,
         mockTestId: mock?.mockTest?.id ?? null,
         score: s.score,
@@ -316,32 +353,43 @@ export class AnalyticsService {
   }
 
   async getSubjectPerformance() {
-    const quizzes = await this.prisma.quiz.findMany({
-      select: {
-        id: true,
-        title: true,
-        category: true,
-        submissions: { select: { score: true, totalMarks: true, passed: true } },
-      },
-    });
+    const cached = this.subjectPerformanceCache.get('subjectPerformance');
+    if (cached) return cached;
+    const result = await this.computeSubjectPerformance();
+    this.subjectPerformanceCache.set('subjectPerformance', result, SUBJECT_PERFORMANCE_TTL_MS);
+    return result;
+  }
 
-    return quizzes.map((quiz) => {
-      const attempts = quiz.submissions.length;
-      const avgScore = attempts
-        ? quiz.submissions.reduce((sum, s) => sum + s.score, 0) / attempts
-        : 0;
-      const passRate = attempts
-        ? (quiz.submissions.filter((s) => s.passed).length / attempts) * 100
-        : 0;
+  private async computeSubjectPerformance() {
+    // Aggregated in SQL (LEFT JOIN so a quiz with zero submissions still
+    // appears with zero stats, matching the old behavior) rather than
+    // pulling every quiz's entire submission history into Node just to
+    // average/count it — that scan only gets more expensive as attempts
+    // accumulate, with no query change needed to trigger the slowdown.
+    const rows = await this.prisma.$queryRaw<
+      { quizId: string; title: string; subject: string; attempts: number; averageScore: number; passRatePercent: number }[]
+    >(
+      Prisma.sql`
+        SELECT
+          q.id AS "quizId",
+          q.title,
+          q.category AS subject,
+          COUNT(s.id)::int AS attempts,
+          COALESCE(AVG(s.score), 0)::float AS "averageScore",
+          COALESCE(COUNT(*) FILTER (WHERE s.passed) * 100.0 / NULLIF(COUNT(s.id), 0), 0)::float AS "passRatePercent"
+        FROM "Quiz" q
+        LEFT JOIN "QuizSubmission" s ON s."quizId" = q.id
+        GROUP BY q.id, q.title, q.category
+      `,
+    );
 
-      return {
-        quizId: quiz.id,
-        title: quiz.title,
-        subject: quiz.category,
-        attempts,
-        averageScore: Math.round(avgScore * 100) / 100,
-        passRatePercent: Math.round(passRate * 100) / 100,
-      };
-    });
+    return rows.map((r) => ({
+      quizId: r.quizId,
+      title: r.title,
+      subject: r.subject,
+      attempts: r.attempts,
+      averageScore: Math.round(r.averageScore * 100) / 100,
+      passRatePercent: Math.round(r.passRatePercent * 100) / 100,
+    }));
   }
 }

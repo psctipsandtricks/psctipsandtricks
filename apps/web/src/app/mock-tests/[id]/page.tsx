@@ -9,7 +9,6 @@ import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { QuizPaywall } from '@/app/quiz-paywall';
 import { QuizTakingSkeleton } from '../../skeletons/page-skeletons';
-import { generateQuizSolutionsPDF } from '@/lib/pdf-exporter';
 
 interface QuizQuestionOption {
   id?: string;
@@ -314,6 +313,9 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
 
     setIsExportingPDF(true);
     try {
+      // jsPDF is a heavy dependency only needed when the student actually
+      // exports their solutions, not on every mock-test view.
+      const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
       await generateQuizSolutionsPDF({
         quizTitle: mockTest?.title || mockTest?.quiz?.title || 'Live Mock Test Solutions',
         score: submitResult?.score ?? myParticipant?.score,

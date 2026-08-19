@@ -136,9 +136,9 @@ export default function StaffManagementPage() {
 
   const { adminUser, refreshAdminUser } = useAdminAuth();
 
-  const fetchStaff = useCallback(async () => {
+  const fetchStaff = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setErrorBanner('');
       const res = await ApiClient.getStaff({
         search: searchTerm || undefined,
@@ -153,7 +153,7 @@ export default function StaffManagementPage() {
       console.error('Failed to fetch staff:', err);
       setErrorBanner(err?.message || 'Failed to load staff list');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [searchTerm, roleFilter, statusFilter, currentPage, pageSize]);
 
@@ -162,9 +162,13 @@ export default function StaffManagementPage() {
   }, []);
 
   useEffect(() => {
-    if (mounted) {
+    if (!mounted) return;
+    // Debounced so typing in the search box doesn't fire an API request per
+    // keystroke — matches the pattern used on the other admin list pages.
+    const timer = setTimeout(() => {
       fetchStaff();
-    }
+    }, 250);
+    return () => clearTimeout(timer);
   }, [mounted, fetchStaff]);
 
   useEffect(() => {
@@ -339,38 +343,48 @@ export default function StaffManagementPage() {
 
   const handleExecuteStatusToggle = async () => {
     if (!statusConfirmStaff) return;
-    setActionLoading(true);
-    setErrorBanner('');
+    const target = statusConfirmStaff;
+    const previous = staffList;
+    setStaffList((prev) =>
+      prev.map((s) => (s.id === target.staff.id ? { ...s, status: target.nextStatus } : s)),
+    );
+    setStatusConfirmStaff(null);
+    setSuccessBanner(
+      target.nextStatus === 'SUSPENDED'
+        ? `Suspended account for ${target.staff.name}`
+        : `Reactivated account for ${target.staff.name}`,
+    );
+
     try {
-      if (statusConfirmStaff.nextStatus === 'SUSPENDED') {
-        await ApiClient.suspendStaff(statusConfirmStaff.staff.id);
-        setSuccessBanner(`Suspended account for ${statusConfirmStaff.staff.name}`);
+      if (target.nextStatus === 'SUSPENDED') {
+        await ApiClient.suspendStaff(target.staff.id);
       } else {
-        await ApiClient.reactivateStaff(statusConfirmStaff.staff.id);
-        setSuccessBanner(`Reactivated account for ${statusConfirmStaff.staff.name}`);
+        await ApiClient.reactivateStaff(target.staff.id);
       }
-      setStatusConfirmStaff(null);
-      fetchStaff();
+      await fetchStaff(true);
     } catch (err: any) {
+      setStaffList(previous);
       setErrorBanner(err?.message || 'Failed to update account status');
-    } finally {
-      setActionLoading(false);
     }
   };
 
   const handleExecuteDelete = async () => {
     if (!deleteConfirmStaff) return;
-    setActionLoading(true);
-    setErrorBanner('');
+    const target = deleteConfirmStaff;
+    const previous = staffList;
+    const prevTotal = totalItems;
+    setStaffList((prev) => prev.filter((s) => s.id !== target.id));
+    setTotalItems((prev) => Math.max(0, prev - 1));
+    setDeleteConfirmStaff(null);
+    setSuccessBanner(`Deleted staff account for ${target.name}`);
+
     try {
-      await ApiClient.deleteStaff(deleteConfirmStaff.id);
-      setSuccessBanner(`Deleted staff account for ${deleteConfirmStaff.name}`);
-      setDeleteConfirmStaff(null);
-      fetchStaff();
+      await ApiClient.deleteStaff(target.id);
+      await fetchStaff(true);
     } catch (err: any) {
+      setStaffList(previous);
+      setTotalItems(prevTotal);
       setErrorBanner(err?.message || 'Failed to delete staff member');
-    } finally {
-      setActionLoading(false);
     }
   };
 
@@ -406,7 +420,7 @@ export default function StaffManagementPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchStaff}
+            onClick={() => fetchStaff(false)}
             className="font-bold text-xs"
             title="Refresh list"
           >

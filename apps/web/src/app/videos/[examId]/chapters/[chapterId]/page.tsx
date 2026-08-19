@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import { Badge, Skeleton } from '@psc/ui';
 import { ArrowLeft, ExternalLink, Video as VideoIcon, X, FileText, PlayCircle } from 'lucide-react';
@@ -10,7 +11,13 @@ import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { youtubeEmbedUrl, youtubeWatchUrl } from '@/lib/youtube';
 import { VideoThumbnail } from './video-thumbnail';
-import { SecureVideoPdfViewer } from './secure-video-pdf-viewer';
+
+// react-pdf/pdfjs-dist is a heavy bundle only needed when a student actually
+// switches to the PDF Notes tab, not on every visit to a video chapter page.
+const SecureVideoPdfViewer = dynamic(() => import('./secure-video-pdf-viewer').then((m) => m.SecureVideoPdfViewer), {
+  ssr: false,
+  loading: () => <div className="flex-1 min-h-[300px] rounded-xl bg-slate-100 dark:bg-slate-900 animate-pulse" />,
+});
 
 export default function ChapterVideosPage() {
   const params = useParams();

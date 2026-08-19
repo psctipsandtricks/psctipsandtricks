@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Sidebar } from '@psc/ui';
 import {
@@ -107,6 +109,8 @@ function AdminPanelShell({
   mobileNavOpen: boolean;
   setMobileNavOpen: (open: boolean) => void;
 }) {
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
   const allSidebarItems = [
     { id: 'dashboard', label: 'Analytics Dashboard', href: '/admin', icon: <LayoutDashboard className="w-4 h-4" />, perm: 'viewAnalytics' },
     { id: 'quizzes', label: 'Manage Quizzes', href: '/admin/quizzes', icon: <HelpCircle className="w-4 h-4" />, perm: 'manageQuizzes' },
@@ -132,7 +136,7 @@ function AdminPanelShell({
 
   return (
     <div className="h-screen h-[100vh] flex bg-slate-50 dark:bg-[#060b18] text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar with Sidebar Control */}
       <Sidebar
         brandName="PSC Control Panel"
         brandIcon={
@@ -200,7 +204,7 @@ function AdminPanelShell({
             {/* Logout Pill */}
             <button
               type="button"
-              onClick={logoutAdmin}
+              onClick={() => setShowLogoutModal(true)}
               className="flex items-center space-x-1 text-xs text-rose-500 hover:bg-rose-500/10 border border-rose-500/20 px-2.5 py-1.5 rounded-xl font-bold cursor-pointer transition-all shrink-0"
               title="Logout from Admin Panel"
             >
@@ -238,6 +242,56 @@ function AdminPanelShell({
         )}
 
         <main className="flex-1 flex flex-col min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6">{children}</main>
+
+        {/* Admin Logout Confirmation Modal */}
+        {showLogoutModal &&
+          createPortal(
+            <div
+              className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+              onClick={() => setShowLogoutModal(false)}
+            >
+              <div
+                className="relative w-full max-w-md bg-white dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-500 shrink-0 shadow-xs">
+                    <LogOut className="w-6 h-6" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white leading-tight">
+                      Sign Out of Admin Portal
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Are you sure you want to end your administrative session for <span className="font-bold text-slate-700 dark:text-slate-200">{adminUser.name}</span>?
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setShowLogoutModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowLogoutModal(false);
+                      logoutAdmin();
+                    }}
+                    className="px-5 py-2.5 rounded-xl text-xs font-black text-white bg-rose-600 hover:bg-rose-500 shadow-md shadow-rose-600/25 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Confirm Logout</span>
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
       </div>
     </div>
   );

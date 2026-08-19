@@ -64,7 +64,14 @@ export function LibraryFolderGrid({
     try {
       setLoading(true);
       const data = await fetchFolders();
-      setFolders([...data].sort((a, b) => a.orderIndex - b.orderIndex));
+      const nonEmptyFolders = (data || []).filter((folder: any) => {
+        if (typeof folder.documentCount === 'number' && folder.documentCount === 0) return false;
+        if (typeof folder.videoCount === 'number' && folder.videoCount === 0) return false;
+        if (typeof folder.quizCount === 'number' && folder.quizCount === 0) return false;
+        if (typeof folder.itemCount === 'number' && folder.itemCount === 0) return false;
+        return true;
+      });
+      setFolders([...nonEmptyFolders].sort((a, b) => a.orderIndex - b.orderIndex));
       setError('');
     } catch (err: any) {
       setError(err.message || `Failed to load ${nounPlural}.`);

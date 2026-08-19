@@ -1,13 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  Maximize2,
   FileText,
   Loader2,
   FileWarning,
@@ -26,12 +25,94 @@ export interface SecurePdfViewerProps {
   onClose?: () => void;
 }
 
+const LazyPreviewPage = memo(function LazyPreviewPage({
+  pageNumber,
+  width,
+  aspectRatio,
+  onHeightMeasured,
+}: {
+  pageNumber: number;
+  width: number;
+  aspectRatio: number;
+  onHeightMeasured?: (height: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(pageNumber <= 2);
+
+  useEffect(() => {
+    if (pageNumber <= 2) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry && entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '400px 0px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pageNumber]);
+
+  const estimatedHeight = Math.round(width * (aspectRatio || 1.414));
+  const pixelRatio = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+
+  return (
+    <div
+      ref={containerRef}
+      id={`preview-pdf-page-${pageNumber}`}
+      className="relative bg-white shadow-2xl rounded-lg overflow-hidden border border-slate-800 transition-transform duration-150"
+      style={{
+        width,
+        minHeight: isVisible ? undefined : estimatedHeight,
+        pointerEvents: 'none',
+      }}
+    >
+      {isVisible ? (
+        <Page
+          pageNumber={pageNumber}
+          width={width}
+          renderTextLayer={false}
+          renderAnnotationLayer={false}
+          devicePixelRatio={pixelRatio}
+          loading={
+            <div
+              style={{ width, height: estimatedHeight }}
+              className="flex items-center justify-center bg-slate-900 text-slate-500 text-xs font-mono"
+            >
+              Loading page {pageNumber}…
+            </div>
+          }
+          onRenderSuccess={(page) => {
+            if (page.height) {
+              onHeightMeasured?.(page.height);
+            }
+          }}
+        />
+      ) : (
+        <div
+          style={{ width, height: estimatedHeight }}
+          className="flex items-center justify-center bg-slate-900 text-slate-600 text-xs font-mono"
+        >
+          Page {pageNumber}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.0);
   const [containerWidth, setContainerWidth] = useState<number>(750);
+  const [aspectRatio, setAspectRatio] = useState<number>(1.414);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,7 +147,7 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, []);
 
-  const handleZoomIn = () => setScale((s) => Math.min(s + 0.15, 2.2));
+  const handleZoomIn = () => setScale((s) => Math.min(s + 0.15, 2.0));
   const handleZoomOut = () => setScale((s) => Math.max(s - 0.15, 0.7));
   const handleResetZoom = () => setScale(1.0);
 
@@ -87,6 +168,29 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
       return next;
     });
   };
+
+  const handleHeightMeasured = useCallback(
+    (height: number) => {
+      if (height > 0 && containerWidth > 0) {
+        const ratio = height / (containerWidth * scale);
+        if (ratio > 0.5 && ratio < 3.0) {
+          setAspectRatio(ratio);
+        }
+      }
+    },
+    [containerWidth, scale]
+  );
+
+  const documentOptions = useMemo(
+    () => ({
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+    }),
+    []
+  );
+
+  const finalWidth = containerWidth * scale;
 
   return (
     <div
@@ -175,7 +279,7 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
         </div>
       </div>
 
-      {/* Reader Body with Canvas Rendering */}
+      {/* Reader Body with Virtualized Page Rendering */}
       <div
         ref={containerRef}
         className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 flex flex-col items-center relative bg-slate-950/90"
@@ -201,6 +305,7 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
 
         <Document
           file={url}
+          options={documentOptions}
           onLoadSuccess={({ numPages: total }) => {
             setNumPages(total);
             setLoading(false);
@@ -219,34 +324,19 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
           }
           className="flex flex-col items-center gap-4 w-full"
         >
-          {Array.from(new Array(numPages || 0), (_, index) => {
-            const pageNum = index + 1;
-            return (
-              <div
-                key={`page_${pageNum}`}
-                id={`preview-pdf-page-${pageNum}`}
-                className="relative bg-white shadow-2xl rounded-lg overflow-hidden border border-slate-800 transition-transform duration-150"
-                style={{
-                  pointerEvents: 'none', // Prevents image drag/drop and context menu
-                }}
-              >
-                <Page
+          {numPages &&
+            Array.from({ length: numPages }, (_, index) => {
+              const pageNum = index + 1;
+              return (
+                <LazyPreviewPage
+                  key={`preview_page_${pageNum}`}
                   pageNumber={pageNum}
-                  width={containerWidth * scale}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  loading={
-                    <div
-                      style={{ width: containerWidth * scale, height: (containerWidth * scale * 1.4) }}
-                      className="flex items-center justify-center bg-slate-900 text-slate-500 text-xs"
-                    >
-                      Loading page {pageNum}…
-                    </div>
-                  }
+                  width={finalWidth}
+                  aspectRatio={aspectRatio}
+                  onHeightMeasured={pageNum === 1 ? handleHeightMeasured : undefined}
                 />
-              </div>
-            );
-          })}
+              );
+            })}
         </Document>
       </div>
 

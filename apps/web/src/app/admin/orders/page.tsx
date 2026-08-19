@@ -46,7 +46,7 @@ import {
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 import { ApiClient } from '@/lib/api-client';
 import { User, Book, Quiz } from '@psc/shared-types';
-import { generateOrdersPDF, OrderPDFItem } from '@/lib/orders-pdf-exporter';
+import type { OrderPDFItem } from '@/lib/orders-pdf-exporter';
 
 const MANUAL_ORDER_TAG = 'MANUAL_GRANT';
 
@@ -669,6 +669,9 @@ export default function AdminOrdersPage() {
         isManual: o.isManual,
       }));
 
+      // jsPDF is a heavy dependency only needed on this explicit export
+      // action, not on every admin visit to the Orders page.
+      const { generateOrdersPDF } = await import('@/lib/orders-pdf-exporter');
       await generateOrdersPDF({
         periodLabel,
         startDate: pdfStartDate,

@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, Input, Pagination } from '@psc/ui';
 import {
   Search,
-  Eye,
   ArrowRight,
   ShoppingCart,
   BookOpen,
@@ -38,6 +37,12 @@ function BooksContent() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login?redirect=/books');
+    }
+  }, [user, authLoading, router]);
 
   // Tab state: 'all' or 'purchased'
   const filterParam = searchParams.get('filter');
@@ -148,7 +153,7 @@ function BooksContent() {
     setCurrentPage(1);
   }, [searchTerm, selectedCategory, activeTab]);
 
-  if (!mounted || loading || authLoading) {
+  if (!mounted || loading || authLoading || !user) {
     return <BookCatalogSkeleton />;
   }
 
@@ -433,11 +438,8 @@ function BooksContent() {
                 {/* Content Body */}
                 <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
+                    <div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">By {book.author || 'PSC Editorial Board'}</p>
-                      <span className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
-                        <Eye className="w-3 h-3" /> {book.downloadCount}
-                      </span>
                     </div>
 
                     <h3 className="font-black text-slate-900 dark:text-white text-base leading-snug line-clamp-2 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">

@@ -115,15 +115,15 @@ export function LibraryFolderManager({
     });
   };
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await fetchItems();
       setItems([...data].sort((a, b) => a.orderIndex - b.orderIndex));
     } catch (err: any) {
       setPageError(err.message || `Failed to load ${nounPlural.toLowerCase()}.`);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -143,14 +143,21 @@ export function LibraryFolderManager({
           isActive: values.isActive,
         };
         if (editingItem) {
+          setItems((prev) =>
+            prev.map((i) => (i.id === editingItem.id ? { ...i, ...payload } : i)),
+          );
+          setIsDialogOpen(false);
+          setEditingItem(null);
+          resetForm();
           await updateItem(editingItem.id, payload);
+          await load(true);
         } else {
+          setIsDialogOpen(false);
+          setEditingItem(null);
+          resetForm();
           await createItem({ ...payload, orderIndex: items.length });
+          await load(true);
         }
-        resetForm();
-        setIsDialogOpen(false);
-        setEditingItem(null);
-        await load();
       } catch (err: any) {
         setFieldError('title', err.message || `Failed to save ${nounSingular.toLowerCase()}.`);
       } finally {
@@ -178,6 +185,7 @@ export function LibraryFolderManager({
     setItems((prev) => prev.filter((i) => i.id !== id));
     try {
       await deleteItem(id);
+      await load(true);
     } catch (err: any) {
       setItems(previous);
       alert(err.message || `Failed to delete ${nounSingular.toLowerCase()}.`);

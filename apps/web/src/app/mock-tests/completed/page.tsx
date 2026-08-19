@@ -90,61 +90,71 @@ export default function CompletedMockTestsPage() {
           .filter((mt) => mt.status === 'COMPLETED')
           .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
 
-        // The stored `rank` is written by a background worker and can lag or be
-        // missing, so derive it from the leaderboard — which ranks live from the
-        // score ordering — for every test this student actually submitted.
-        const enriched = await Promise.all(
-          completed.map(async (mt) => {
-            const attempt = attemptByTestId.get(mt.id);
-            const hasAccess = mt.access?.hasAccess ?? true;
-            const joined = !!attempt;
-            const attempted = !!attempt?.submittedAt;
+        const baseList: CompletedMockTest[] = completed.map((mt) => {
+          const attempt = attemptByTestId.get(mt.id);
+          const hasAccess = mt.access?.hasAccess ?? true;
+          const joined = !!attempt;
+          const attempted = !!attempt?.submittedAt;
 
-            // A payment lapse takes priority over join/submit history — a locked
-            // premium test never shows scores or a rank list, no matter what a
-            // participant row says.
-            let state: MockTestState;
-            if (!hasAccess) state = 'LOCKED';
-            else if (attempted) state = 'ATTEMPTED';
-            else if (joined) state = 'MISSED';
-            else state = 'NOT_ATTEMPTED';
+          // A payment lapse takes priority over join/submit history — a locked
+          // premium test never shows scores or a rank list, no matter what a
+          // participant row says.
+          let state: MockTestState;
+          if (!hasAccess) state = 'LOCKED';
+          else if (attempted) state = 'ATTEMPTED';
+          else if (joined) state = 'MISSED';
+          else state = 'NOT_ATTEMPTED';
 
-            const base: CompletedMockTest = {
-              id: mt.id,
-              quizId: mt.quizId,
-              title: mt.title,
-              quizTitle: mt.quiz?.title || 'Quiz',
-              scheduledAt: mt.scheduledAt,
-              totalMarks: mt.quiz?.totalMarks ?? 0,
-              participantCount: mt._count?.participants ?? 0,
-              state,
-              price: mt.access?.price ?? mt.quiz?.price ?? 0,
-              myScore: attempt?.score ?? undefined,
-              myRank: attempt?.rank ?? undefined,
-            };
+          return {
+            id: mt.id,
+            quizId: mt.quizId,
+            title: mt.title,
+            quizTitle: mt.quiz?.title || 'Quiz',
+            scheduledAt: mt.scheduledAt,
+            totalMarks: mt.quiz?.totalMarks ?? 0,
+            participantCount: mt._count?.participants ?? 0,
+            state,
+            price: mt.access?.price ?? mt.quiz?.price ?? 0,
+            myScore: attempt?.score ?? undefined,
+            myRank: attempt?.rank ?? undefined,
+          };
+        });
 
-            if (state !== 'ATTEMPTED') return base;
+        // Render immediately with the stored rank/score (accurate the vast
+        // majority of the time) instead of blocking first paint behind one
+        // leaderboard request per attempted test — a student with many
+        // completed tests previously waited on all of them, in parallel,
+        // before anything appeared. The stored `rank` is written by a
+        // background worker and can lag or be missing right after
+        // submission, so each attempted test's rank/score is then upgraded
+        // in place to the live leaderboard-derived value as its request
+        // resolves.
+        setTests(baseList);
+        setLoading(false);
 
-            try {
-              const board = await ApiClient.getMockTestLeaderboard(mt.id);
-              const mine = (board || []).find((entry: any) => entry.userId === user!.id);
-              return {
-                ...base,
-                myRank: mine?.rank ?? base.myRank,
-                myScore: mine?.score ?? base.myScore,
-                rankedOutOf: board?.length ?? undefined,
-              };
-            } catch (err) {
-              console.error(`Failed to load leaderboard for mock test ${mt.id}:`, err);
-              return base;
-            }
-          }),
-        );
-
-        setTests(enriched);
+        baseList
+          .filter((t) => t.state === 'ATTEMPTED')
+          .forEach((t) => {
+            ApiClient.getMockTestLeaderboard(t.id)
+              .then((board) => {
+                const mine = (board || []).find((entry: any) => entry.userId === user!.id);
+                setTests((prev) =>
+                  prev.map((row) =>
+                    row.id === t.id
+                      ? {
+                          ...row,
+                          myRank: mine?.rank ?? row.myRank,
+                          myScore: mine?.score ?? row.myScore,
+                          rankedOutOf: board?.length ?? undefined,
+                        }
+                      : row,
+                  ),
+                );
+              })
+              .catch((err) => console.error(`Failed to load leaderboard for mock test ${t.id}:`, err));
+          });
       } catch (err) {
         console.error('Failed to load completed mock tests:', err);
-      } finally {
         setLoading(false);
       }
     }

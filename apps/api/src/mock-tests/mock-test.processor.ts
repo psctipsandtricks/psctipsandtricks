@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../chat/chat.gateway';
-import { MockTestStatus } from '@prisma/client';
+import { MockTestStatus, Prisma } from '@prisma/client';
 import { QueuePoller } from '../queue/queue-poller';
 import { SupabaseQueueService } from '../queue/queue.service';
 
@@ -31,14 +31,22 @@ export class MockTestProcessor extends QueuePoller<RecomputeRankMessage> {
       orderBy: [{ score: 'desc' }],
     });
 
-    await this.prisma.$transaction(
-      participants.map((p, idx) =>
-        this.prisma.mockTestParticipant.update({
-          where: { id: p.id },
-          data: { rank: idx + 1 },
-        }),
-      ),
-    );
+    // A single bulk UPDATE...FROM(VALUES...) instead of one round trip per
+    // participant — a live mock test with hundreds/thousands of submitters
+    // otherwise means hundreds/thousands of sequential UPDATEs on every
+    // submission's rank recompute.
+    if (participants.length > 0) {
+      await this.prisma.$executeRaw(
+        Prisma.sql`
+          UPDATE "MockTestParticipant" AS p
+          SET rank = v.rank
+          FROM (VALUES ${Prisma.join(
+            participants.map((p, idx) => Prisma.sql`(${p.id}::text, ${idx + 1}::int)`),
+          )}) AS v(id, rank)
+          WHERE p.id = v.id
+        `,
+      );
+    }
 
     const leaderboard = participants.slice(0, 50).map((p, idx) => ({
       rank: idx + 1,

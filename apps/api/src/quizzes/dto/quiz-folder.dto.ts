@@ -17,6 +17,10 @@ export class CreateQuizFolderDto {
 
   @IsOptional()
   @IsString()
+  parentId?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @IsOptional()
@@ -34,6 +38,10 @@ export class UpdateQuizFolderDto {
   @IsString()
   @IsNotEmpty()
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  parentId?: string;
 
   @IsOptional()
   @IsString()

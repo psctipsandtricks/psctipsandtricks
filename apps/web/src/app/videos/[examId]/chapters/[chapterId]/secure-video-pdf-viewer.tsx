@@ -1,13 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  Maximize2,
   FileText,
   Loader2,
   FileWarning,
@@ -24,12 +23,94 @@ interface SecureVideoPdfViewerProps {
   user?: { id?: string; name?: string; email?: string; phone?: string } | null;
 }
 
+const LazyVideoPdfPage = memo(function LazyVideoPdfPage({
+  pageNumber,
+  width,
+  aspectRatio,
+  onHeightMeasured,
+}: {
+  pageNumber: number;
+  width: number;
+  aspectRatio: number;
+  onHeightMeasured?: (height: number) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(pageNumber <= 2);
+
+  useEffect(() => {
+    if (pageNumber <= 2) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry && entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '400px 0px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pageNumber]);
+
+  const estimatedHeight = Math.round(width * (aspectRatio || 1.414));
+  const pixelRatio = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+
+  return (
+    <div
+      ref={containerRef}
+      id={`pdf-page-${pageNumber}`}
+      className="relative bg-white shadow-2xl rounded-lg overflow-hidden border border-slate-800 transition-transform duration-150"
+      style={{
+        width,
+        minHeight: isVisible ? undefined : estimatedHeight,
+        pointerEvents: 'none',
+      }}
+    >
+      {isVisible ? (
+        <Page
+          pageNumber={pageNumber}
+          width={width}
+          renderTextLayer={false}
+          renderAnnotationLayer={false}
+          devicePixelRatio={pixelRatio}
+          loading={
+            <div
+              style={{ width, height: estimatedHeight }}
+              className="flex items-center justify-center bg-slate-900 text-slate-500 text-xs font-mono"
+            >
+              Loading page {pageNumber}…
+            </div>
+          }
+          onRenderSuccess={(page) => {
+            if (page.height) {
+              onHeightMeasured?.(page.height);
+            }
+          }}
+        />
+      ) : (
+        <div
+          style={{ width, height: estimatedHeight }}
+          className="flex items-center justify-center bg-slate-900 text-slate-600 text-xs font-mono"
+        >
+          Page {pageNumber}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.0);
   const [containerWidth, setContainerWidth] = useState<number>(750);
+  const [aspectRatio, setAspectRatio] = useState<number>(1.414);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +124,6 @@ export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerP
       if (entry) {
         const w = entry.contentRect.width;
         if (w > 0) {
-          // Reserve padding
           setContainerWidth(Math.min(w - 32, 900));
         }
       }
@@ -65,7 +145,7 @@ export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerP
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, []);
 
-  const handleZoomIn = () => setScale((s) => Math.min(s + 0.15, 2.2));
+  const handleZoomIn = () => setScale((s) => Math.min(s + 0.15, 2.0));
   const handleZoomOut = () => setScale((s) => Math.max(s - 0.15, 0.7));
   const handleResetZoom = () => setScale(1.0);
 
@@ -86,6 +166,29 @@ export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerP
       return next;
     });
   };
+
+  const handleHeightMeasured = useCallback(
+    (height: number) => {
+      if (height > 0 && containerWidth > 0) {
+        const ratio = height / (containerWidth * scale);
+        if (ratio > 0.5 && ratio < 3.0) {
+          setAspectRatio(ratio);
+        }
+      }
+    },
+    [containerWidth, scale]
+  );
+
+  const documentOptions = useMemo(
+    () => ({
+      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+    }),
+    []
+  );
+
+  const finalWidth = containerWidth * scale;
 
   return (
     <div
@@ -140,122 +243,97 @@ export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerP
               className="p-1 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors cursor-pointer"
               title="Zoom Out"
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              <ZoomOut className="w-3 h-3" />
             </button>
-            <span className="px-1.5 text-[10px] font-mono text-slate-300">
+            <button
+              type="button"
+              onClick={handleResetZoom}
+              className="px-1 text-[10px] hover:text-white hover:bg-slate-700/50 rounded-md transition-colors cursor-pointer"
+              title="Reset Zoom"
+            >
               {Math.round(scale * 100)}%
-            </span>
+            </button>
             <button
               type="button"
               onClick={handleZoomIn}
               className="p-1 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors cursor-pointer"
               title="Zoom In"
             >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleResetZoom}
-              className="p-1 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors cursor-pointer ml-0.5"
-              title="Reset Zoom"
-            >
-              <Maximize2 className="w-3 h-3" />
+              <ZoomIn className="w-3 h-3" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* PDF Canvas Document Viewport */}
+      {/* Reader Body with Virtualized Page Canvas */}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 flex flex-col items-center space-y-4 custom-scrollbar bg-slate-950/80 relative"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-auto p-4 flex flex-col items-center relative bg-slate-950/90"
+        style={{
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+        }}
       >
+        {/* Forensic anti-piracy watermark overlay */}
+        <ReaderWatermarkOverlay
+          userName={user?.name || 'Registered Student'}
+          userId={user?.id || 'STUDENT'}
+          userIdentifier={user?.email || user?.phone || undefined}
+        />
+
+        {error && (
+          <div className="my-auto max-w-sm p-4 text-center space-y-2 bg-rose-500/10 border border-rose-500/30 rounded-xl">
+            <FileWarning className="w-6 h-6 text-rose-500 mx-auto" />
+            <p className="text-xs font-bold text-rose-300">Unable to load document</p>
+            <p className="text-[11px] text-rose-400/80">{error}</p>
+          </div>
+        )}
+
         <Document
           file={url}
-          loading={
-            <div className="flex flex-col items-center justify-center py-24 space-y-3">
-              <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-              <p className="text-xs font-bold text-slate-400">Loading protected document…</p>
-            </div>
-          }
-          error={
-            <div className="flex flex-col items-center justify-center py-20 space-y-2 text-rose-400">
-              <FileWarning className="w-8 h-8" />
-              <p className="text-xs font-bold">Failed to load PDF document.</p>
-            </div>
-          }
+          options={documentOptions}
           onLoadSuccess={({ numPages: total }) => {
             setNumPages(total);
             setLoading(false);
+            setError(null);
           }}
+          onLoadError={(err) => {
+            console.error('Failed to load PDF:', err);
+            setError('The PDF file could not be loaded.');
+            setLoading(false);
+          }}
+          loading={
+            <div className="my-16 flex flex-col items-center justify-center gap-2 text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+              <p className="text-xs font-mono">Rendering Secure Notes…</p>
+            </div>
+          }
+          className="flex flex-col items-center gap-4 w-full"
         >
           {numPages &&
             Array.from({ length: numPages }, (_, index) => {
-              const pageNumber = index + 1;
+              const pageNum = index + 1;
               return (
-                <div
-                  key={`page-${pageNumber}`}
-                  id={`pdf-page-${pageNumber}`}
-                  className="relative rounded-xl overflow-hidden shadow-2xl border border-slate-700/80 bg-white mx-auto my-2"
-                  onContextMenu={(e) => e.preventDefault()}
-                  onDragStart={(e) => e.preventDefault()}
-                >
-                  {/* Tamper-Resistant Student Watermark */}
-                  <ReaderWatermarkOverlay
-                    userName={user?.name}
-                    userId={user?.id}
-                    userIdentifier={user?.email || (user as any)?.phoneNumber}
-                    opacity={0.06}
-                  />
-
-                  <Page
-                    pageNumber={pageNumber}
-                    width={containerWidth * scale}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    loading={
-                      <div
-                        className="w-full rounded-xl bg-slate-100 dark:bg-slate-900 animate-pulse flex items-center justify-center text-xs text-slate-400"
-                        style={{ height: `${(containerWidth * scale * 1.4).toFixed(0)}px` }}
-                      >
-                        Loading page {pageNumber}…
-                      </div>
-                    }
-                  />
-                </div>
+                <LazyVideoPdfPage
+                  key={`video_pdf_page_${pageNum}`}
+                  pageNumber={pageNum}
+                  width={finalWidth}
+                  aspectRatio={aspectRatio}
+                  onHeightMeasured={pageNum === 1 ? handleHeightMeasured : undefined}
+                />
               );
             })}
         </Document>
       </div>
 
-      {/* Print Suppression CSS */}
+      {/* Print Guard Styles */}
       <style jsx global>{`
         @media print {
-          body * {
-            visibility: hidden !important;
+          body {
             display: none !important;
-          }
-          #pdf-print-guard {
-            visibility: visible !important;
-            display: flex !important;
-            position: fixed !important;
-            inset: 0 !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            z-index: 999999 !important;
-            align-items: center !important;
-            justify-content: center !important;
-            text-align: center !important;
-            padding: 40px !important;
           }
         }
       `}</style>
-      <div id="pdf-print-guard" className="hidden" aria-hidden="true">
-        <div className="space-y-2">
-          <h2 className="text-lg font-bold">Protected Material</h2>
-          <p className="text-sm text-gray-600">Downloading and printing this document is restricted.</p>
-        </div>
-      </div>
     </div>
   );
 }

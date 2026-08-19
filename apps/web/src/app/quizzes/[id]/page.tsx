@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
-import { generateQuizSolutionsPDF, ExportPDFQuestionOption } from '@/lib/pdf-exporter';
+import type { ExportPDFQuestionOption } from '@/lib/pdf-exporter';
 import { QuizPaywall, type QuizAccessState } from '@/app/quiz-paywall';
 import { QuizTakingSkeleton } from '../../skeletons/page-skeletons';
 
@@ -321,6 +321,9 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
 
     setIsDownloadingPDF(true);
     try {
+      // jsPDF is a heavy dependency only needed when the student actually
+      // downloads their solutions, not on every quiz-result view.
+      const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
       await generateQuizSolutionsPDF({
         quizTitle: quizTitle || 'PSC Quiz Solutions',
         score: result?.score,

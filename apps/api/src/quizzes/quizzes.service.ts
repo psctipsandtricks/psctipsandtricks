@@ -113,8 +113,6 @@ export class QuizzesService {
       andClauses.push({
         OR: [
           { title: { contains: s, mode: 'insensitive' } },
-          { category: { contains: s, mode: 'insensitive' } },
-          { topic: { contains: s, mode: 'insensitive' } },
         ],
       });
     }
@@ -157,6 +155,10 @@ export class QuizzesService {
         _count: { select: { questions: true, submissions: true } },
       },
       orderBy: { createdAt: 'desc' },
+      // Callers that omit page/limit get every quiz as a bare array (the
+      // browse page's current contract) — this cap is a safety net against
+      // the catalog growing unbounded, not real pagination.
+      take: 500,
     });
 
     return this.quizAccess.redactQuizList(actor, quizzes);
@@ -199,7 +201,6 @@ export class QuizzesService {
 
     return this.prisma.quiz.create({
       data: {
-        category: data.category || 'General',
         ...quizData,
         totalQuestions: questionCount,
         isActive: quizData.isActive ?? true,
@@ -444,7 +445,6 @@ export class QuizzesService {
           select: {
             id: true,
             title: true,
-            category: true,
             durationMinutes: true,
             totalQuestions: true,
             passingMarks: true,
@@ -453,6 +453,10 @@ export class QuizzesService {
         },
       },
       orderBy: { startedAt: 'desc' },
+      // The quiz-history page fetches every attempt as a bare array and
+      // paginates client-side — this cap is a safety net for a long-tenured
+      // student's history, not real pagination.
+      take: 500,
     });
   }
 
@@ -468,7 +472,6 @@ export class QuizzesService {
           select: {
             id: true,
             title: true,
-            category: true,
             durationMinutes: true,
             totalQuestions: true,
             passingMarks: true,
@@ -509,13 +512,14 @@ export class QuizzesService {
 
   // --- Quiz Folders ---
 
-  async listFolders(actor?: AccessActor | null) {
+  async listFolders(actor?: AccessActor | null, parentId?: string | null) {
     const isCurator = this.quizAccess.isStaff(actor);
-    const folderWhere = isCurator ? {} : { isActive: true };
+    const folderWhere: Prisma.QuizFolderWhereInput = isCurator ? {} : { isActive: true };
 
     const [dbFolders, quizFolderCounts] = await Promise.all([
       this.prisma.quizFolder.findMany({
         where: folderWhere,
+        include: { parent: true },
         orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
       }),
       this.prisma.quiz.groupBy({
@@ -533,6 +537,14 @@ export class QuizzesService {
       countMap[name] = (countMap[name] || 0) + group._count._all;
     }
 
+    // Map sub-folder counts
+    const subFolderCountMap: Record<string, number> = {};
+    for (const f of dbFolders) {
+      if (f.parentId) {
+        subFolderCountMap[f.parentId] = (subFolderCountMap[f.parentId] || 0) + 1;
+      }
+    }
+
     const seenNames = new Set<string>();
     const result: any[] = [];
 
@@ -543,56 +555,67 @@ export class QuizzesService {
         id: f.id,
         name: f.name,
         title: f.name,
+        parentId: f.parentId,
+        parentName: f.parent?.name || null,
         description: f.description,
         orderIndex: f.orderIndex,
         isActive: f.isActive,
         quizCount: countMap[f.name] || 0,
+        subFolderCount: subFolderCountMap[f.id] || 0,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       });
     }
 
-    // Ensure 'Root' is present if not already in DB
-    if (!seenNames.has('Root')) {
-      seenNames.add('Root');
-      result.unshift({
-        id: 'root-folder',
-        name: 'Root',
-        title: 'Root',
-        description: 'Default root folder for uncategorized quizzes',
-        orderIndex: -1,
-        isActive: true,
-        quizCount: countMap['Root'] || 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    // Also include any folders discovered on quizzes that aren't yet in quizFolder table
+    // Also include any custom folders discovered on quizzes that aren't yet in quizFolder table
     for (const [folderName, count] of Object.entries(countMap)) {
-      if (!seenNames.has(folderName)) {
+      if (folderName && folderName.toLowerCase() !== 'root' && !seenNames.has(folderName)) {
         seenNames.add(folderName);
         result.push({
           id: `virtual-${encodeURIComponent(folderName)}`,
           name: folderName,
           title: folderName,
+          parentId: null,
+          parentName: null,
           description: null,
           orderIndex: result.length,
           isActive: true,
           quizCount: count,
+          subFolderCount: 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
       }
     }
 
-    return result.sort((a, b) => a.orderIndex - b.orderIndex);
+    let filtered = result.filter((f) => f.name && f.name.toLowerCase() !== 'root');
+
+    // Filter by parentId if explicitly requested
+    if (parentId !== undefined && parentId !== null) {
+      if (parentId === 'root' || parentId === 'null' || parentId === '') {
+        filtered = filtered.filter((f) => !f.parentId);
+      } else {
+        // Find if parentId matches an ID or a Name
+        const parentFolder = result.find((f) => f.id === parentId || f.name === parentId);
+        const resolvedParentId = parentFolder ? parentFolder.id : parentId;
+        filtered = filtered.filter((f) => f.parentId === resolvedParentId || (parentFolder && f.parentId === parentFolder.id));
+      }
+    }
+
+    const sorted = filtered.sort((a, b) => a.orderIndex - b.orderIndex);
+    return isCurator ? sorted : sorted.filter((f) => (f.quizCount || 0) > 0 || (f.subFolderCount || 0) > 0);
   }
 
   async findFolder(idOrName: string) {
     let folder = await this.prisma.quizFolder.findFirst({
       where: {
         OR: [{ id: idOrName }, { name: idOrName }],
+      },
+      include: {
+        parent: true,
+        children: {
+          orderBy: { orderIndex: 'asc' },
+        },
       },
     });
 
@@ -602,6 +625,9 @@ export class QuizzesService {
           id: 'root-folder',
           name: 'Root',
           title: 'Root',
+          parentId: null,
+          parent: null,
+          children: [],
           description: 'Default root folder',
           orderIndex: -1,
           isActive: true,
@@ -619,16 +645,26 @@ export class QuizzesService {
     const name = dto.name.trim();
     if (!name) throw new BadRequestException('Folder name is required');
 
+    let parentId: string | null = null;
+    if (dto.parentId) {
+      const parent = await this.prisma.quizFolder.findFirst({
+        where: { OR: [{ id: dto.parentId }, { name: dto.parentId }] },
+      });
+      if (parent) parentId = parent.id;
+    }
+
     const existing = await this.prisma.quizFolder.findUnique({ where: { name } });
     if (existing) throw new BadRequestException(`Folder "${name}" already exists`);
 
     return this.prisma.quizFolder.create({
       data: {
         name,
+        parentId,
         description: dto.description?.trim() || null,
         orderIndex: dto.orderIndex ?? 0,
         isActive: dto.isActive ?? true,
       },
+      include: { parent: true },
     });
   }
 
@@ -639,6 +675,18 @@ export class QuizzesService {
       },
     });
 
+    let parentId: string | null | undefined = undefined;
+    if (dto.parentId !== undefined) {
+      if (dto.parentId) {
+        const parent = await this.prisma.quizFolder.findFirst({
+          where: { OR: [{ id: dto.parentId }, { name: dto.parentId }] },
+        });
+        parentId = parent ? parent.id : null;
+      } else {
+        parentId = null;
+      }
+    }
+
     // If folder was virtual (e.g. created on-the-fly by assigning a quiz to it), create DB record
     if (!folder) {
       const oldName = idOrName.startsWith('virtual-') ? decodeURIComponent(idOrName.replace('virtual-', '')) : idOrName;
@@ -647,6 +695,7 @@ export class QuizzesService {
       folder = await this.prisma.quizFolder.create({
         data: {
           name: newName,
+          parentId: parentId || null,
           description: dto.description?.trim() || null,
           orderIndex: dto.orderIndex ?? 0,
           isActive: dto.isActive ?? true,
@@ -680,10 +729,12 @@ export class QuizzesService {
       where: { id: folder.id },
       data: {
         name: newName,
+        parentId: parentId !== undefined ? parentId : undefined,
         description: dto.description !== undefined ? dto.description?.trim() || null : undefined,
         orderIndex: dto.orderIndex !== undefined ? dto.orderIndex : undefined,
         isActive: dto.isActive !== undefined ? dto.isActive : undefined,
       },
+      include: { parent: true },
     });
   }
 
@@ -710,14 +761,15 @@ export class QuizzesService {
   }
 
   async reorderFolders(dto: { items: { id: string; orderIndex: number }[] }) {
-    for (const item of dto.items) {
-      if (item.id && !item.id.startsWith('virtual-') && item.id !== 'root-folder') {
-        await this.prisma.quizFolder.update({
-          where: { id: item.id },
-          data: { orderIndex: item.orderIndex },
-        }).catch(() => null);
-      }
-    }
+    await Promise.all(
+      dto.items
+        .filter((item) => item.id && !item.id.startsWith('virtual-') && item.id !== 'root-folder')
+        .map((item) =>
+          this.prisma.quizFolder
+            .update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } })
+            .catch(() => null),
+        ),
+    );
     return this.listFolders(CURATOR);
   }
 }

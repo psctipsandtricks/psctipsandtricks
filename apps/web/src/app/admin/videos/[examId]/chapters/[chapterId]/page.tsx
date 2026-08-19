@@ -62,15 +62,15 @@ export default function AdminChapterVideosPage() {
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [removeExistingPdf, setRemoveExistingPdf] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await ApiClient.getVideos(chapterId);
       setVideos([...data].sort((a, b) => a.orderIndex - b.orderIndex));
     } catch (err: any) {
       setPageError(err.message || 'Failed to load videos.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [chapterId]);
 
@@ -101,6 +101,14 @@ export default function AdminChapterVideosPage() {
           isActive: values.isActive,
         };
 
+        if (editingVideo) {
+          setVideos((prev) =>
+            prev.map((v) => (v.id === editingVideo.id ? { ...v, ...payload } : v)),
+          );
+        }
+        setIsDialogOpen(false);
+        setEditingVideo(null);
+
         let target: Video;
         if (editingVideo) {
           target = await ApiClient.updateVideo(editingVideo.id, payload);
@@ -119,9 +127,7 @@ export default function AdminChapterVideosPage() {
         resetForm();
         setPdfFile(null);
         setRemoveExistingPdf(false);
-        setIsDialogOpen(false);
-        setEditingVideo(null);
-        await load();
+        await load(true);
       } catch (err: any) {
         setFieldError('youtubeUrl', err.message || 'Failed to save video.');
       } finally {
@@ -169,6 +175,7 @@ export default function AdminChapterVideosPage() {
     setVideos((prev) => prev.filter((v) => v.id !== id));
     try {
       await ApiClient.deleteVideo(id);
+      await load(true);
     } catch (err: any) {
       setVideos(previous);
       setPageError(err.message || 'Failed to delete video.');

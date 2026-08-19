@@ -195,29 +195,40 @@ export class ChatService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Unread counts for every joined group in a single grouped query, rather
-    // than one COUNT per group (which made this endpoint scale linearly with
-    // group count). Restricted to groups the user has actually joined — a
-    // group with no `ChatGroupRead` row has no "read up to" position to count
+    // Unread counts for every joined group in a single query, rather than one
+    // COUNT per group (which made this endpoint scale linearly with group
+    // count). Restricted to groups the user has actually joined — a group
+    // with no `ChatGroupRead` row has no "read up to" position to count
     // forward from, so including it here would report its *entire* message
     // history as unread for every student merely browsing the group list.
+    //
+    // A VALUES-list join (rather than a single WHERE with one OR branch per
+    // group, each carrying a different `createdAt` threshold) lets Postgres
+    // resolve each group as its own indexed range scan against
+    // ChatMessage_groupId_createdAt_idx instead of one large scan it can't
+    // cleanly plan against a composite index.
     const joinedGroups = groups.filter((g) => g.members.length > 0);
     const readAtByGroup = new Map<string, Date | undefined>(
       joinedGroups.map((g) => [g.id, g.reads[0]?.lastReadAt]),
     );
-    const unreadRows = joinedGroups.length
-      ? await this.prisma.chatMessage.groupBy({
-          by: ['groupId'],
-          where: {
-            OR: joinedGroups.map((g) => ({
-              groupId: g.id,
-              ...(readAtByGroup.get(g.id) ? { createdAt: { gt: readAtByGroup.get(g.id) } } : {}),
-            })),
-          },
-          _count: { _all: true },
-        })
-      : [];
-    const unreadByGroup = new Map(unreadRows.map((r) => [r.groupId, r._count._all]));
+    const unreadByGroup = new Map<string, number>();
+    if (joinedGroups.length) {
+      const rows = await this.prisma.$queryRaw<{ groupId: string; count: number }[]>(
+        Prisma.sql`
+          SELECT v."groupId", COUNT(m.id)::int AS count
+          FROM (VALUES ${Prisma.join(
+            joinedGroups.map(
+              (g) => Prisma.sql`(${g.id}::text, ${readAtByGroup.get(g.id) ?? null}::timestamp)`,
+            ),
+          )}) AS v("groupId", "lastReadAt")
+          JOIN "ChatMessage" m
+            ON m."groupId" = v."groupId"
+            AND (v."lastReadAt" IS NULL OR m."createdAt" > v."lastReadAt")
+          GROUP BY v."groupId"
+        `,
+      );
+      for (const r of rows) unreadByGroup.set(r.groupId, Number(r.count));
+    }
 
     return groups.map((g) => {
       const readRecord = g.reads[0];

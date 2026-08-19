@@ -82,9 +82,9 @@ export default function AdminBooksPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const fetchBooks = useCallback(async () => {
+  const fetchBooks = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const res = await ApiClient.getBooks({
         page: currentPage,
         limit: pageSize,
@@ -96,10 +96,12 @@ export default function AdminBooksPage() {
       setTotalCount(total);
     } catch (err) {
       console.error('Failed to fetch books:', err);
-      setBooks([]);
-      setTotalCount(0);
+      if (!silent) {
+        setBooks([]);
+        setTotalCount(0);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [currentPage, pageSize, searchTerm]);
 
@@ -164,7 +166,7 @@ export default function AdminBooksPage() {
         setRemoveExistingPreviewPdf(false);
         setIsDialogOpen(false);
         setEditingBook(null);
-        await fetchBooks();
+        await fetchBooks(true);
       } catch (err: any) {
         setFieldError('title', err.message || `Failed to ${editingBook ? 'update' : 'create'} book.`);
       } finally {
@@ -211,12 +213,15 @@ export default function AdminBooksPage() {
 
   const handleDeleteBook = async (id: string) => {
     const previousBooks = books;
+    const previousTotal = totalCount;
     setBooks((prev) => prev.filter((b) => b.id !== id));
+    setTotalCount((prev) => Math.max(0, prev - 1));
     try {
       await ApiClient.deleteBook(id);
-      fetchBooks();
+      fetchBooks(true);
     } catch (err: any) {
       setBooks(previousBooks);
+      setTotalCount(previousTotal);
       alert(err.message || 'Failed to delete book.');
     }
   };
@@ -308,18 +313,18 @@ export default function AdminBooksPage() {
             ) : (
               paginatedBooks.map((book) => (
                 <TableRow key={book.id}>
-                  <TableCell className="w-16 py-3">
+                  <TableCell className="w-28 py-3">
                     {book.coverUrl ? (
-                      <div className="relative group/cover w-12 h-16 rounded-xl overflow-hidden border border-slate-200/90 dark:border-[#1e2e56] shadow-sm bg-slate-100 dark:bg-[#091124] shrink-0">
+                      <div className="relative group/cover w-24 h-16 rounded-xl overflow-hidden border border-slate-200/90 dark:border-[#1e2e56] shadow-sm bg-slate-900/10 dark:bg-[#070e22] shrink-0">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={book.coverUrl}
                           alt={book.title}
-                          className="w-full h-full object-cover object-top transition-transform duration-200 group-hover/cover:scale-110"
+                          className="w-full h-full object-cover object-center transition-transform duration-200 group-hover/cover:scale-105"
                         />
                       </div>
                     ) : (
-                      <div className="w-12 h-16 bg-slate-100 dark:bg-[#091124] rounded-xl flex flex-col items-center justify-center text-cyan-400 border border-slate-200 dark:border-[#1e2e56] shrink-0">
+                      <div className="w-24 h-16 bg-slate-100 dark:bg-[#091124] rounded-xl flex flex-col items-center justify-center text-cyan-400 border border-slate-200 dark:border-[#1e2e56] shrink-0">
                         <BookOpen className="w-5 h-5 opacity-60" />
                         <span className="text-[9px] font-mono text-slate-400 mt-1">No Cover</span>
                       </div>
@@ -580,7 +585,7 @@ export default function AdminBooksPage() {
                 <img
                   src={editingBook.coverUrl}
                   alt={editingBook.title}
-                  className="w-10 h-14 object-cover rounded-lg border border-cyan-500/30 shadow-xs shrink-0"
+                  className="w-24 h-16 object-cover rounded-xl border border-cyan-500/30 shadow-xs shrink-0"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
