@@ -161,8 +161,8 @@ export function HomeBookCarousel({ initialBooks }: { initialBooks?: Book[] }) {
 
       {/* ── 2-Column Hero Layout ──────────────────────────────────────── */}
       <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
-        {/* ── Left Column: Headline, Copy & CTAs ──────────────────────── */}
-        <div className="lg:col-span-6 xl:col-span-6 space-y-6 text-center lg:text-left">
+        {/* ── Left Column: Headline, Copy & CTAs (Order 2 on Mobile, Order 1 on Desktop) ── */}
+        <div className="order-2 lg:order-1 lg:col-span-6 xl:col-span-6 space-y-6 text-center lg:text-left">
           {/* Subtle Top Pill */}
           <div className="reveal-fade-up reveal-step-1 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-cyan-500/10 dark:bg-cyan-400/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20 dark:border-cyan-400/20 shadow-sm">
             <Sparkles className="w-3.5 h-3.5 text-cyan-500" />
@@ -224,9 +224,9 @@ export function HomeBookCarousel({ initialBooks }: { initialBooks?: Book[] }) {
           </div>
         </div>
 
-        {/* ── Right Column: Dynamic E-Book Digital Bookshelf Showcase ──── */}
+        {/* ── Right Column: Dynamic E-Book Digital Bookshelf Showcase (Order 1 on Mobile, Order 2 on Desktop) ──── */}
         <div
-          className="lg:col-span-6 xl:col-span-6 flex flex-col items-center justify-center"
+          className="order-1 lg:order-2 lg:col-span-6 xl:col-span-6 flex flex-col items-center justify-center"
           onMouseEnter={() => {
             isPausedRef.current = true;
           }}

@@ -298,18 +298,18 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
       onTouchEnd={() => setIsPaused(false)}
     >
       {/* ── Trust markers ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+      <div className="flex flex-wrap items-center justify-center gap-x-4 sm:gap-x-5 gap-y-1.5 sm:gap-y-2 text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400 px-2 text-center">
         <span className="inline-flex items-center gap-1.5 text-cyan-600 dark:text-cyan-400">
-          <Sparkles className="w-3.5 h-3.5 text-cyan-500" /> Interactive E-Books
+          <Sparkles className="w-3.5 h-3.5 text-cyan-500 shrink-0" /> Interactive E-Books
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Audio Narrations
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> Audio Narrations
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Topic Notes &amp; Diagrams
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> Topic Notes &amp; Diagrams
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Offline Reading Mode
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> Offline Reading Mode
         </span>
       </div>
 
@@ -346,7 +346,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
           <div
             ref={railRef}
             onScroll={syncScrollState}
-            className="flex gap-6 overflow-x-auto snap-x snap-mandatory scroll-smooth scrollbar-none pb-4 pt-1 px-1 -mx-1"
+            className="flex gap-4 sm:gap-6 overflow-x-auto scrollbar-none touch-scroll-x snap-x snap-mandatory scroll-smooth overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0 pt-2 pb-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
             tabIndex={0}
             role="region"
             aria-label="Featured PSC E-Books"
@@ -362,7 +362,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
               return (
                 <div
                   key={book.id}
-                  className="shrink-0 snap-start w-[280px] sm:w-[320px] rounded-3xl hover-lift transition-all duration-300 flex flex-col overflow-hidden p-0 border border-slate-200/90 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-lg hover:shadow-2xl hover:border-cyan-500/40"
+                  className="shrink-0 snap-start w-[275px] xs:w-[295px] sm:w-[320px] rounded-3xl hover-lift transition-all duration-300 flex flex-col overflow-hidden p-0 border border-slate-200/90 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-lg hover:shadow-2xl hover:border-cyan-500/40"
                 >
                   {/* Cover Image & Badges Container — 16:9 Thumbnail Aspect Ratio */}
                   <div
@@ -384,35 +384,35 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
                     )}
 
                     {/* Top Badge Overlay */}
-                    <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-1.5 pointer-events-none">
+                    <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-center justify-between gap-1.5 pointer-events-none">
                       <div className="flex items-center gap-1.5">
                         {isNew && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-lg shadow-emerald-950/40">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-lg shadow-emerald-950/40">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                             New
                           </span>
                         )}
-                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/80 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-md">
+                        <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-slate-950/80 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-md">
                           {book.category || 'PSC Special'}
                         </span>
                       </div>
                       {isPurchased ? (
-                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-500 text-white shadow-md flex items-center gap-1">
+                        <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black bg-emerald-500 text-white shadow-md flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" /> PURCHASED
                         </span>
                       ) : isFree ? (
-                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-500 text-white shadow-md">
+                        <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black bg-emerald-500 text-white shadow-md">
                           FREE
                         </span>
                       ) : discount > 0 ? (
-                        <span className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-500 text-white shadow-md">
+                        <span className="px-2 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black bg-rose-500 text-white shadow-md">
                           {discount}% OFF
                         </span>
                       ) : null}
                     </div>
 
                     {/* Multimedia Feature Pill Overlay */}
-                    <div className="absolute bottom-3 left-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/10 text-[10px] text-white">
+                    <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-white/10 text-[9px] sm:text-[10px] text-white">
                       <span className="flex items-center gap-1 font-bold text-cyan-400">
                         <Music className="w-3 h-3" /> Audio
                       </span>
@@ -428,36 +428,36 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
                   </div>
 
                   {/* Content Body */}
-                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">By {book.author || 'PSC Editorial Board'}</p>
+                  <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3 sm:space-y-4">
+                    <div className="space-y-1">
+                      <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium">By {book.author || 'PSC Editorial Board'}</p>
                       <h3
                         onClick={() => handleDetails(book.id, isPurchased || isFree)}
-                        className="font-black text-slate-900 dark:text-white text-base leading-snug line-clamp-2 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors cursor-pointer"
+                        className="font-black text-slate-900 dark:text-white text-sm sm:text-base leading-snug line-clamp-2 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors cursor-pointer"
                       >
                         {book.title}
                       </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                      <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                         {book.description}
                       </p>
                     </div>
 
                     {/* Pricing & CTA */}
-                    <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                    <div className="pt-2.5 sm:pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
                       <div>
                         {isPurchased ? (
                           <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Purchased
                           </span>
                         ) : isFree ? (
-                          <span className="text-base font-black text-emerald-600 dark:text-emerald-400">Free Access</span>
+                          <span className="text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400">Free Access</span>
                         ) : (
                           <div className="flex items-baseline gap-1.5">
-                            <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+                            <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white font-mono">
                               ₹{effectivePrice}
                             </span>
                             {originalPrice > effectivePrice && (
-                              <span className="text-xs text-slate-400 line-through font-mono">
+                              <span className="text-[11px] sm:text-xs text-slate-400 line-through font-mono">
                                 ₹{originalPrice}
                               </span>
                             )}

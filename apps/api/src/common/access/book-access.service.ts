@@ -9,6 +9,8 @@ export interface PaywallableBook {
   isPremium?: boolean | null;
   finalPrice?: number | null;
   price?: number | null;
+  subscriptionType?: string | null;
+  subscriptionDuration?: string | null;
 }
 
 export interface BookSubscriptionAccessInfo {
@@ -44,6 +46,28 @@ export class BookAccessService {
 
   isStaff(actor?: AccessActor | null): boolean {
     return actor?.role === UserRole.ADMIN || actor?.role === UserRole.STAFF;
+  }
+
+  calculateSubscriptionExpiry(duration?: string | null, fromDate: Date = new Date()): Date {
+    const validTill = new Date(fromDate);
+    switch (duration) {
+      case '1_MONTH':
+        validTill.setMonth(validTill.getMonth() + 1);
+        break;
+      case '3_MONTHS':
+        validTill.setMonth(validTill.getMonth() + 3);
+        break;
+      case '6_MONTHS':
+        validTill.setMonth(validTill.getMonth() + 6);
+        break;
+      case '1_YEAR':
+        validTill.setFullYear(validTill.getFullYear() + 1);
+        break;
+      default:
+        validTill.setMonth(validTill.getMonth() + 1);
+        break;
+    }
+    return validTill;
   }
 
   /** True when the user holds an active, non-expired settled payment for this book. */
@@ -95,7 +119,7 @@ export class BookAccessService {
     const order = await this.prisma.order.findFirst({
       where: { userId: actor.id, bookId: book!.id, status: 'SUCCESS' },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, validTill: true, accessType: true },
+      select: { id: true, validTill: true, accessType: true, createdAt: true },
     });
 
     if (!order) {
@@ -108,8 +132,14 @@ export class BookAccessService {
       };
     }
 
-    if (order.validTill) {
-      const validTillDate = new Date(order.validTill);
+    const effectiveValidTill =
+      order.validTill ||
+      (book?.subscriptionType === 'SUBSCRIPTION'
+        ? this.calculateSubscriptionExpiry(book.subscriptionDuration, order.createdAt)
+        : null);
+
+    if (effectiveValidTill) {
+      const validTillDate = new Date(effectiveValidTill);
       const isExpired = validTillDate.getTime() <= now.getTime();
       const diffMs = validTillDate.getTime() - now.getTime();
       const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
@@ -146,7 +176,7 @@ export class BookAccessService {
     const now = new Date();
 
     // Fetch user's latest orders for these books if logged in
-    const userOrdersMap = new Map<string, { validTill: Date | null; accessType: string | null }>();
+    const userOrdersMap = new Map<string, { validTill: Date | null; accessType: string | null; createdAt: Date }>();
     if (actor?.id) {
       const bookIds = books.map((b) => b.id);
       const orders = await this.prisma.order.findMany({
@@ -156,11 +186,11 @@ export class BookAccessService {
           status: 'SUCCESS',
         },
         orderBy: { createdAt: 'desc' },
-        select: { bookId: true, validTill: true, accessType: true },
+        select: { bookId: true, validTill: true, accessType: true, createdAt: true },
       });
       for (const ord of orders) {
         if (ord.bookId && !userOrdersMap.has(ord.bookId)) {
-          userOrdersMap.set(ord.bookId, { validTill: ord.validTill, accessType: ord.accessType });
+          userOrdersMap.set(ord.bookId, { validTill: ord.validTill, accessType: ord.accessType, createdAt: ord.createdAt });
         }
       }
     }
@@ -177,25 +207,33 @@ export class BookAccessService {
         const order = userOrdersMap.get(book.id);
         if (!order) {
           access = { isPaid: true, hasAccess: false, price, reason: 'PAYMENT_REQUIRED', subscription: null };
-        } else if (order.validTill) {
-          const validTillDate = new Date(order.validTill);
-          const isExpired = validTillDate.getTime() <= now.getTime();
-          const diffMs = validTillDate.getTime() - now.getTime();
-          const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-          access = {
-            isPaid: true,
-            hasAccess: !isExpired,
-            price,
-            reason: !isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
-            subscription: {
-              isSubscription: true,
-              validTill: validTillDate.toISOString(),
-              isExpired,
-              expiresInDays,
-            },
-          };
         } else {
-          access = { isPaid: true, hasAccess: true, price, reason: 'PURCHASED', subscription: null };
+          const effectiveValidTill =
+            order.validTill ||
+            (book.subscriptionType === 'SUBSCRIPTION'
+              ? this.calculateSubscriptionExpiry(book.subscriptionDuration, order.createdAt)
+              : null);
+
+          if (effectiveValidTill) {
+            const validTillDate = new Date(effectiveValidTill);
+            const isExpired = validTillDate.getTime() <= now.getTime();
+            const diffMs = validTillDate.getTime() - now.getTime();
+            const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+            access = {
+              isPaid: true,
+              hasAccess: !isExpired,
+              price,
+              reason: !isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+              subscription: {
+                isSubscription: true,
+                validTill: validTillDate.toISOString(),
+                isExpired,
+                expiresInDays,
+              },
+            };
+          } else {
+            access = { isPaid: true, hasAccess: true, price, reason: 'PURCHASED', subscription: null };
+          }
         }
       }
 

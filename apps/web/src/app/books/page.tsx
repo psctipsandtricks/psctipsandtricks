@@ -20,6 +20,7 @@ import {
   BookMarked,
   GraduationCap,
   Clock,
+  Calendar,
 } from 'lucide-react';
 import { Book, formatSubscriptionDuration } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
@@ -27,6 +28,17 @@ import { BookCatalogSkeleton } from '../skeletons/page-skeletons';
 import { ApiClient } from '@/lib/api-client';
 
 const NEW_BOOK_WINDOW_DAYS = 7;
+
+function formatValidTillDate(isoString?: string | null): string {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
 
 function isRecentlyUploaded(createdAt?: string): boolean {
   if (!createdAt) return false;
@@ -483,9 +495,34 @@ function BooksContent() {
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
                     <div>
                       {isPurchased ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Purchased
-                        </span>
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{book.subscriptionType === 'SUBSCRIPTION' || book.access?.subscription?.isSubscription ? 'Active Subscription' : 'Purchased'}</span>
+                          </span>
+                          {(book.subscriptionType === 'SUBSCRIPTION' || book.access?.subscription?.isSubscription) && (
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold border border-emerald-500/20">
+                              <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>
+                                Valid Till: {book.access?.subscription?.validTill
+                                  ? formatValidTillDate(book.access.subscription.validTill)
+                                  : formatSubscriptionDuration(book.subscriptionDuration)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : !isPurchased && !isFree && book.access?.subscription?.isExpired ? (
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center gap-1 text-xs font-black text-rose-600 dark:text-rose-400">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Subscription Expired</span>
+                          </span>
+                          {book.access?.subscription?.validTill && (
+                            <p className="text-[10px] font-bold text-slate-400">
+                              Expired on {formatValidTillDate(book.access.subscription.validTill)}
+                            </p>
+                          )}
+                        </div>
                       ) : isFree ? (
                         <span className="text-base font-black text-emerald-600 dark:text-emerald-400">Free Access</span>
                       ) : (
@@ -528,6 +565,16 @@ function BooksContent() {
                         >
                           <BookOpen className="w-3.5 h-3.5" />
                           <span>Read Now</span>
+                        </Button>
+                      ) : book.access?.subscription?.isExpired ? (
+                        <Button
+                          size="sm"
+                          variant="gold"
+                          onClick={() => handleBuyNow(book.id)}
+                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Renew</span>
                         </Button>
                       ) : (
                         <Button

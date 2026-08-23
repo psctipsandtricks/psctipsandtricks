@@ -59,20 +59,22 @@ function SectionHeading({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="relative mb-10 sm:mb-12">
-      <div className="max-w-2xl mx-auto text-center space-y-3">
-        <Badge variant="gold" className="text-[11px] uppercase tracking-widest px-3 py-1">
+    <div className="relative mb-6 sm:mb-10">
+      <div className="max-w-2xl mx-auto text-center space-y-2 sm:space-y-3 px-1 sm:px-0">
+        <Badge variant="gold" className="text-[10px] sm:text-[11px] uppercase tracking-widest px-2.5 sm:px-3 py-0.5 sm:py-1">
           {eyebrow}
         </Badge>
-        <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
+        <h2 className="text-xl sm:text-3xl lg:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
           {title}
         </h2>
         {description && (
-          <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base leading-relaxed">{description}</p>
+          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm md:text-base leading-relaxed max-w-xl mx-auto">
+            {description}
+          </p>
         )}
       </div>
       {action && (
-        <div className="mt-4 sm:mt-0 flex justify-center sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
+        <div className="mt-3.5 sm:mt-0 flex justify-center sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
           {action}
         </div>
       )}
