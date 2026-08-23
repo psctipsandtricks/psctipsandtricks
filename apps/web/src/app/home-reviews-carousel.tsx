@@ -51,7 +51,7 @@ function StarRating({ rating }: { rating: number }) {
 
 function ReviewCardSkeleton() {
   return (
-    <div className="shrink-0 snap-start w-[280px] sm:w-[340px] rounded-3xl glass-card p-5 sm:p-6 space-y-4 animate-pulse">
+    <div className="shrink-0 snap-start w-[280px] sm:w-[340px] rounded-3xl bg-white dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-lg p-5 sm:p-6 space-y-4 animate-pulse">
       <div className="h-4 w-24 rounded-lg bg-slate-200 dark:bg-slate-800" />
       <div className="space-y-2">
         <div className="h-4 w-full rounded-lg bg-slate-200 dark:bg-slate-800" />
@@ -219,20 +219,6 @@ export function HomeReviewsCarousel({ heading }: { heading?: React.ReactNode }) 
     <Reveal as="section" id="customer-reviews" className="space-y-6 w-full">
       {heading}
 
-      {/* ── Aggregate trust strip ─────────────────────────────────────── */}
-      {!loading && (
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-          <StarRating rating={Math.round(averageRating)} />
-          <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-            {averageRating.toFixed(1)} / 5
-          </span>
-          <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
-          <span>
-            Based on {reviews.length} verified student {reviews.length === 1 ? 'review' : 'reviews'}
-          </span>
-        </div>
-      )}
-
       <div
         className="relative"
         onMouseEnter={() => setIsPaused(true)}
@@ -274,11 +260,16 @@ export function HomeReviewsCarousel({ heading }: { heading?: React.ReactNode }) 
             : reviews.map((review) => (
                 <figure
                   key={review.id}
-                  className="group shrink-0 snap-start w-[280px] sm:w-[340px] flex flex-col justify-between rounded-3xl glass-card hover-lift p-5 sm:p-6 transition-all duration-300 relative overflow-hidden"
+                  className="group shrink-0 snap-start w-[280px] sm:w-[340px] flex flex-col justify-between rounded-3xl bg-white dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-lg hover:shadow-2xl hover:border-amber-500/40 hover-lift p-5 sm:p-6 transition-all duration-300 relative overflow-hidden"
                 >
                   <div className="space-y-3.5 relative z-10">
-                    <div className="flex items-start justify-between gap-3">
-                      <StarRating rating={review.rating} />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <StarRating rating={review.rating} />
+                        <span className="text-xs font-black font-mono px-2 py-0.5 rounded-lg bg-amber-500/10 dark:bg-amber-400/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          {Number(review.rating).toFixed(1)}
+                        </span>
+                      </div>
                       <Quote className="w-7 h-7 shrink-0 text-amber-500/30 dark:text-amber-400/30 transition-transform duration-300 group-hover:scale-110" />
                     </div>
                     <blockquote className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed line-clamp-6 font-medium">
