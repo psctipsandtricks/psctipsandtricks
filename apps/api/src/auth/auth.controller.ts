@@ -1,5 +1,5 @@
 import { UserRole, UserStatus } from '@prisma/client';
-import { Controller, Post, Get, Body, HttpCode, HttpStatus, UseGuards, Req, Res } from '@nestjs/common';
+import { Controller, Post, Get, Body, HttpCode, HttpStatus, UseGuards, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiExcludeEndpoint } from '@nestjs/swagger';
 import type { Response } from 'express';
@@ -13,6 +13,8 @@ import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
@@ -73,7 +75,13 @@ export class AuthController {
   @UseGuards(AppleConfiguredGuard, AppleAuthGuard)
   @Post('apple/callback')
   async appleCallback(@Req() req: any, @Res() res: Response) {
-    this.redirectWithSession(req, res);
+    try {
+      this.redirectWithSession(req, res);
+    } catch (err: any) {
+      this.logger.error('Apple callback redirect failed', err);
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      return res.redirect(`${frontendUrl}/login?error=apple_callback_failed&message=${encodeURIComponent(err?.message || 'Unknown error')}`);
+    }
   }
 
   private redirectWithSession(req: any, res: Response) {

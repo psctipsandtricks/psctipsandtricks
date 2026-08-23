@@ -362,7 +362,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
               return (
                 <div
                   key={book.id}
-                  className="shrink-0 snap-start w-[275px] xs:w-[295px] sm:w-[320px] rounded-3xl hover-lift transition-all duration-300 flex flex-col overflow-hidden p-0 border border-slate-200/90 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-lg hover:shadow-2xl hover:border-cyan-500/40"
+                  className="shrink-0 snap-start w-[275px] xs:w-[295px] sm:w-[320px] lg:w-[calc((100%-48px)/3)] rounded-3xl hover-lift transition-all duration-300 flex flex-col overflow-hidden p-0 border border-slate-200/90 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-lg hover:shadow-2xl hover:border-cyan-500/40"
                 >
                   {/* Cover Image & Badges Container — 16:9 Thumbnail Aspect Ratio */}
                   <div
