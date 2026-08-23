@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { BookAccessService } from '../common/access/book-access.service';
@@ -261,6 +262,26 @@ export class BooksService {
     return this.prisma.book.update({ where: { id }, data: { coverUrl: url } });
   }
 
+  async uploadHeroCover(id: string, file: Express.Multer.File) {
+    await this.findOne(id);
+    if (!file) throw new BadRequestException('No file was uploaded');
+    const url = await this.storageService.upload(
+      'book-covers',
+      `hero/${id}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+    return this.prisma.book.update({ where: { id }, data: { heroCoverUrl: url } });
+  }
+
+  async removeHeroCover(id: string) {
+    await this.findOne(id);
+    return this.prisma.book.update({
+      where: { id },
+      data: { heroCoverUrl: null },
+    });
+  }
+
   async uploadPreviewPdf(id: string, file: Express.Multer.File) {
     await this.findOne(id);
     if (!file) throw new BadRequestException('No file was uploaded');
@@ -293,6 +314,43 @@ export class BooksService {
         previewPdfUrl: null,
         previewPdfFileName: null,
         previewPdfSizeBytes: null,
+      },
+    });
+  }
+
+  async uploadPreviewAudio(id: string, file: Express.Multer.File) {
+    await this.findOne(id);
+    if (!file) throw new BadRequestException('No file was uploaded');
+    const allowedMimes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/ogg', 'audio/webm'];
+    if (!file.mimetype.startsWith('audio/') && !allowedMimes.includes(file.mimetype)) {
+      throw new BadRequestException('Only audio files can be uploaded');
+    }
+
+    const url = await this.storageService.upload(
+      'chapter-audio',
+      `book-previews/${id}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+
+    return this.prisma.book.update({
+      where: { id },
+      data: {
+        previewAudioUrl: url,
+        previewAudioFileName: file.originalname,
+        previewAudioSizeBytes: file.size,
+      },
+    });
+  }
+
+  async removePreviewAudio(id: string) {
+    await this.findOne(id);
+    return this.prisma.book.update({
+      where: { id },
+      data: {
+        previewAudioUrl: null,
+        previewAudioFileName: null,
+        previewAudioSizeBytes: null,
       },
     });
   }
@@ -415,10 +473,20 @@ export class BooksService {
     }));
   }
 
+  /**
+   * Prisma's `InputJsonValue` demands a plain indexable object, which a
+   * class-validator DTO class is not. Widening here keeps the validated shape
+   * at the edge while satisfying the JSON column's type.
+   */
+  private static toJsonInput<T>(value: T | undefined) {
+    return value === undefined ? undefined : (value as unknown as Prisma.InputJsonValue);
+  }
+
   async addTopic(chapterId: string, dto: CreateTopicDto) {
     await this.findChapter(chapterId);
+    const { syncCues, ...rest } = dto;
     return this.prisma.topic.create({
-      data: { ...dto, chapterId },
+      data: { ...rest, chapterId, syncCues: BooksService.toJsonInput(syncCues) },
     });
   }
 
@@ -443,7 +511,11 @@ export class BooksService {
 
   async updateTopic(topicId: string, dto: UpdateTopicDto) {
     await this.findTopic(topicId);
-    return this.prisma.topic.update({ where: { id: topicId }, data: dto });
+    const { syncCues, ...rest } = dto;
+    return this.prisma.topic.update({
+      where: { id: topicId },
+      data: { ...rest, syncCues: BooksService.toJsonInput(syncCues) },
+    });
   }
 
   async removeTopic(topicId: string) {
@@ -488,8 +560,9 @@ export class BooksService {
 
   async addSubtopic(topicId: string, dto: CreateSubtopicDto) {
     await this.findTopic(topicId);
+    const { syncCues, ...rest } = dto;
     return this.prisma.subtopic.create({
-      data: { ...dto, topicId },
+      data: { ...rest, topicId, syncCues: BooksService.toJsonInput(syncCues) },
     });
   }
 
@@ -514,7 +587,11 @@ export class BooksService {
 
   async updateSubtopic(subtopicId: string, dto: UpdateSubtopicDto) {
     await this.findSubtopic(subtopicId);
-    return this.prisma.subtopic.update({ where: { id: subtopicId }, data: dto });
+    const { syncCues, ...rest } = dto;
+    return this.prisma.subtopic.update({
+      where: { id: subtopicId },
+      data: { ...rest, syncCues: BooksService.toJsonInput(syncCues) },
+    });
   }
 
   async removeSubtopic(subtopicId: string) {

@@ -1,54 +1,83 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
   <defs>
+    <!-- Gradients -->
     <linearGradient id="outerRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#073B75" />
       <stop offset="50%" stop-color="#0B4E99" />
       <stop offset="100%" stop-color="#062E5C" />
     </linearGradient>
+
     <linearGradient id="innerBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#FFFFFF" />
       <stop offset="70%" stop-color="#F8FAFC" />
       <stop offset="100%" stop-color="#EFF6FF" />
     </linearGradient>
+
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#F59E0B" />
       <stop offset="50%" stop-color="#D97706" />
       <stop offset="100%" stop-color="#B45309" />
     </linearGradient>
+
     <linearGradient id="bluePageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#38BDF8" />
       <stop offset="50%" stop-color="#0284C7" />
       <stop offset="100%" stop-color="#0369A1" />
     </linearGradient>
+
     <linearGradient id="deepBlueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#0284C7" />
       <stop offset="50%" stop-color="#0369A1" />
       <stop offset="100%" stop-color="#0C4A8A" />
     </linearGradient>
+
     <linearGradient id="coreHumanGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#0284C7" />
       <stop offset="100%" stop-color="#0A3F7A" />
     </linearGradient>
+
+    <!-- Drop Shadows & Glow -->
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.25" flood-color="#022B59" />
+    </filter>
+
+    <!-- Text Paths for Perfectly Curved Text -->
+    <!-- Top Arc Path (clockwise) -->
     <path id="topArcPath" d="M 52,250 A 198,198 0 1,1 448,250" fill="none" />
+    <!-- Bottom Arc Path (clockwise for upright letters) -->
     <path id="bottomArcPath" d="M 448,250 A 198,198 0 0,1 52,250" fill="none" />
   </defs>
 
-  <circle cx="250" cy="250" r="242" fill="url(#outerRingGrad)" />
+  <!-- Outer Ring Base -->
+  <circle cx="250" cy="250" r="242" fill="url(#outerRingGrad)" filter="url(#subtleShadow)" />
   <circle cx="250" cy="250" r="242" fill="none" stroke="#38BDF8" stroke-width="2.5" opacity="0.4" />
   <circle cx="250" cy="250" r="236" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.6" />
+
+  <!-- Inner Medallion Border -->
   <circle cx="250" cy="250" r="168" fill="none" stroke="#FFFFFF" stroke-width="2" opacity="0.85" />
   <circle cx="250" cy="250" r="164" fill="url(#innerBgGrad)" />
 
-  <text fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="34" letter-spacing="4">
-    <textPath href="#topArcPath" startOffset="50%" text-anchor="middle">PSC TIPS AND TRICKS</textPath>
-  </text>
-  <circle cx="48" cy="250" r="10" fill="url(#goldGrad)" stroke="#FFFFFF" stroke-width="1.5" />
-  <circle cx="452" cy="250" r="10" fill="url(#goldGrad)" stroke="#FFFFFF" stroke-width="1.5" />
-  <text fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="20" letter-spacing="4.5">
-    <textPath href="#bottomArcPath" startOffset="50%" text-anchor="middle">DEDICATE · EDUCATE · ELEVATE</textPath>
+  <!-- Top Text: PSC TIPS AND TRICKS -->
+  <text fill="#FFFFFF" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="34" letter-spacing="4">
+    <textPath href="#topArcPath" startOffset="50%" text-anchor="middle">
+      PSC TIPS AND TRICKS
+    </textPath>
   </text>
 
+  <!-- Left and Right Gold Dots -->
+  <circle cx="48" cy="250" r="10" fill="url(#goldGrad)" stroke="#FFFFFF" stroke-width="1.5" />
+  <circle cx="452" cy="250" r="10" fill="url(#goldGrad)" stroke="#FFFFFF" stroke-width="1.5" />
+
+  <!-- Bottom Text: DEDICATE · EDUCATE · ELEVATE -->
+  <text fill="#FFFFFF" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="20" letter-spacing="4.5">
+    <textPath href="#bottomArcPath" startOffset="50%" text-anchor="middle">
+      DEDICATE · EDUCATE · ELEVATE
+    </textPath>
+  </text>
+
+  <!-- Central Emblem Elements -->
   <g transform="translate(0, -6)">
+    <!-- Floating Knowledge Cubes / Pixels -->
     <rect x="242" y="166" width="22" height="22" rx="3" fill="#0284C7" transform="rotate(5 253 177)" opacity="0.9" />
     <rect x="268" y="162" width="12" height="12" rx="2" fill="#38BDF8" opacity="0.85" />
     <rect x="286" y="156" width="13" height="13" rx="2" fill="#F59E0B" opacity="0.9" />
@@ -56,16 +85,38 @@
     <rect x="290" y="196" width="12" height="12" rx="2" fill="#0369A1" opacity="0.9" />
     <rect x="303" y="167" width="10" height="10" rx="1.5" fill="#D97706" opacity="0.8" />
     <rect x="312" y="208" width="7" height="7" rx="1.5" fill="#F59E0B" opacity="0.85" />
+
+    <!-- Human Head (Central Dot) -->
     <circle cx="250" cy="232" r="15" fill="url(#coreHumanGrad)" />
+
+    <!-- Upper Gold Accent Wings / Page Flairs -->
+    <!-- Left Gold Wing -->
     <path d="M 250,248 C 225,236 178,218 148,218 C 172,234 208,252 232,260 Z" fill="url(#goldGrad)" />
+    <!-- Right Gold Wing -->
     <path d="M 250,248 C 275,236 322,218 352,218 C 328,234 292,252 268,260 Z" fill="url(#goldGrad)" />
+
+    <!-- Main Blue Book Pages (Spreading Wings) -->
+    <!-- Left Upper Page -->
     <path d="M 250,252 C 218,245 168,245 125,268 C 158,284 212,290 248,322 C 242,298 242,274 250,252 Z" fill="url(#bluePageGrad)" />
+    <!-- Right Upper Page -->
     <path d="M 250,252 C 282,245 332,245 375,268 C 342,284 288,290 252,322 C 258,298 258,274 250,252 Z" fill="url(#bluePageGrad)" />
+
+    <!-- Human Body Swoops (Triumphant Figure) -->
+    <!-- Left Body Arm -->
     <path d="M 250,324 C 246,296 230,268 202,242 C 218,254 238,278 246,310 Z" fill="url(#coreHumanGrad)" />
+    <!-- Right Body Arm -->
     <path d="M 250,324 C 254,296 270,268 298,242 C 282,254 262,278 254,310 Z" fill="url(#coreHumanGrad)" />
+
+    <!-- Lower Book Base & Spine Shadow -->
     <path d="M 125,268 C 160,296 210,314 250,324 C 290,314 340,296 375,268 C 340,290 290,305 250,308 C 210,305 160,290 125,268 Z" fill="#0C4A8A" opacity="0.85" />
     <path d="M 115,296 C 165,302 215,310 250,328 C 285,310 335,302 385,296 C 340,308 290,320 250,322 C 210,320 160,308 115,296 Z" fill="#083B75" />
+
+    <!-- Foundation / Base Arch of the Book -->
     <path d="M 112,300 C 158,284 206,296 250,326 C 294,296 342,284 388,300 C 344,288 296,298 250,324 C 204,298 156,288 112,300 Z" fill="url(#deepBlueGrad)" />
-    <text x="250" y="356" text-anchor="middle" fill="#0B4E99" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="14" letter-spacing="4">ESTD. 2020</text>
+
+    <!-- ESTD. 2020 Text -->
+    <text x="250" y="356" text-anchor="middle" fill="#0B4E99" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="14" letter-spacing="4">
+      ESTD. 2020
+    </text>
   </g>
 </svg>

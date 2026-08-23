@@ -1,10 +1,12 @@
 import {
   Book,
   BookSubscriptionType,
+  BookSubscriptionDuration,
   BookReaderContent,
   Chapter,
   Topic,
   Subtopic,
+  PdfSyncMap,
   ReadingProgress,
   Quiz,
   QuizSubmissionPayload,
@@ -23,15 +25,20 @@ import {
   MockTestParticipant,
   MockTestStatus,
   StudentDashboard,
+  VideoFolder,
   VideoExam,
   VideoChapter,
   Video,
+  PdfFolder,
   PdfExam,
   PdfChapter,
   PdfDocument,
   QuizFolder,
   StaffMember,
   StaffPermission,
+  AnnouncementPopup,
+  CustomerReview,
+  SocialLinks,
 } from '@psc/shared-types';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
@@ -42,25 +49,46 @@ export interface BookWritePayload {
   author: string;
   description: string;
   category: string;
-  price?: number;
+  price: number;
   discountPercent?: number;
   publicationYear?: number;
   productId?: string;
   appleId?: string;
   basePlanId?: string;
   subscriptionType?: BookSubscriptionType;
+  subscriptionDuration?: BookSubscriptionDuration | string | null;
   isPremium?: boolean;
   isPublished?: boolean;
   visibleToGuests?: boolean;
+  heroCoverUrl?: string | null;
   previewPdfUrl?: string;
   previewPdfFileName?: string;
   previewPdfSizeBytes?: number;
+  previewAudioUrl?: string;
+  previewAudioFileName?: string;
+  previewAudioSizeBytes?: number;
 }
 
 /** Fields an admin writes on an exam or chapter folder, in either content library. */
 export interface LibraryFolderPayload {
   title: string;
   description?: string;
+  orderIndex?: number;
+  isActive?: boolean;
+}
+
+export interface VideoFolderWritePayload {
+  name: string;
+  parentId?: string | null;
+  description?: string | null;
+  orderIndex?: number;
+  isActive?: boolean;
+}
+
+export interface PdfFolderWritePayload {
+  name: string;
+  parentId?: string | null;
+  description?: string | null;
   orderIndex?: number;
   isActive?: boolean;
 }
@@ -77,6 +105,8 @@ export interface ReorderEntry {
  * someone else's thumbnail.
  */
 export interface VideoWritePayload {
+  folderId?: string;
+  chapterId?: string;
   title: string;
   description?: string;
   youtubeUrl: string;
@@ -95,8 +125,19 @@ export interface QuizFolderWritePayload {
   isActive?: boolean;
 }
 
+/** A home-page testimonial. Written by an admin on a customer's behalf. */
+export interface ReviewWritePayload {
+  customerName: string;
+  rating: number;
+  comment: string;
+  isActive?: boolean;
+  orderIndex?: number;
+}
+
 /** The file itself goes through `uploadPdfDocumentFile`, not this payload. */
 export interface PdfDocumentWritePayload {
+  folderId?: string;
+  chapterId?: string;
   title: string;
   description?: string;
   orderIndex?: number;
@@ -370,9 +411,14 @@ export const ApiClient = {
     fetcher<Book>(`/books/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteBook: (id: string) => fetcher<any>(`/books/${id}`, { method: 'DELETE' }),
   uploadBookCover: (id: string, file: File) => uploadFetcher<Book>(`/books/${id}/cover`, file),
+  uploadBookHeroCover: (id: string, file: File) => uploadFetcher<Book>(`/books/${id}/hero-cover`, file),
+  deleteBookHeroCover: (id: string) => fetcher<Book>(`/books/${id}/hero-cover`, { method: 'DELETE' }),
   uploadBookPreviewPdf: (id: string, file: File, onProgress?: (percent: number) => void) =>
     uploadFetcherWithProgress<Book>(`/books/${id}/preview-pdf`, file, onProgress),
   deleteBookPreviewPdf: (id: string) => fetcher<Book>(`/books/${id}/preview-pdf`, { method: 'DELETE' }),
+  uploadBookPreviewAudio: (id: string, file: File, onProgress?: (percent: number) => void) =>
+    uploadFetcherWithProgress<Book>(`/books/${id}/preview-audio`, file, onProgress),
+  deleteBookPreviewAudio: (id: string) => fetcher<Book>(`/books/${id}/preview-audio`, { method: 'DELETE' }),
 
   // Chapters (Admin)
   getChapters: (bookId: string) => fetcher<Chapter[]>(`/books/${bookId}/chapters`),
@@ -413,6 +459,7 @@ export const ApiClient = {
     orderIndex: number;
     isActive: boolean;
     youtubeUrl: string;
+    syncCues: PdfSyncMap;
   }>) => fetcher<Topic>(`/books/topics/${topicId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteTopic: (topicId: string) => fetcher<any>(`/books/topics/${topicId}`, { method: 'DELETE' }),
   reorderTopics: (chapterId: string, topics: { id: string; orderIndex: number }[]) =>
@@ -435,6 +482,7 @@ export const ApiClient = {
     orderIndex: number;
     isActive: boolean;
     youtubeUrl: string;
+    syncCues: PdfSyncMap;
   }>) => fetcher<Subtopic>(`/books/subtopics/${subtopicId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteSubtopic: (subtopicId: string) => fetcher<any>(`/books/subtopics/${subtopicId}`, { method: 'DELETE' }),
   reorderSubtopics: (topicId: string, subtopics: { id: string; orderIndex: number }[]) =>
@@ -442,9 +490,52 @@ export const ApiClient = {
   uploadSubtopicAudio: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/audio`, file),
   uploadSubtopicPdf: (subtopicId: string, file: File) => uploadFetcher<Subtopic>(`/books/subtopics/${subtopicId}/pdf`, file),
 
-  // Video Library (Exam → Chapter → Video)
-  // The same endpoints serve students and the admin panel; the API decides
-  // whether inactive rows are included from the caller's role.
+  // Video Library (Folders & Multi-level Subfolders)
+  getVideoFolders: (parentId?: string | null) => {
+    const q = parentId !== undefined && parentId !== null ? `?parentId=${encodeURIComponent(parentId)}` : '';
+    return fetcher<VideoFolder[]>(`/videos/folders${q}`);
+  },
+  getVideoFolder: (id: string) =>
+    fetcher<VideoFolder & { breadcrumbs: { id: string; name: string }[]; children: VideoFolder[]; videos: Video[] }>(`/videos/folders/${id}`),
+  createVideoFolder: (payload: VideoFolderWritePayload) =>
+    fetcher<VideoFolder>('/videos/folders', { method: 'POST', body: JSON.stringify(payload) }),
+  updateVideoFolder: (id: string, payload: Partial<VideoFolderWritePayload>) =>
+    fetcher<VideoFolder>(`/videos/folders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteVideoFolder: (id: string) => fetcher<any>(`/videos/folders/${id}`, { method: 'DELETE' }),
+  reorderVideoFolders: (items: ReorderEntry[]) =>
+    fetcher<VideoFolder[]>('/videos/folders/reorder', { method: 'PATCH', body: JSON.stringify({ items }) }),
+
+  getVideos: (params?: { folderId?: string; chapterId?: string; search?: string } | string) => {
+    let q = '';
+    if (typeof params === 'string') {
+      q = `?chapterId=${encodeURIComponent(params)}`;
+    } else if (params) {
+      const searchParams = new URLSearchParams();
+      if (params.folderId) searchParams.set('folderId', params.folderId);
+      if (params.chapterId) searchParams.set('chapterId', params.chapterId);
+      if (params.search) searchParams.set('search', params.search);
+      const str = searchParams.toString();
+      if (str) q = `?${str}`;
+    }
+    return fetcher<Video[]>(`/videos${q}`);
+  },
+  getVideo: (id: string) => fetcher<Video>(`/videos/${id}`),
+  createVideo: (payload: VideoWritePayload | string, secondPayload?: VideoWritePayload) => {
+    const body = typeof payload === 'string' ? { ...secondPayload, chapterId: payload } : payload;
+    return fetcher<Video>('/videos', { method: 'POST', body: JSON.stringify(body) });
+  },
+  updateVideo: (videoId: string, payload: Partial<VideoWritePayload>) =>
+    fetcher<Video>(`/videos/${videoId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteVideo: (videoId: string) => fetcher<any>(`/videos/${videoId}`, { method: 'DELETE' }),
+  uploadVideoPdf: (videoId: string, file: File, onProgress?: (percent: number) => void) =>
+    uploadFetcherWithProgress<Video>(`/videos/${videoId}/pdf`, file, onProgress),
+  deleteVideoPdf: (videoId: string) => fetcher<Video>(`/videos/${videoId}/pdf`, { method: 'DELETE' }),
+  reorderVideos: (chapterIdOrItems: string | ReorderEntry[], items?: ReorderEntry[]) => {
+    const list = Array.isArray(chapterIdOrItems) ? chapterIdOrItems : items || [];
+    return fetcher<any>('/videos/folders/reorder', { method: 'PATCH', body: JSON.stringify({ items: list }) });
+  },
+
+  // Legacy Video Exam & Chapter Compatibility Methods
   getVideoExams: () => fetcher<VideoExam[]>('/videos/exams'),
   getVideoExam: (examId: string) => fetcher<VideoExam>(`/videos/exams/${examId}`),
   createVideoExam: (payload: LibraryFolderPayload) =>
@@ -454,7 +545,6 @@ export const ApiClient = {
   deleteVideoExam: (examId: string) => fetcher<any>(`/videos/exams/${examId}`, { method: 'DELETE' }),
   reorderVideoExams: (items: ReorderEntry[]) =>
     fetcher<VideoExam[]>('/videos/exams/reorder', { method: 'PATCH', body: JSON.stringify({ items }) }),
-
   getVideoChapters: (examId: string) => fetcher<VideoChapter[]>(`/videos/exams/${examId}/chapters`),
   getVideoChapter: (chapterId: string) => fetcher<VideoChapter>(`/videos/chapters/${chapterId}`),
   createVideoChapter: (examId: string, payload: LibraryFolderPayload) =>
@@ -465,19 +555,52 @@ export const ApiClient = {
   reorderVideoChapters: (examId: string, items: ReorderEntry[]) =>
     fetcher<VideoChapter[]>(`/videos/exams/${examId}/chapters/reorder`, { method: 'PATCH', body: JSON.stringify({ items }) }),
 
-  getVideos: (chapterId: string) => fetcher<Video[]>(`/videos/chapters/${chapterId}/videos`),
-  createVideo: (chapterId: string, payload: VideoWritePayload) =>
-    fetcher<Video>(`/videos/chapters/${chapterId}/videos`, { method: 'POST', body: JSON.stringify(payload) }),
-  updateVideo: (videoId: string, payload: Partial<VideoWritePayload>) =>
-    fetcher<Video>(`/videos/items/${videoId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  deleteVideo: (videoId: string) => fetcher<any>(`/videos/items/${videoId}`, { method: 'DELETE' }),
-  reorderVideos: (chapterId: string, items: ReorderEntry[]) =>
-    fetcher<Video[]>(`/videos/chapters/${chapterId}/videos/reorder`, { method: 'PATCH', body: JSON.stringify({ items }) }),
-  uploadVideoPdf: (videoId: string, file: File, onProgress?: (percent: number) => void) =>
-    uploadFetcherWithProgress<Video>(`/videos/items/${videoId}/pdf`, file, onProgress),
-  deleteVideoPdf: (videoId: string) => fetcher<Video>(`/videos/items/${videoId}/pdf`, { method: 'DELETE' }),
+  // PDF Library (Folders & Multi-level Subfolders)
+  getPdfFolders: (parentId?: string | null) => {
+    const q = parentId !== undefined && parentId !== null ? `?parentId=${encodeURIComponent(parentId)}` : '';
+    return fetcher<PdfFolder[]>(`/pdfs/folders${q}`);
+  },
+  getPdfFolder: (id: string) =>
+    fetcher<PdfFolder & { breadcrumbs: { id: string; name: string }[]; children: PdfFolder[]; documents: PdfDocument[] }>(`/pdfs/folders/${id}`),
+  createPdfFolder: (payload: PdfFolderWritePayload) =>
+    fetcher<PdfFolder>('/pdfs/folders', { method: 'POST', body: JSON.stringify(payload) }),
+  updatePdfFolder: (id: string, payload: Partial<PdfFolderWritePayload>) =>
+    fetcher<PdfFolder>(`/pdfs/folders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deletePdfFolder: (id: string) => fetcher<any>(`/pdfs/folders/${id}`, { method: 'DELETE' }),
+  reorderPdfFolders: (items: ReorderEntry[]) =>
+    fetcher<PdfFolder[]>('/pdfs/folders/reorder', { method: 'PATCH', body: JSON.stringify({ items }) }),
 
-  // PDF Library (Exam → Chapter → PDF)
+  getPdfDocuments: (params?: { folderId?: string; chapterId?: string; search?: string } | string) => {
+    let q = '';
+    if (typeof params === 'string') {
+      q = `?chapterId=${encodeURIComponent(params)}`;
+    } else if (params) {
+      const searchParams = new URLSearchParams();
+      if (params.folderId) searchParams.set('folderId', params.folderId);
+      if (params.chapterId) searchParams.set('chapterId', params.chapterId);
+      if (params.search) searchParams.set('search', params.search);
+      const str = searchParams.toString();
+      if (str) q = `?${str}`;
+    }
+    return fetcher<PdfDocument[]>(`/pdfs${q}`);
+  },
+  getPdfDocument: (id: string) => fetcher<PdfDocument>(`/pdfs/${id}`),
+  createPdfDocument: (payload: PdfDocumentWritePayload | string, secondPayload?: PdfDocumentWritePayload) => {
+    const body = typeof payload === 'string' ? { ...secondPayload, chapterId: payload } : payload;
+    return fetcher<PdfDocument>('/pdfs', { method: 'POST', body: JSON.stringify(body) });
+  },
+  updatePdfDocument: (documentId: string, payload: Partial<PdfDocumentWritePayload>) =>
+    fetcher<PdfDocument>(`/pdfs/${documentId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deletePdfDocument: (documentId: string) => fetcher<any>(`/pdfs/${documentId}`, { method: 'DELETE' }),
+  uploadPdfDocumentFile: (documentId: string, file: File, onProgress?: (percent: number) => void) =>
+    uploadFetcherWithProgress<PdfDocument>(`/pdfs/${documentId}/file`, file, onProgress),
+  deletePdfDocumentFile: (documentId: string) => fetcher<any>(`/pdfs/${documentId}/file`, { method: 'DELETE' }),
+  reorderPdfDocuments: (chapterIdOrItems: string | ReorderEntry[], items?: ReorderEntry[]) => {
+    const list = Array.isArray(chapterIdOrItems) ? chapterIdOrItems : items || [];
+    return fetcher<any>('/pdfs/folders/reorder', { method: 'PATCH', body: JSON.stringify({ items: list }) });
+  },
+
+  // Legacy PDF Exam & Chapter Compatibility Methods
   getPdfExams: () => fetcher<PdfExam[]>('/pdfs/exams'),
   getPdfExam: (examId: string) => fetcher<PdfExam>(`/pdfs/exams/${examId}`),
   createPdfExam: (payload: LibraryFolderPayload) =>
@@ -487,7 +610,6 @@ export const ApiClient = {
   deletePdfExam: (examId: string) => fetcher<any>(`/pdfs/exams/${examId}`, { method: 'DELETE' }),
   reorderPdfExams: (items: ReorderEntry[]) =>
     fetcher<PdfExam[]>('/pdfs/exams/reorder', { method: 'PATCH', body: JSON.stringify({ items }) }),
-
   getPdfChapters: (examId: string) => fetcher<PdfChapter[]>(`/pdfs/exams/${examId}/chapters`),
   getPdfChapter: (chapterId: string) => fetcher<PdfChapter>(`/pdfs/chapters/${chapterId}`),
   createPdfChapter: (examId: string, payload: LibraryFolderPayload) =>
@@ -497,18 +619,6 @@ export const ApiClient = {
   deletePdfChapter: (chapterId: string) => fetcher<any>(`/pdfs/chapters/${chapterId}`, { method: 'DELETE' }),
   reorderPdfChapters: (examId: string, items: ReorderEntry[]) =>
     fetcher<PdfChapter[]>(`/pdfs/exams/${examId}/chapters/reorder`, { method: 'PATCH', body: JSON.stringify({ items }) }),
-
-  getPdfDocuments: (chapterId: string) => fetcher<PdfDocument[]>(`/pdfs/chapters/${chapterId}/documents`),
-  createPdfDocument: (chapterId: string, payload: PdfDocumentWritePayload) =>
-    fetcher<PdfDocument>(`/pdfs/chapters/${chapterId}/documents`, { method: 'POST', body: JSON.stringify(payload) }),
-  updatePdfDocument: (documentId: string, payload: Partial<PdfDocumentWritePayload>) =>
-    fetcher<PdfDocument>(`/pdfs/documents/${documentId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  deletePdfDocument: (documentId: string) => fetcher<any>(`/pdfs/documents/${documentId}`, { method: 'DELETE' }),
-  reorderPdfDocuments: (chapterId: string, items: ReorderEntry[]) =>
-    fetcher<PdfDocument[]>(`/pdfs/chapters/${chapterId}/documents/reorder`, { method: 'PATCH', body: JSON.stringify({ items }) }),
-  /** Study-material PDFs are large enough that the admin form shows a progress bar while this runs. */
-  uploadPdfDocumentFile: (documentId: string, file: File, onProgress?: (percent: number) => void) =>
-    uploadFetcherWithProgress<PdfDocument>(`/pdfs/documents/${documentId}/file`, file, onProgress),
 
   // Library (reading progress)
   getReadingProgress: (bookId: string) => fetcher<ReadingProgress[]>(`/library/progress?bookId=${bookId}`),
@@ -544,6 +654,9 @@ export const ApiClient = {
     fetcher<any>(`/quizzes/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteQuiz: (id: string) =>
     fetcher<any>(`/quizzes/${id}`, { method: 'DELETE' }),
+  uploadQuizImage: (file: File) => uploadFetcher<{ url: string }>('/quizzes/upload-image', file),
+  uploadQuizImageForId: (id: string, file: File) => uploadFetcher<{ url: string; quiz: Quiz }>(`/quizzes/${id}/image`, file),
+  removeQuizImage: (id: string) => fetcher<Quiz>(`/quizzes/${id}/image`, { method: 'DELETE' }),
   submitQuiz: (id: string, payload: QuizSubmissionPayload) =>
     fetcher<QuizResult>(`/quizzes/${id}/submit`, { method: 'POST', body: JSON.stringify(payload) }),
   startQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/start`, { method: 'POST' }),
@@ -651,6 +764,30 @@ export const ApiClient = {
   setCouponActive: (id: string, isActive: boolean) =>
     fetcher<Coupon>(`/coupons/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
   deleteCoupon: (id: string) => fetcher<any>(`/coupons/${id}`, { method: 'DELETE' }),
+
+  // Customer Reviews
+  /** Public — only the reviews an admin has enabled, in the admin-chosen order. */
+  getActiveReviews: () => fetcher<CustomerReview[]>('/reviews/active'),
+  getReviews: () => fetcher<CustomerReview[]>('/reviews'),
+  createReview: (payload: ReviewWritePayload) =>
+    fetcher<CustomerReview>('/reviews', { method: 'POST', body: JSON.stringify(payload) }),
+  updateReview: (id: string, payload: Partial<ReviewWritePayload>) =>
+    fetcher<CustomerReview>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  setReviewActive: (id: string, isActive: boolean) =>
+    fetcher<CustomerReview>(`/reviews/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+  deleteReview: (id: string) => fetcher<any>(`/reviews/${id}`, { method: 'DELETE' }),
+
+  // Social Links
+  /** Public — used by both the home page and the admin settings form. */
+  getSocialLinks: () => fetcher<SocialLinks>('/social-links'),
+  updateSocialLinks: (payload: {
+    telegramUrl?: string;
+    instagramUrl?: string;
+    youtubeUrl?: string;
+    facebookUrl?: string;
+    twitterUrl?: string;
+  }) =>
+    fetcher<SocialLinks>('/social-links', { method: 'PATCH', body: JSON.stringify(payload) }),
 
   // Community Chat
   getChatGroups: () => fetcher<ChatGroupWithUserState[]>('/chat/groups/mine'),
@@ -772,4 +909,44 @@ export const ApiClient = {
     fetcher(`/staff/${id}/reactivate`, { method: 'PATCH' }),
   deleteStaff: (id: string) =>
     fetcher(`/staff/${id}`, { method: 'DELETE' }),
+
+  // --- Announcement Banner (Admin / Staff with manage_announcements) ---
+  listAnnouncements: () => fetcher<AnnouncementPopup[]>('/notifications/announcements'),
+  getActiveAnnouncements: () => fetcher<AnnouncementPopup[]>('/notifications/announcements/active'),
+  createAnnouncement: (payload: {
+    title: string;
+    message: string;
+    imageUrl?: string | null;
+    buttonText?: string | null;
+    redirectUrl?: string | null;
+    backgroundColor?: string | null;
+    isActive?: boolean;
+    orderIndex?: number;
+    startDate?: string;
+    endDate: string;
+  }) => fetcher<AnnouncementPopup>('/notifications/announcements', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAnnouncement: (
+    id: string,
+    payload: Partial<{
+      title: string;
+      message: string;
+      imageUrl: string | null;
+      buttonText: string | null;
+      redirectUrl: string | null;
+      backgroundColor: string | null;
+      isActive: boolean;
+      orderIndex: number;
+      startDate: string;
+      endDate: string;
+    }>,
+  ) => fetcher<AnnouncementPopup>(`/notifications/announcements/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  reorderAnnouncements: (ids: string[]) =>
+    fetcher<AnnouncementPopup[]>('/notifications/announcements/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify({ ids }),
+    }),
+  deleteAnnouncement: (id: string) =>
+    fetcher<{ success?: boolean }>(`/notifications/announcements/${id}`, { method: 'DELETE' }),
+  uploadAnnouncementBannerImage: (file: File) =>
+    uploadFetcher<{ url: string }>('/notifications/announcements/banner-image', file),
 };

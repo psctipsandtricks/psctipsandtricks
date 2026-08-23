@@ -32,6 +32,10 @@ export interface SidebarProps {
   pathname?: string;
   className?: string;
   onNavigate?: (href: string, e: React.MouseEvent<HTMLAnchorElement>) => void;
+  /** Custom link component (e.g. Next.js Link) for native prefetching and instant client routing */
+  linkComponent?: React.ElementType;
+  /** Prefetch callback called on link mouseEnter or focus */
+  onPrefetch?: (href: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -45,7 +49,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pathname: propPathname,
   className,
   onNavigate,
+  linkComponent,
+  onPrefetch,
 }) => {
+  const LinkTag = linkComponent || 'a';
   const [currentPath, setCurrentPath] = useState('');
   const [mode, setMode] = useState<SidebarMode>('expanded');
   const [isHovered, setIsHovered] = useState(false);
@@ -134,7 +141,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Collapsed shows the logo alone — the wordmark is not rendered at all,
             so nothing can spill past the 72px rail. */}
-        <a href="/admin" className="flex items-center space-x-3 overflow-hidden" title={brandName}>
+        <LinkTag
+          href="/admin"
+          prefetch={linkComponent ? true : undefined}
+          onMouseEnter={() => onPrefetch?.('/admin')}
+          onFocus={() => onPrefetch?.('/admin')}
+          onTouchStart={() => onPrefetch?.('/admin')}
+          onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.('/admin', e)}
+          className="flex items-center space-x-3 overflow-hidden group cursor-pointer active:scale-95 transition-transform"
+          title={brandName}
+        >
           <span className="w-8 h-8 rounded-xl overflow-hidden shadow-xs shrink-0 flex items-center justify-center">
             {brandIcon}
           </span>
@@ -143,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               PSC Control
             </span>
           )}
-        </a>
+        </LinkTag>
 
       </div>
 
@@ -154,15 +170,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           return (
             <div key={item.id} className="relative group">
-              <a
+              <LinkTag
                 href={item.href}
-                onClick={(e) => {
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.(item.href)}
+                onFocus={() => onPrefetch?.(item.href)}
+                onTouchStart={() => onPrefetch?.(item.href)}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                   if (onNavigate) {
                     onNavigate(item.href, e);
                   }
                 }}
                 className={cn(
-                  'flex items-center rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer relative overflow-hidden',
+                  'flex items-center rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer relative overflow-hidden active:scale-95 select-none',
                   isNarrow ? 'justify-center p-3' : 'space-x-3 px-3.5 py-2.5',
                   isActive
                     ? 'bg-gradient-to-r from-cyan-500/20 via-blue-600/15 to-purple-600/15 dark:bg-[#0f1b3d] text-cyan-900 dark:text-cyan-300 font-bold border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
@@ -187,7 +207,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 )}
                 {!isNarrow && <span className="truncate">{item.label}</span>}
-              </a>
+              </LinkTag>
 
               {/* Floating Flyout Tooltip when Collapsed */}
               {isNarrow && (

@@ -71,6 +71,14 @@ export class CreateStaffDto {
 
   @IsOptional()
   @IsBoolean()
+  manageReviews?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  manageSocialLinks?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   manageStaff?: boolean;
 
   @IsOptional()

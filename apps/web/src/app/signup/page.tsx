@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { Card, CardTitle, CardDescription, Input, Button } from '@psc/ui';
@@ -29,7 +29,8 @@ function SignupFormContent() {
   const redirectTarget = searchParams?.get('redirect') || '/dashboard';
   const [errorMsg, setErrorMsg] = useState('');
   const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | null>(null);
-  const { register } = useAuth();
+  const { user, isLoading: authLoading, register } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     const oauthError = searchParams?.get('error');
@@ -38,6 +39,12 @@ function SignupFormContent() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace(redirectTarget);
+    }
+  }, [user, authLoading, redirectTarget, router]);
+
   const formik = useFormik({
     initialValues: { name: '', email: '', password: '' },
     validationSchema: signupSchema,
@@ -45,7 +52,7 @@ function SignupFormContent() {
       setErrorMsg('');
       try {
         await register(values.email, values.password, values.name);
-        window.location.href = '/dashboard';
+        window.location.href = redirectTarget;
       } catch (err: any) {
         setErrorMsg(err?.message || 'Could not create account');
         setSubmitting(false);

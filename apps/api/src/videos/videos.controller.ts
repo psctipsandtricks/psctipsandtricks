@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
   UploadedFile,
   UseGuards,
@@ -27,11 +28,6 @@ import { UpdateVideoDto } from './dto/update-video.dto';
 const MANAGE_VIDEOS_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
 const VIDEO_PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 };
 
-/**
- * Every route requires a signed-in user: the library is free, but not public.
- * Reads are open to any student; writes need ADMIN, or STAFF holding
- * `manageVideos`.
- */
 @ApiTags('Videos')
 @ApiBearerAuth()
 @Controller('videos')
@@ -39,21 +35,137 @@ const VIDEO_PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 };
 export class VideosController {
   constructor(private readonly videosService: VideosService) {}
 
-  // --- Exams ---
+  // --- Video Folders (Recursive Tree) ---
 
-  @ApiOperation({ summary: 'List exam folders in the video library' })
+  @ApiOperation({ summary: 'List video folders (optionally filtered by parentId)' })
+  @Get('folders')
+  async listFolders(@Request() req: any, @Query('parentId') parentId?: string) {
+    return this.videosService.listFolders(req.user, parentId);
+  }
+
+  @ApiOperation({ summary: 'Get a single video folder with its subfolders and videos' })
+  @Get('folders/:id')
+  async getFolder(@Request() req: any, @Param('id') id: string) {
+    return this.videosService.findFolder(id, req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a video folder or subfolder (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Post('folders')
+  async createFolder(@Body() dto: { name: string; parentId?: string | null; description?: string; isActive?: boolean }) {
+    return this.videosService.createFolder(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a video folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Patch('folders/:id')
+  async updateFolder(
+    @Param('id') id: string,
+    @Body() dto: { name?: string; parentId?: string | null; description?: string; isActive?: boolean; orderIndex?: number },
+  ) {
+    return this.videosService.updateFolder(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a video folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Delete('folders/:id')
+  async removeFolder(@Param('id') id: string) {
+    return this.videosService.removeFolder(id);
+  }
+
+  @ApiOperation({ summary: 'Reorder video folders (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Patch('folders/reorder')
+  async reorderFolders(@Body() dto: ReorderDto) {
+    return this.videosService.reorderFolders(dto);
+  }
+
+  // --- Videos ---
+
+  @ApiOperation({ summary: 'List videos (optionally by folderId, chapterId, or search query)' })
+  @Get()
+  async listVideos(
+    @Request() req: any,
+    @Query('folderId') folderId?: string,
+    @Query('chapterId') chapterId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.videosService.listVideos({ folderId, chapterId, search }, req.user);
+  }
+
+  @ApiOperation({ summary: 'Get a single video' })
+  @Get(':id')
+  async getVideo(@Request() req: any, @Param('id') id: string) {
+    return this.videosService.findVideo(id, req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a video inside any folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Post()
+  async createVideo(@Body() dto: CreateVideoDto) {
+    return this.videosService.createVideo(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Patch(':id')
+  async updateVideo(@Param('id') id: string, @Body() dto: UpdateVideoDto) {
+    return this.videosService.updateVideo(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Delete(':id')
+  async removeVideo(@Param('id') id: string) {
+    return this.videosService.removeVideo(id);
+  }
+
+  @ApiOperation({ summary: 'Attach a PDF document to a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: VIDEO_PDF_UPLOAD_LIMITS }))
+  @Post(':id/pdf')
+  async uploadVideoPdf(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.videosService.uploadVideoPdf(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove the attached PDF from a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Delete(':id/pdf')
+  async removeVideoPdf(@Param('id') id: string) {
+    return this.videosService.removeVideoPdf(id);
+  }
+
+  // --- Legacy Compatibility Routes ---
+
   @Get('exams')
   async listExams(@Request() req: any) {
     return this.videosService.listExams(req.user);
   }
 
-  @ApiOperation({ summary: 'Get a single exam folder' })
   @Get('exams/:examId')
   async getExam(@Request() req: any, @Param('examId') examId: string) {
     return this.videosService.findExam(examId, req.user);
   }
 
-  @ApiOperation({ summary: 'Create an exam folder (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -62,7 +174,6 @@ export class VideosController {
     return this.videosService.createExam(dto);
   }
 
-  @ApiOperation({ summary: 'Reorder exam folders (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -71,7 +182,6 @@ export class VideosController {
     return this.videosService.reorderExams(dto);
   }
 
-  @ApiOperation({ summary: 'Update an exam folder (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -80,7 +190,6 @@ export class VideosController {
     return this.videosService.updateExam(examId, dto);
   }
 
-  @ApiOperation({ summary: 'Delete an exam folder and everything inside it (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -89,15 +198,11 @@ export class VideosController {
     return this.videosService.removeExam(examId);
   }
 
-  // --- Chapters ---
-
-  @ApiOperation({ summary: 'List chapter folders inside an exam' })
   @Get('exams/:examId/chapters')
   async listChapters(@Request() req: any, @Param('examId') examId: string) {
     return this.videosService.listChapters(examId, req.user);
   }
 
-  @ApiOperation({ summary: 'Add a chapter folder to an exam (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -106,7 +211,6 @@ export class VideosController {
     return this.videosService.createChapter(examId, dto);
   }
 
-  @ApiOperation({ summary: 'Reorder chapter folders within an exam (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -115,13 +219,11 @@ export class VideosController {
     return this.videosService.reorderChapters(examId, dto);
   }
 
-  @ApiOperation({ summary: 'Get a single chapter folder' })
   @Get('chapters/:chapterId')
   async getChapter(@Request() req: any, @Param('chapterId') chapterId: string) {
     return this.videosService.findChapter(chapterId, req.user);
   }
 
-  @ApiOperation({ summary: 'Update a chapter folder (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -130,7 +232,6 @@ export class VideosController {
     return this.videosService.updateChapter(chapterId, dto);
   }
 
-  @ApiOperation({ summary: 'Delete a chapter folder and its videos (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
@@ -139,73 +240,16 @@ export class VideosController {
     return this.videosService.removeChapter(chapterId);
   }
 
-  // --- Videos ---
-
-  @ApiOperation({ summary: 'List videos inside a chapter folder' })
   @Get('chapters/:chapterId/videos')
-  async listVideos(@Request() req: any, @Param('chapterId') chapterId: string) {
-    return this.videosService.listVideos(chapterId, req.user);
+  async listChapterVideos(@Request() req: any, @Param('chapterId') chapterId: string) {
+    return this.videosService.listVideos({ chapterId }, req.user);
   }
 
-  @ApiOperation({ summary: 'Add a YouTube video to a chapter (Admin / Staff with manage_videos)' })
   @UseGuards(...MANAGE_VIDEOS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('manageVideos')
   @Post('chapters/:chapterId/videos')
-  async createVideo(@Param('chapterId') chapterId: string, @Body() dto: CreateVideoDto) {
-    return this.videosService.createVideo(chapterId, dto);
-  }
-
-  @ApiOperation({ summary: 'Reorder videos within a chapter (Admin / Staff with manage_videos)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Patch('chapters/:chapterId/videos/reorder')
-  async reorderVideos(@Param('chapterId') chapterId: string, @Body() dto: ReorderDto) {
-    return this.videosService.reorderVideos(chapterId, dto);
-  }
-
-  @ApiOperation({ summary: 'Get a single video' })
-  @Get('items/:videoId')
-  async getVideo(@Request() req: any, @Param('videoId') videoId: string) {
-    return this.videosService.findVideo(videoId, req.user);
-  }
-
-  @ApiOperation({ summary: 'Update a video (Admin / Staff with manage_videos)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Patch('items/:videoId')
-  async updateVideo(@Param('videoId') videoId: string, @Body() dto: UpdateVideoDto) {
-    return this.videosService.updateVideo(videoId, dto);
-  }
-
-  @ApiOperation({ summary: 'Delete a video (Admin / Staff with manage_videos)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Delete('items/:videoId')
-  async removeVideo(@Param('videoId') videoId: string) {
-    return this.videosService.removeVideo(videoId);
-  }
-
-  @ApiOperation({ summary: 'Upload/attach a PDF to a video (Admin / Staff with manage_videos)' })
-  @ApiConsumes('multipart/form-data')
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @UseInterceptors(FileInterceptor('file', { limits: VIDEO_PDF_UPLOAD_LIMITS }))
-  @Post('items/:videoId/pdf')
-  async uploadVideoPdf(@Param('videoId') videoId: string, @UploadedFile() file: Express.Multer.File) {
-    return this.videosService.uploadVideoPdf(videoId, file);
-  }
-
-  @ApiOperation({ summary: 'Remove attached PDF from a video (Admin / Staff with manage_videos)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Delete('items/:videoId/pdf')
-  async removeVideoPdf(@Param('videoId') videoId: string) {
-    return this.videosService.removeVideoPdf(videoId);
+  async createChapterVideo(@Param('chapterId') chapterId: string, @Body() dto: CreateVideoDto) {
+    return this.videosService.createVideo({ ...dto, chapterId });
   }
 }

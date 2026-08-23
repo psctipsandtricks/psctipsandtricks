@@ -29,11 +29,13 @@ const LazyPreviewPage = memo(function LazyPreviewPage({
   pageNumber,
   width,
   aspectRatio,
+  user,
   onHeightMeasured,
 }: {
   pageNumber: number;
   width: number;
   aspectRatio: number;
+  user?: { id?: string; name?: string; email?: string; phone?: string } | null;
   onHeightMeasured?: (height: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,9 +72,15 @@ const LazyPreviewPage = memo(function LazyPreviewPage({
       style={{
         width,
         minHeight: isVisible ? undefined : estimatedHeight,
-        pointerEvents: 'none',
       }}
     >
+      {/* Centered Watermark Overlay on EVERY PDF Page */}
+      <ReaderWatermarkOverlay
+        userName={user?.name || 'Student'}
+        userId={user?.id || 'STUDENT'}
+        userIdentifier={user?.email || user?.phone || undefined}
+      />
+
       {isVisible ? (
         <Page
           pageNumber={pageNumber}
@@ -288,13 +296,6 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
           WebkitUserSelect: 'none',
         }}
       >
-        {/* Anti-theft watermark overlay */}
-        <ReaderWatermarkOverlay
-          userName={user?.name || 'Preview Reader'}
-          userId={user?.id || 'GUEST-PREVIEW'}
-          userIdentifier={user?.email || user?.phone || undefined}
-        />
-
         {error && (
           <div className="my-auto max-w-sm p-6 text-center space-y-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl">
             <FileWarning className="w-8 h-8 text-rose-500 mx-auto" />
@@ -333,6 +334,7 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
                   pageNumber={pageNum}
                   width={finalWidth}
                   aspectRatio={aspectRatio}
+                  user={user}
                   onHeightMeasured={pageNum === 1 ? handleHeightMeasured : undefined}
                 />
               );

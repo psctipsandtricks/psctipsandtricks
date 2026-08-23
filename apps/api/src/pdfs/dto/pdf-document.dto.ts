@@ -6,6 +6,14 @@ import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-v
  * re-sending its PDF.
  */
 export class CreatePdfDocumentDto {
+  @IsOptional()
+  @IsString()
+  folderId?: string;
+
+  @IsOptional()
+  @IsString()
+  chapterId?: string;
+
   @IsString()
   @IsNotEmpty()
   title: string;
@@ -25,6 +33,14 @@ export class CreatePdfDocumentDto {
 }
 
 export class UpdatePdfDocumentDto {
+  @IsOptional()
+  @IsString()
+  folderId?: string;
+
+  @IsOptional()
+  @IsString()
+  chapterId?: string;
+
   @IsOptional()
   @IsString()
   @IsNotEmpty()

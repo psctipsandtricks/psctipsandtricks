@@ -83,12 +83,11 @@ export class MockTestsService {
     // The listing must reflect purchase state up front — otherwise a premium
     // mock test's card reads "Join & Start" exactly like a free one, and the
     // paywall only shows up after the student has already clicked through.
-    const isStaff = actor?.role === 'ADMIN' || actor?.role === 'STAFF';
-    const purchased = isStaff ? new Set<string>() : await this.quizAccess.getPurchasedQuizIds(actor?.id);
+    const purchased = await this.quizAccess.getPurchasedQuizIds(actor?.id);
 
     return mockTests.map((mt) => {
       const isPaid = this.quizAccess.isPaidQuiz(mt.quiz);
-      const hasAccess = !isPaid || isStaff || purchased.has(mt.quizId);
+      const hasAccess = !isPaid || purchased.has(mt.quizId);
       return { ...mt, access: { isPaid, hasAccess, price: mt.quiz?.price ?? 0 } };
     });
   }

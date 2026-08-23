@@ -34,29 +34,39 @@ export function AdminSkeletonKpiGrid({ cardsCount = 4 }: { cardsCount?: number }
   );
 }
 
-export function AdminSkeletonTable({ rowsCount = 5, colsCount = 6 }: { rowsCount?: number; colsCount?: number }) {
+export function AdminSkeletonTable({ rowsCount = 6, colsCount = 5 }: { rowsCount?: number; colsCount?: number }) {
   return (
-    <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 p-6 space-y-4 glass-panel">
-      <div className="flex justify-between items-center pb-2">
-        <div className="h-6 w-48 skeleton-base rounded-lg" />
-        <div className="h-8 w-32 skeleton-base rounded-xl" />
+    <div className="w-full overflow-hidden">
+      <div className="grid grid-cols-12 gap-4 px-6 py-3.5 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200/80 dark:border-slate-800 text-xs font-bold">
+        <div className="col-span-4"><div className="h-4 w-28 skeleton-base rounded-md" /></div>
+        <div className="col-span-2"><div className="h-4 w-20 skeleton-base rounded-md" /></div>
+        <div className="col-span-2"><div className="h-4 w-20 skeleton-base rounded-md" /></div>
+        <div className="col-span-2"><div className="h-4 w-16 skeleton-base rounded-md" /></div>
+        <div className="col-span-2 text-right"><div className="h-4 w-14 skeleton-base rounded-md ml-auto" /></div>
       </div>
-      <div className="space-y-3">
-        <div className="flex items-center space-x-4 py-2 border-b border-slate-200 dark:border-slate-800">
-          {Array.from({ length: colsCount }).map((_, j) => (
-            <div key={j} className="h-4 flex-1 skeleton-base rounded-md" />
-          ))}
-        </div>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
         {Array.from({ length: rowsCount }).map((_, i) => (
-          <div key={i} className="flex items-center space-x-4 py-3">
-            {Array.from({ length: colsCount }).map((_, j) => (
-              <div
-                key={j}
-                className={`h-5 flex-1 skeleton-base rounded-lg ${
-                  j === 0 ? 'w-1/3' : j === colsCount - 1 ? 'w-16' : 'w-full'
-                }`}
-              />
-            ))}
+          <div key={i} className="grid grid-cols-12 gap-4 px-6 py-3.5 items-center">
+            <div className="col-span-4 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl skeleton-base shrink-0" />
+              <div className="space-y-1 flex-1 min-w-0">
+                <div className="h-4 w-3/4 skeleton-base rounded-md" />
+                <div className="h-3 w-1/3 skeleton-base rounded-md" />
+              </div>
+            </div>
+            <div className="col-span-2">
+              <div className="h-4 w-20 skeleton-base rounded-md" />
+            </div>
+            <div className="col-span-2">
+              <div className="h-4 w-20 skeleton-base rounded-md" />
+            </div>
+            <div className="col-span-2">
+              <div className="h-5 w-16 skeleton-base rounded-full" />
+            </div>
+            <div className="col-span-2 flex justify-end gap-1.5">
+              <div className="w-7 h-7 rounded-lg skeleton-base" />
+              <div className="w-7 h-7 rounded-lg skeleton-base" />
+            </div>
           </div>
         ))}
       </div>

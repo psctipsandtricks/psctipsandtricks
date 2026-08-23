@@ -27,11 +27,13 @@ const LazyVideoPdfPage = memo(function LazyVideoPdfPage({
   pageNumber,
   width,
   aspectRatio,
+  user,
   onHeightMeasured,
 }: {
   pageNumber: number;
   width: number;
   aspectRatio: number;
+  user?: { id?: string; name?: string; email?: string; phone?: string } | null;
   onHeightMeasured?: (height: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -68,9 +70,15 @@ const LazyVideoPdfPage = memo(function LazyVideoPdfPage({
       style={{
         width,
         minHeight: isVisible ? undefined : estimatedHeight,
-        pointerEvents: 'none',
       }}
     >
+      {/* Centered Watermark Overlay on EVERY PDF Page */}
+      <ReaderWatermarkOverlay
+        userName={user?.name || 'Student'}
+        userId={user?.id || 'STUDENT'}
+        userIdentifier={user?.email || user?.phone || undefined}
+      />
+
       {isVisible ? (
         <Page
           pageNumber={pageNumber}
@@ -274,13 +282,6 @@ export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerP
           WebkitUserSelect: 'none',
         }}
       >
-        {/* Forensic anti-piracy watermark overlay */}
-        <ReaderWatermarkOverlay
-          userName={user?.name || 'Registered Student'}
-          userId={user?.id || 'STUDENT'}
-          userIdentifier={user?.email || user?.phone || undefined}
-        />
-
         {error && (
           <div className="my-auto max-w-sm p-4 text-center space-y-2 bg-rose-500/10 border border-rose-500/30 rounded-xl">
             <FileWarning className="w-6 h-6 text-rose-500 mx-auto" />
@@ -319,6 +320,7 @@ export function SecureVideoPdfViewer({ url, title, user }: SecureVideoPdfViewerP
                   pageNumber={pageNum}
                   width={finalWidth}
                   aspectRatio={aspectRatio}
+                  user={user}
                   onHeightMeasured={pageNum === 1 ? handleHeightMeasured : undefined}
                 />
               );

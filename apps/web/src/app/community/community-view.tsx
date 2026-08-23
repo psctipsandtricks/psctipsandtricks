@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, ConfirmDialog } from '@psc/ui';
+import { Button, ConfirmDialog, useFileDrop } from '@psc/ui';
 import {
   Users,
   Search,
@@ -85,6 +85,71 @@ const EMOJI_LIST = [
   '📚', '✍️', '🎯', '🏆', '✅', '🧠', '💯', '📌',
   '🚀', '⭐', '🎉', '💪', '🙏', '🙌', '❓', '❗',
 ];
+
+function isSameCalendarDay(dateStr1?: string, dateStr2?: string): boolean {
+  if (!dateStr1 || !dateStr2) return false;
+  const d1 = new Date(dateStr1);
+  const d2 = new Date(dateStr2);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return false;
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
+
+function formatChatDateSeparator(dateStr?: string): string {
+  if (!dateStr) return 'Today';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 'Today';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  const diffTime = today.getTime() - target.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatSidebarTime(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  const diffTime = today.getTime() - target.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  if (diffDays === 1) {
+    return 'Yesterday';
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
+}
 
 export function CommunityView({ initialGroupId }: CommunityViewProps) {
   const { user, isLoading: authLoading } = useAuth();
@@ -500,6 +565,48 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     return () => window.removeEventListener('resize', handleViewportResize);
   }, [showPollComposer]);
 
+  // Admins can drop files anywhere on the composer bar.
+  const stageAdminFiles = useCallback((files: File[]) => {
+    if (files.length === 0 || !isAdmin) return;
+
+    const newPending: Attachment[] = files.map((file) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'file';
+      let type: 'pdf' | 'excel' | 'word' | 'image' | 'file' = 'file';
+      if (ext === 'pdf') type = 'pdf';
+      else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'excel';
+      else if (['doc', 'docx'].includes(ext)) type = 'word';
+      else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) type = 'image';
+
+      const formattedSize =
+        file.size > 1024 * 1024
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
+
+      return {
+        file,
+        name: file.name,
+        type,
+        size: formattedSize,
+        url: '',
+        uploadStatus: 'completed',
+      };
+    });
+
+    setPendingAttachments((prev) => [...prev, ...newPending]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [isAdmin]);
+
+  const handleAdminFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    stageAdminFiles(Array.from(e.target.files || []));
+  }, [stageAdminFiles]);
+
+  const composerDrop = useFileDrop({
+    accept: '.pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.webp,.txt,.zip',
+    multiple: true,
+    disabled: !isAdmin,
+    onFiles: stageAdminFiles,
+  });
+
   if (!mounted || authLoading || !user) return <CommunitySkeleton />;
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
@@ -846,38 +953,6 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     }
   };
 
-  /* Instant Admin File Attachment Selection */
-  const handleAdminFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !isAdmin) return;
-
-    const newPending: Attachment[] = Array.from(files).map((file) => {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'file';
-      let type: 'pdf' | 'excel' | 'word' | 'image' | 'file' = 'file';
-      if (ext === 'pdf') type = 'pdf';
-      else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'excel';
-      else if (['doc', 'docx'].includes(ext)) type = 'word';
-      else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext)) type = 'image';
-
-      const formattedSize =
-        file.size > 1024 * 1024
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.round(file.size / 1024)} KB`;
-
-      return {
-        file,
-        name: file.name,
-        type,
-        size: formattedSize,
-        url: '',
-        uploadStatus: 'completed',
-      };
-    });
-
-    setPendingAttachments((prev) => [...prev, ...newPending]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   /* Admin/Staff Moderation: Delete Any Message From Any Group */
   const handleDeleteMessage = (messageId: string) => {
     if (messageId.startsWith('optimistic-')) return;
@@ -1072,8 +1147,8 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 }`}
               >
                 {group.lastMessageTime
-                  ? new Date(group.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  : 'Today'}
+                  ? formatSidebarTime(group.lastMessageTime)
+                  : ''}
               </span>
 
               {/* Hover Down Arrow Chevron (w-0 / display: none by default, expands on hover moving time slightly left) */}
@@ -1707,12 +1782,6 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   </div>
                 )}
 
-                <div className="flex items-center justify-center">
-                  <span className="px-3 py-0.5 rounded-full bg-slate-200/90 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider shadow-2xs">
-                    Today
-                  </span>
-                </div>
-
                 {messagesLoading && messages.length === 0 && (
                   <>
                     <BubbleSkeleton bubbleWidth="60%" hasSecondLine />
@@ -1725,9 +1794,18 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   const isMe = msg.senderId === user.id;
                   const isAdminSender = msg.senderRole === 'Admin' || (msg.senderId === user.id && isAdmin);
                   const showNewDivider = newMsgStartIndex >= 0 && msgIndex === newMsgStartIndex;
+                  const isNewDay = msgIndex === 0 || !isSameCalendarDay(messages[msgIndex - 1]?.createdAt, msg.createdAt);
 
                   return (
                     <React.Fragment key={msg.id}>
+                      {isNewDay && (
+                        <div className="flex items-center justify-center my-2 select-none">
+                          <span className="px-3.5 py-0.5 rounded-full bg-slate-200/90 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400 text-[10px] font-mono font-bold uppercase tracking-wider shadow-2xs">
+                            {formatChatDateSeparator(msg.createdAt)}
+                          </span>
+                        </div>
+                      )}
+
                       {showNewDivider && (
                         <div className="flex items-center space-x-3 py-1">
                           <div className="flex-1 h-px bg-rose-400/40 dark:bg-rose-500/30" />
@@ -2162,7 +2240,19 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
               )}
 
               {/* Composer Input Bar */}
-              <div className="p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-slate-950/90 backdrop-blur-md space-y-2 shrink-0 z-20">
+              <div
+                {...composerDrop.dropProps}
+                className={`relative p-3 border-t border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-slate-950/90 backdrop-blur-md space-y-2 shrink-0 z-20 transition-all ${
+                  composerDrop.isDragActive ? 'ring-2 ring-inset ring-cyan-500/60 bg-cyan-500/5' : ''
+                }`}
+              >
+                {composerDrop.isDragActive && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center rounded-t-2xl bg-cyan-500/10 backdrop-blur-[1px] pointer-events-none">
+                    <span className="px-3 py-1.5 rounded-xl bg-cyan-600 text-white text-xs font-black shadow-lg">
+                      Drop files to attach
+                    </span>
+                  </div>
+                )}
                 {replyingTo && (
                   <div className="px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-between text-xs font-semibold text-cyan-800 dark:text-cyan-300">
                     <div className="flex items-center space-x-2 truncate">

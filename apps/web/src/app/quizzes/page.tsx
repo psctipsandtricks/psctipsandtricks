@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardTitle, CardDescription, Button, Badge, Input, Pagination } from '@psc/ui';
-import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown } from 'lucide-react';
+import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { QuizFolder } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
@@ -20,6 +20,19 @@ interface StudentQuiz {
   totalMarks: number;
   accessType: 'FREE' | 'PAID';
   price?: number;
+  imageUrl?: string | null;
+  createdAt?: string;
+  hasAccess?: boolean;
+  isPurchased?: boolean;
+}
+
+const NEW_QUIZ_WINDOW_DAYS = 7;
+
+function isRecentlyUploaded(createdAt?: string): boolean {
+  if (!createdAt) return false;
+  const created = new Date(createdAt).getTime();
+  if (Number.isNaN(created)) return false;
+  return Date.now() - created <= NEW_QUIZ_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 }
 
 const MOCK_TEST_POLL_MS = 20_000;
@@ -47,15 +60,17 @@ function useCountdown(target: string) {
 
 function CountdownUnit({ value, label, urgent }: { value: number; label: string; urgent?: boolean }) {
   return (
-    <div className="flex flex-col items-center min-w-[32px] sm:min-w-[36px]">
-      <span
-        className={`text-lg sm:text-xl font-black font-mono tabular-nums leading-none ${
-          urgent ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'
+    <div className="flex flex-col items-center">
+      <div
+        className={`w-11 h-11 sm:w-13 sm:h-13 rounded-2xl flex items-center justify-center font-mono font-black text-lg sm:text-xl shadow-xs border transition-all ${
+          urgent
+            ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-amber-500/10'
+            : 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 text-slate-900 dark:text-white shadow-slate-200/50'
         }`}
       >
         {value.toString().padStart(2, '0')}
-      </span>
-      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">
+      </div>
+      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1.5">
         {label}
       </span>
     </div>
@@ -83,12 +98,6 @@ export default function QuizzesPage() {
   const [pageSize, setPageSize] = useState(12);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace('/login?redirect=/quizzes');
-    }
-  }, [user, authLoading, router]);
-
-  useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, accessFilter, activeFolderTab]);
 
@@ -97,10 +106,10 @@ export default function QuizzesPage() {
 
   const handleStartQuiz = (quiz: StudentQuiz) => {
     const isPaid = quiz.accessType === 'PAID';
-    const isAlreadyAttempted = attemptedQuizIds.has(quiz.id);
+    const isUnlocked = quiz.hasAccess || quiz.isPurchased;
 
     const targetUrl =
-      isPaid && !isAlreadyAttempted ? `/checkout?type=quiz&id=${quiz.id}` : `/quizzes/${quiz.id}`;
+      isPaid && !isUnlocked ? `/checkout?type=quiz&id=${quiz.id}` : `/quizzes/${quiz.id}`;
 
     if (!user) {
       router.push(`/login?redirect=${encodeURIComponent(targetUrl)}`);
@@ -113,11 +122,19 @@ export default function QuizzesPage() {
     async function fetchPublishedQuizzes() {
       try {
         setLoading(true);
-        const [data, foldersData] = await Promise.all([
+        const [data, foldersData, myOrders] = await Promise.all([
           ApiClient.getPublishedQuizzes(),
           ApiClient.getQuizFolders(),
+          user ? ApiClient.getMyOrders().catch(() => []) : Promise.resolve([]),
         ]);
         setDbFolders(foldersData || []);
+
+        const purchasedQuizIds = new Set(
+          (myOrders || [])
+            .filter((o: any) => o.status === 'SUCCESS' && o.quizId)
+            .map((o: any) => o.quizId as string)
+        );
+
         const activePublished = (data as any[]).filter((q) => {
           // Strictly exclude any quiz whose release date/time is in the future
           if (q.releaseDate && new Date(q.releaseDate).getTime() > Date.now()) {
@@ -125,17 +142,28 @@ export default function QuizzesPage() {
           }
           return true;
         });
-        const mapped: StudentQuiz[] = activePublished.map((q) => ({
-          id: q.id,
-          title: q.title,
-          folderName: (!q.folderName || q.folderName === 'Root / No Folder' || q.folderName === 'Root') ? 'Root' : q.folderName,
-          questions: q.totalQuestions || (q.questions?.length ?? 0),
-          duration: q.durationMinutes,
-          isLive: q.isLiveMock,
-          totalMarks: q.totalMarks,
-          accessType: q.accessType === 'PAID' ? 'PAID' : 'FREE',
-          price: q.price > 0 ? q.price : undefined,
-        }));
+
+        const mapped: StudentQuiz[] = activePublished.map((q) => {
+          const isPaid = q.accessType === 'PAID' || (q.price && q.price > 0);
+          const hasAccess = q.access?.hasAccess ?? (q.accessType === 'FREE' || purchasedQuizIds.has(q.id));
+          const isPurchased = q.access?.reason === 'PURCHASED' || purchasedQuizIds.has(q.id);
+
+          return {
+            id: q.id,
+            title: q.title,
+            folderName: (!q.folderName || q.folderName === 'Root / No Folder' || q.folderName === 'Root') ? 'Root' : q.folderName,
+            questions: q.totalQuestions || (q.questions?.length ?? 0),
+            duration: q.durationMinutes,
+            isLive: q.isLiveMock,
+            totalMarks: q.totalMarks,
+            accessType: isPaid ? 'PAID' : 'FREE',
+            price: q.price > 0 ? q.price : undefined,
+            imageUrl: q.imageUrl || null,
+            createdAt: q.createdAt,
+            hasAccess,
+            isPurchased,
+          };
+        });
         setQuizzes(mapped);
       } catch (err) {
         console.error('Failed to fetch quizzes:', err);
@@ -144,7 +172,7 @@ export default function QuizzesPage() {
       }
     }
     fetchPublishedQuizzes();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     async function fetchMockTests() {
@@ -315,7 +343,7 @@ export default function QuizzesPage() {
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
   const paginatedQuizzes = filteredQuizzes.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  if (loading || authLoading || !user) {
+  if (loading || authLoading) {
     return <QuizHubSkeleton />;
   }
 
@@ -331,12 +359,21 @@ export default function QuizzesPage() {
             Browse quizzes by topic folder, test your preparation with live mock tests, and practice free/premium question banks.
           </p>
         </div>
-        <Link href="/quizzes/history">
-          <Button variant="outline" size="sm" className="font-bold flex items-center space-x-1.5 self-start sm:self-auto shrink-0 border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70">
-            <History className="w-4 h-4 text-cyan-500" />
-            <span>My Attempt History</span>
-          </Button>
-        </Link>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            if (!user) {
+              router.push('/login?redirect=/quizzes/history');
+            } else {
+              router.push('/quizzes/history');
+            }
+          }}
+          className="font-bold flex items-center space-x-1.5 self-start sm:self-auto shrink-0 border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70 cursor-pointer"
+        >
+          <History className="w-4 h-4 text-cyan-500" />
+          <span>My Attempt History</span>
+        </Button>
       </div>
 
       {/* Live & Upcoming Mock Tests — pinned & highlighted */}
@@ -517,19 +554,83 @@ export default function QuizzesPage() {
                 </h3>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {paginatedQuizzes.map((quiz) => (
-                  <Card key={quiz.id} hoverEffect className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 p-5 rounded-2xl">
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center gap-2">
-                        <div className="flex items-center space-x-2">
-                          <Badge variant={quiz.isLive ? 'gold' : 'default'}>
-                            {quiz.isLive ? '🔥 Live Mock Test' : 'Quiz'}
-                          </Badge>
+                {paginatedQuizzes.map((quiz) => {
+                  const isPaid = quiz.accessType === 'PAID';
+                  const isNew = isRecentlyUploaded(quiz.createdAt);
+                  const defaultCover = isPaid ? '/default-quiz-cover.svg' : '/default-free-quiz-cover.svg';
+                  const coverImage = quiz.imageUrl || defaultCover;
+
+                  return (
+                    <Card key={quiz.id} hoverEffect className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 p-5 rounded-2xl">
+                      <div className="space-y-3">
+                        <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-slate-950 group/img">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={coverImage}
+                            alt={quiz.title}
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = defaultCover;
+                            }}
+                            className="w-full h-full object-cover object-center transition-transform duration-500 group-hover/img:scale-105"
+                          />
+                          {/* Top Badges Overlay on Cover */}
+                          <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1.5 pointer-events-none">
+                            <div className="flex items-center gap-1.5">
+                              {isNew && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-md">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                  New
+                                </span>
+                              )}
+                              {quiz.isLive && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500 text-white shadow-md">
+                                  <Radio className="w-2.5 h-2.5 animate-pulse" />
+                                  Live
+                                </span>
+                              )}
+                            </div>
+                            {isPaid ? (
+                              quiz.hasAccess || quiz.isPurchased ? (
+                                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-md flex items-center gap-1">
+                                  <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                                  <span>UNLOCKED</span>
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black font-mono bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-md flex items-center gap-1">
+                                  <Lock className="w-2.5 h-2.5 text-amber-400" />
+                                  <span>₹{quiz.price}</span>
+                                </span>
+                              )
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-md flex items-center gap-1">
+                                <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                                <span>FREE</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center gap-2">
+                          <div className="flex items-center space-x-2">
+                            {isNew && (
+                              <Badge variant="success" className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>NEW</span>
+                              </Badge>
+                            )}
+                            <Badge variant={quiz.isLive ? 'gold' : 'default'}>
+                              {quiz.isLive ? '🔥 Live Mock Test' : 'Quiz'}
+                            </Badge>
                           {/* Free vs Paid Access Badge */}
                           {quiz.accessType === 'FREE' ? (
                             <Badge variant="success" className="font-bold flex items-center gap-1">
                               <Unlock className="w-3 h-3" />
                               <span>FREE</span>
+                            </Badge>
+                          ) : quiz.hasAccess || quiz.isPurchased ? (
+                            <Badge variant="success" className="font-bold flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>UNLOCKED</span>
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="font-bold flex items-center gap-1 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30">
@@ -565,18 +666,31 @@ export default function QuizzesPage() {
                       ) : (
                         <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
                       )}
-                      <Button
-                        size="sm"
-                        variant={quiz.accessType === 'PAID' && !attemptedQuizIds.has(quiz.id) ? 'outline' : 'gold'}
-                        className="font-bold cursor-pointer"
-                        onClick={() => handleStartQuiz(quiz)}
-                      >
-                        <span>{attemptedQuizIds.has(quiz.id) ? 'Retake Quiz' : 'Start Quiz'}</span>
-                        <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                      </Button>
+                      {quiz.accessType === 'PAID' && !quiz.hasAccess && !quiz.isPurchased ? (
+                        <Button
+                          size="sm"
+                          variant="gold"
+                          className="font-bold cursor-pointer"
+                          onClick={() => handleStartQuiz(quiz)}
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+                          <span>Buy Now</span>
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="gold"
+                          className="font-bold cursor-pointer"
+                          onClick={() => handleStartQuiz(quiz)}
+                        >
+                          <span>{attemptedQuizIds.has(quiz.id) ? 'Retake Quiz' : 'Start Quiz'}</span>
+                          <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                        </Button>
+                      )}
                     </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -601,30 +715,36 @@ export default function QuizzesPage() {
   );
 }
 
-const COURSE_CARD_ACCENTS = {
+const COURSE_CARD_THEMES = {
   free: {
-    bg: 'bg-gradient-to-b from-white via-white to-emerald-50/50 dark:bg-none dark:bg-[#0c152e]',
-    border: 'border-emerald-500/30 hover:border-emerald-500/60',
-    iconBox: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500',
-    action: 'text-emerald-600 dark:text-emerald-400',
-    shadow: 'shadow-[0_4px_20px_-2px_rgba(16,185,129,0.08)] hover:shadow-[0_10px_30px_rgba(16,185,129,0.18)]',
-    badge: 'success' as const,
+    accentBar: 'from-emerald-400 to-teal-500',
+    iconBg: 'bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-lg shadow-emerald-500/25',
+    pill: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20',
+    dot: 'bg-emerald-500',
+    titleHover: 'group-hover:text-emerald-600 dark:group-hover:text-emerald-400',
+    buttonText: 'Open Free Folders',
+    buttonBg: 'text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 group-hover:bg-emerald-500 group-hover:text-white',
+    glow: 'group-hover:shadow-emerald-500/15',
   },
   premium: {
-    bg: 'bg-gradient-to-b from-white via-white to-amber-50/50 dark:bg-none dark:bg-[#0c152e]',
-    border: 'border-amber-500/30 hover:border-amber-500/60',
-    iconBox: 'bg-amber-500/10 border-amber-500/30 text-amber-500',
-    action: 'text-amber-600 dark:text-amber-400',
-    shadow: 'shadow-[0_4px_20px_-2px_rgba(245,158,11,0.08)] hover:shadow-[0_10px_30px_rgba(245,158,11,0.18)]',
-    badge: 'gold' as const,
+    accentBar: 'from-amber-400 to-amber-600',
+    iconBg: 'bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 shadow-lg shadow-amber-500/25',
+    pill: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20',
+    dot: 'bg-amber-500',
+    titleHover: 'group-hover:text-amber-600 dark:group-hover:text-amber-400',
+    buttonText: 'Explore Premium Quizzes',
+    buttonBg: 'text-amber-700 dark:text-amber-300 bg-amber-500/10 group-hover:bg-amber-500 group-hover:text-slate-950',
+    glow: 'group-hover:shadow-amber-500/15',
   },
   completed: {
-    bg: 'bg-gradient-to-b from-white via-white to-cyan-50/50 dark:bg-none dark:bg-[#0c152e]',
-    border: 'border-cyan-500/30 hover:border-cyan-500/60',
-    iconBox: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-500',
-    action: 'text-cyan-600 dark:text-cyan-400',
-    shadow: 'shadow-[0_4px_20px_-2px_rgba(6,182,212,0.08)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.18)]',
-    badge: 'default' as const,
+    accentBar: 'from-cyan-400 to-blue-600',
+    iconBg: 'bg-gradient-to-tr from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/25',
+    pill: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/20',
+    dot: 'bg-cyan-500',
+    titleHover: 'group-hover:text-cyan-600 dark:group-hover:text-cyan-400',
+    buttonText: 'View Full Rank List',
+    buttonBg: 'text-cyan-700 dark:text-cyan-300 bg-cyan-500/10 group-hover:bg-cyan-500 group-hover:text-white',
+    glow: 'group-hover:shadow-cyan-500/15',
   },
 };
 
@@ -647,31 +767,46 @@ function CourseTypeCard({
   onClick?: () => void;
   href?: string;
 }) {
-  const theme = COURSE_CARD_ACCENTS[accent];
+  const theme = COURSE_CARD_THEMES[accent];
   const body = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border ${theme.iconBox}`}>
+    <div className="relative flex flex-col justify-between h-full space-y-5 p-6 sm:p-7">
+      {/* Top row */}
+      <div className="flex items-center justify-between gap-3">
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110 ${theme.iconBg}`}>
           {icon}
         </div>
-        <Badge variant={theme.badge} className="font-bold shrink-0">
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border ${theme.pill}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${theme.dot}`} />
           {count} {countLabel || (count === 1 ? 'Quiz' : 'Quizzes')}
-        </Badge>
+        </span>
       </div>
-      <h3 className="mt-4 text-lg font-black tracking-tight text-slate-900 dark:text-white">{title}</h3>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{description}</p>
-      <span className={`mt-4 inline-flex items-center space-x-1 text-xs font-extrabold ${theme.action}`}>
-        <span>{href ? 'View rank list' : 'Open folders'}</span>
-        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
-      </span>
-    </>
+
+      {/* Main Content */}
+      <div className="space-y-1.5 flex-1">
+        <h3 className={`text-xl font-black tracking-tight text-slate-900 dark:text-white transition-colors ${theme.titleHover}`}>
+          {title}
+        </h3>
+        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+          {description}
+        </p>
+      </div>
+
+      {/* Action Footer */}
+      <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+        <span className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all duration-300 ${theme.buttonBg}`}>
+          <span>{href ? 'View Rank List' : theme.buttonText}</span>
+          <ArrowRight className="w-3.5 h-3.5 transition-transform duration-300 group-hover:translate-x-1" />
+        </span>
+      </div>
+    </div>
   );
 
-  const shell = `group block text-left w-full h-full p-5 sm:p-6 rounded-2xl border transition-all duration-300 cursor-pointer ${theme.bg} ${theme.border} ${theme.shadow}`;
+  const shell = `group relative text-left w-full h-full rounded-3xl border border-slate-200/90 dark:border-[#1e2e56] bg-white/90 dark:bg-[#0c152e]/90 hover:bg-white dark:hover:bg-[#0e1938] shadow-lg shadow-slate-200/40 dark:shadow-2xl dark:shadow-black/40 hover:shadow-2xl ${theme.glow} hover:-translate-y-1.5 transition-all duration-300 overflow-hidden cursor-pointer backdrop-blur-md`;
 
   if (href) {
     return (
       <Link href={href} className={shell}>
+        <div className={`h-1.5 w-full bg-gradient-to-r ${theme.accentBar}`} />
         {body}
       </Link>
     );
@@ -679,6 +814,7 @@ function CourseTypeCard({
 
   return (
     <button type="button" onClick={onClick} className={shell}>
+      <div className={`h-1.5 w-full bg-gradient-to-r ${theme.accentBar}`} />
       {body}
     </button>
   );
@@ -700,28 +836,45 @@ function FolderCard({
     <button
       type="button"
       onClick={onClick}
-      className="group text-left p-5 rounded-2xl bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 cursor-pointer"
+      className={`group relative text-left w-full p-6 rounded-3xl border border-slate-200/90 dark:border-[#1e2e56] bg-white/90 dark:bg-[#0c152e]/90 hover:bg-white dark:hover:bg-[#0e1938] shadow-lg shadow-slate-200/40 dark:shadow-2xl dark:shadow-black/40 hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 overflow-hidden cursor-pointer backdrop-blur-md ${
+        isPremium ? 'hover:shadow-amber-500/15' : 'hover:shadow-emerald-500/15'
+      }`}
     >
+      <div
+        className={`h-1.5 w-full absolute top-0 left-0 bg-gradient-to-r ${
+          isPremium ? 'from-amber-400 to-amber-600' : 'from-emerald-400 to-teal-500'
+        }`}
+      />
       <div className="flex items-center justify-between gap-3">
         <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${isPremium
-            ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
-            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-            }`}
+          className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110 shadow-lg ${
+            isPremium
+              ? 'bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 shadow-amber-500/25'
+              : 'bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-emerald-500/25'
+          }`}
         >
           <Folder className="w-5 h-5" />
         </div>
-        <Badge variant="default" className="font-bold shrink-0">
+        <span
+          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border ${
+            isPremium
+              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20'
+              : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20'
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${isPremium ? 'bg-amber-500' : 'bg-emerald-500'}`} />
           {count} {count === 1 ? 'Quiz' : 'Quizzes'}
-        </Badge>
+        </span>
       </div>
-      <h3 className="mt-3.5 text-base font-extrabold tracking-tight text-slate-900 dark:text-white truncate">
+      <h3 className="mt-4 text-lg font-black tracking-tight text-slate-900 dark:text-white truncate group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
         {name === 'Root / No Folder' ? '🏠 Root Level' : name}
       </h3>
-      <span className="mt-2.5 inline-flex items-center space-x-1 text-xs font-extrabold text-cyan-600 dark:text-cyan-400">
-        <span>View quizzes</span>
-        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
-      </span>
+      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+        <span className="inline-flex items-center gap-1.5 text-xs font-black text-cyan-600 dark:text-cyan-400 group-hover:text-cyan-500">
+          <span>Open Folder</span>
+          <ArrowRight className="w-3.5 h-3.5 transition-transform duration-300 group-hover:translate-x-1" />
+        </span>
+      </div>
     </button>
   );
 }
@@ -754,12 +907,17 @@ function MockTestCard({
   user: any;
 }) {
   const countdown = useCountdown(mockTest.scheduledAt);
-  const scheduledFormatted = new Date(mockTest.scheduledAt).toLocaleString('en-US', {
+  const scheduledDate = new Date(mockTest.scheduledAt);
+  const scheduledFormatted = scheduledDate.toLocaleDateString('en-US', {
+    weekday: 'short',
     month: 'short',
     day: 'numeric',
+  });
+  const scheduledTimeFormatted = scheduledDate.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
   });
+
   const isJoined = !!myAttempt;
   const hasSubmitted = !!myAttempt?.submittedAt;
   const isLocked = mockTest.access?.isPaid && !mockTest.access?.hasAccess;
@@ -778,138 +936,229 @@ function MockTestCard({
   const isUpcoming = mockTest.status === 'UPCOMING';
 
   return (
-    <Card
-      hoverEffect
-      className={`relative overflow-hidden flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-sky-50/60 dark:bg-none dark:bg-[#0c152e] border-cyan-500/30 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(6,182,212,0.08)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.2)] hover:border-cyan-400 transition-all duration-300 p-5 rounded-2xl ${
+    <div
+      className={`group relative overflow-hidden rounded-3xl transition-all duration-300 border backdrop-blur-xl ${
         isLive
-          ? 'ring-1 ring-emerald-500/50 dark:ring-emerald-500/40'
+          ? 'bg-gradient-to-b from-emerald-500/[0.06] via-white to-white dark:from-emerald-950/20 dark:via-[#091124] dark:to-[#091124] border-emerald-500/40 shadow-xl shadow-emerald-500/10'
           : isUpcoming
-            ? 'ring-1 ring-cyan-500/30 dark:ring-cyan-500/20'
-            : ''
+            ? 'bg-gradient-to-b from-cyan-500/[0.04] via-white to-white dark:from-[#0f1d3d] dark:via-[#091124] dark:to-[#091124] border-slate-200/90 dark:border-[#1e2e56] shadow-xl shadow-slate-200/50 dark:shadow-2xl dark:shadow-black/50'
+            : 'bg-white dark:bg-[#091124] border-slate-200/80 dark:border-[#1e2e56] shadow-md'
       }`}
     >
-      {isLive && <span className="absolute inset-y-0 left-0 w-1.5 bg-emerald-500" aria-hidden="true" />}
-      {isUpcoming && <span className="absolute inset-y-0 left-0 w-1.5 bg-cyan-500" aria-hidden="true" />}
-      <div className="space-y-3">
-        <div className="flex justify-between items-center gap-2">
-          {isLive ? (
-            <Badge className="font-bold flex items-center gap-1.5 bg-emerald-500 text-white border-emerald-500 dark:bg-emerald-500 dark:text-white dark:border-emerald-500 shadow-[0_0_12px_-2px_rgba(16,185,129,0.6)]">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+      {/* Top Accent Gradient Bar */}
+      <div
+        className={`h-1.5 w-full ${
+          isLive
+            ? 'bg-gradient-to-r from-emerald-400 via-teal-500 to-emerald-600 animate-pulse'
+            : isUpcoming
+              ? 'bg-gradient-to-r from-cyan-500 via-blue-500 to-amber-500'
+              : 'bg-slate-300 dark:bg-slate-700'
+        }`}
+      />
+
+      <div className="p-5 sm:p-7 space-y-5">
+        {/* Top Badges Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            {isLive ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                </span>
+                LIVE NOW
               </span>
-              <span>LIVE NOW</span>
-            </Badge>
-          ) : mockTest.status === 'UPCOMING' ? (
-            <Badge variant="outline" className="font-bold flex items-center gap-1 text-cyan-700 dark:text-cyan-300 border-cyan-500/40 bg-cyan-500/10">
-              <Calendar className="w-3 h-3" />
-              <span>Upcoming</span>
-            </Badge>
-          ) : (
-            <Badge variant="success" className="font-bold flex items-center gap-1">
-              <Trophy className="w-3 h-3" />
-              <span>Completed</span>
-            </Badge>
-          )}
-          {myAttempt ? (
-            <Badge variant={hasSubmitted ? 'success' : 'warning'} className="text-[10px] font-bold flex items-center gap-1">
-              {hasSubmitted ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-              <span>{hasSubmitted ? (myAttempt.rank ? `Rank #${myAttempt.rank}` : 'Attended') : 'In Progress'}</span>
-            </Badge>
-          ) : isLocked ? (
-            <Badge variant="gold" className="text-[10px] font-bold flex items-center gap-1">
-              <Lock className="w-3 h-3" />
-              <span>₹{mockTest.access?.price ?? 0} Premium</span>
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-[10px] font-bold">Not Attempted</Badge>
-          )}
-        </div>
-
-        <CardTitle className="text-lg leading-snug">{mockTest.title}</CardTitle>
-        <CardDescription>
-          {mockTest.quiz?.title} • {mockTest.quiz?.totalMarks} Marks
-        </CardDescription>
-        <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1.5 font-mono">
-          <Timer className="w-3.5 h-3.5 text-cyan-500" />
-          <span>{scheduledFormatted}</span>
-        </div>
-
-        {isUpcoming && (
-          <div
-            className={`rounded-xl border p-3 transition-colors ${
-              countdown.isUrgent
-                ? 'bg-amber-500/10 border-amber-500/40'
-                : 'bg-gradient-to-br from-cyan-500/10 to-blue-500/5 border-cyan-500/30'
-            }`}
-          >
-            <div className="flex items-center justify-center gap-1.5 mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">
-              <Clock className={`w-3 h-3 ${countdown.isUrgent ? 'text-amber-500 animate-pulse' : 'text-cyan-500'}`} />
-              <span>{countdown.isStartingNow ? 'Starting Now' : 'Starts In'}</span>
-            </div>
-            {countdown.isStartingNow ? (
-              <p className="text-center text-sm font-black text-emerald-600 dark:text-emerald-400 animate-pulse">
-                Refresh to join…
-              </p>
+            ) : isUpcoming ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
+                <Radio className="w-3.5 h-3.5 text-cyan-500 animate-pulse" />
+                Scheduled Live Mock
+              </span>
             ) : (
-              <div className="flex items-center justify-center gap-1.5">
-                {countdown.days > 0 && (
-                  <>
-                    <CountdownUnit value={countdown.days} label="Days" urgent={countdown.isUrgent} />
-                    <span className="text-slate-300 dark:text-slate-700 font-black pb-3">:</span>
-                  </>
-                )}
-                <CountdownUnit value={countdown.hours} label="Hrs" urgent={countdown.isUrgent} />
-                <span className="text-slate-300 dark:text-slate-700 font-black pb-3">:</span>
-                <CountdownUnit value={countdown.minutes} label="Min" urgent={countdown.isUrgent} />
-                <span className="text-slate-300 dark:text-slate-700 font-black pb-3">:</span>
-                <CountdownUnit value={countdown.seconds} label="Sec" urgent={countdown.isUrgent} />
-              </div>
+              <Badge variant="success" className="font-bold flex items-center gap-1">
+                <Trophy className="w-3 h-3" />
+                <span>Completed</span>
+              </Badge>
+            )}
+
+            {mockTest.access?.isPaid ? (
+              <Badge variant="gold" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
+                <Lock className="w-3 h-3" />
+                <span>₹{mockTest.access?.price ?? 0} Premium</span>
+              </Badge>
+            ) : (
+              <Badge variant="success" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
+                <Unlock className="w-3 h-3" />
+                <span>Free Access</span>
+              </Badge>
             )}
           </div>
-        )}
-      </div>
 
-      <div className="pt-4 border-t border-slate-200/60 dark:border-[#1e2e56] flex justify-between items-center">
-        <span className="text-xs font-bold text-cyan-700 dark:text-cyan-300 font-mono">
-          {mockTest.status === 'UPCOMING'
-            ? `${mockTest.quiz?.durationMinutes ?? '—'} min • ${mockTest.quiz?.totalQuestions ?? '—'} Qs`
-            : mockTest._count?.participants != null
-              ? `${mockTest._count.participants} joined`
-              : ''}
-        </span>
-        {mockTest.status === 'COMPLETED' && !myAttempt ? (
-          <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-            <Trophy className="w-3.5 h-3.5" />
-            Test Completed
-          </span>
-        ) : (
-          <Button
-            variant={mockTest.status === 'UPCOMING' ? 'outline' : 'gold'}
-            size="sm"
-            className="font-bold cursor-pointer flex items-center"
-            onClick={handleClick}
-          >
-            {isLocked && !hasSubmitted && <Lock className="w-3.5 h-3.5 mr-1.5" />}
-            <span>
-              {mockTest.status === 'LIVE'
-                ? hasSubmitted
+          <div>
+            {myAttempt ? (
+              <Badge
+                variant={hasSubmitted ? 'success' : 'warning'}
+                className="text-xs font-black flex items-center gap-1 px-2.5 py-1"
+              >
+                {hasSubmitted ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                <span>{hasSubmitted ? (myAttempt.rank ? `Rank #${myAttempt.rank}` : 'Submitted') : 'In Progress'}</span>
+              </Badge>
+            ) : (
+              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                Registration Open
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Title & Description */}
+        <div className="space-y-1.5">
+          <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-snug group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
+            {mockTest.title}
+          </h3>
+          <p className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400">
+            {mockTest.quiz?.title || 'Kerala PSC Comprehensive Syllabus'}
+          </p>
+        </div>
+
+        {/* Meta Highlights Row */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+            <Calendar className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+            <span>{scheduledFormatted} at {scheduledTimeFormatted}</span>
+          </div>
+
+          {mockTest.quiz?.durationMinutes && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+              <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>{mockTest.quiz.durationMinutes} Mins</span>
+            </div>
+          )}
+
+          {mockTest.quiz?.totalQuestions && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+              <FileQuestion className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span>{mockTest.quiz.totalQuestions} Questions</span>
+            </div>
+          )}
+
+          {mockTest.quiz?.totalMarks && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+              <Award className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span>{mockTest.quiz.totalMarks} Marks</span>
+            </div>
+          )}
+        </div>
+
+        {/* Live Arena or Countdown Box */}
+        {isLive ? (
+          <div className="rounded-2xl p-4 sm:p-5 border border-emerald-500/40 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-emerald-500/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-500/30 shrink-0 animate-pulse">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-slate-900 dark:text-white">Exam Room is Live!</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Join now and compete on the real-time leaderboard.</p>
+              </div>
+            </div>
+            <Button
+              variant="gold"
+              size="md"
+              onClick={handleClick}
+              className="w-full sm:w-auto font-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white border-0 cursor-pointer"
+            >
+              <Zap className="w-4 h-4" />
+              <span>
+                {hasSubmitted
                   ? 'View Live Rank List'
                   : canResume
                     ? 'Resume Test'
                     : isLocked
                       ? `Unlock & Start (₹${mockTest.access?.price ?? 0})`
-                      : 'Join & Start'
-                : mockTest.status === 'COMPLETED'
-                  ? 'View Final Rank List'
-                  : isLocked
-                    ? `Unlock Test (₹${mockTest.access?.price ?? 0})`
-                    : 'View Details'}
-            </span>
-            <ArrowRight className="w-3.5 h-3.5 ml-1" />
-          </Button>
+                      : 'Enter Live Arena'}
+              </span>
+            </Button>
+          </div>
+        ) : isUpcoming ? (
+          <div className="rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#070e20]/60 flex flex-col md:flex-row items-center justify-between gap-5">
+            <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
+              <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 dark:bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shrink-0">
+                <Clock className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {countdown.isStartingNow ? 'Exam Room Ready' : 'Countdown to Start'}
+                </p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  {countdown.isStartingNow ? 'The test is beginning right now' : 'Test will unlock automatically'}
+                </p>
+              </div>
+            </div>
+
+            {countdown.isStartingNow ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="gold"
+                  size="md"
+                  onClick={handleClick}
+                  className="font-black flex items-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>Join Exam Now</span>
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 sm:gap-3">
+                {countdown.days > 0 && (
+                  <>
+                    <CountdownUnit value={countdown.days} label="Days" urgent={countdown.isUrgent} />
+                    <span className="text-slate-400 dark:text-slate-600 font-black text-lg pb-3">:</span>
+                  </>
+                )}
+                <CountdownUnit value={countdown.hours} label="Hrs" urgent={countdown.isUrgent} />
+                <span className="text-slate-400 dark:text-slate-600 font-black text-lg pb-3">:</span>
+                <CountdownUnit value={countdown.minutes} label="Min" urgent={countdown.isUrgent} />
+                <span className="text-slate-400 dark:text-slate-600 font-black text-lg pb-3">:</span>
+                <CountdownUnit value={countdown.seconds} label="Sec" urgent={countdown.isUrgent} />
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {/* Card Footer Actions (for Upcoming and Completed) */}
+        {!isLive && (
+          <div className="pt-3 border-t border-slate-200/80 dark:border-[#1e2e56] flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Real-time rank list available after submission</span>
+            </div>
+
+            {mockTest.status === 'COMPLETED' && !myAttempt ? (
+              <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Trophy className="w-3.5 h-3.5" />
+                Test Completed
+              </span>
+            ) : (
+              <Button
+                variant={isLocked ? 'gold' : 'outline'}
+                size="sm"
+                className="w-full sm:w-auto font-bold cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                onClick={handleClick}
+              >
+                {isLocked && <Lock className="w-3.5 h-3.5" />}
+                <span>
+                  {mockTest.status === 'COMPLETED'
+                    ? 'View Final Rank List'
+                    : isLocked
+                      ? `Unlock Test (₹${mockTest.access?.price ?? 0})`
+                      : 'View Details & Syllabus'}
+                </span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

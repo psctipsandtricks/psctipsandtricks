@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, Button, Badge, Input, Skeleton } from '@psc/ui';
+import { Card, Button, Badge, Input, Skeleton, useFileDrop } from '@psc/ui';
 import {
   User as UserIcon,
   ChevronLeft,
@@ -127,6 +127,15 @@ export default function ProfilePage() {
     }
   };
 
+  // The photo itself is the drop target — dropping onto it replaces it, which
+  // is the same thing the camera button does.
+  const avatarDrop = useFileDrop({
+    accept: 'image/png,image/jpeg,image/webp,image/gif',
+    disabled: avatarBusy,
+    onFiles: ([file]) => handleAvatarSelect(file),
+    onReject: () => setAvatarError('Please choose an image file (PNG, JPG, or WEBP).'),
+  });
+
   const handleRemoveAvatar = async () => {
     if (!user) return;
     setAvatarError('');
@@ -211,7 +220,13 @@ export default function ProfilePage() {
       <Card className="p-5 sm:p-6 glass-card">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
           <div className="shrink-0 flex flex-col items-center gap-2">
-            <div className="relative">
+            <div
+              {...avatarDrop.dropProps}
+              title="Drop a photo here to change it"
+              className={`relative rounded-2xl transition-all ${
+                avatarDrop.isDragActive ? 'ring-2 ring-cyan-500/60 ring-offset-2 ring-offset-transparent' : ''
+              }`}
+            >
               {(avatarPreview || profile.avatarUrl) && !imageLoadError ? (
                 <img
                   src={avatarPreview || profile.avatarUrl || ''}

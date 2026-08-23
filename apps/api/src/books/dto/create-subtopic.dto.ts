@@ -1,4 +1,6 @@
-import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { PdfSyncMapDto } from './sync-cues.dto';
 
 export class CreateSubtopicDto {
   @IsString()
@@ -19,4 +21,10 @@ export class CreateSubtopicDto {
   @IsOptional()
   @IsString()
   youtubeUrl?: string;
+
+  /** Subtitle-style PDF↔audio timing map for this subtopic's audio + PDF pair. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PdfSyncMapDto)
+  syncCues?: PdfSyncMapDto;
 }

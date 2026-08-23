@@ -102,6 +102,29 @@ export class OrdersService {
     };
   }
 
+  /** Calculates the subscription expiration date based on a book's subscriptionDuration */
+  private calculateSubscriptionExpiry(duration?: string | null): Date {
+    const validTill = new Date();
+    switch (duration) {
+      case '1_MONTH':
+        validTill.setMonth(validTill.getMonth() + 1);
+        break;
+      case '3_MONTHS':
+        validTill.setMonth(validTill.getMonth() + 3);
+        break;
+      case '6_MONTHS':
+        validTill.setMonth(validTill.getMonth() + 6);
+        break;
+      case '1_YEAR':
+        validTill.setFullYear(validTill.getFullYear() + 1);
+        break;
+      default:
+        validTill.setMonth(validTill.getMonth() + 1);
+        break;
+    }
+    return validTill;
+  }
+
   /** Grants a book/quiz to a user without going through Razorpay — for support/testing use, admin- or manageOrders-staff-only. */
   async createManualOrder(grantedByUserId: string, dto: CreateManualOrderDto) {
     if (!dto.bookId && !dto.quizId) {
@@ -115,13 +138,19 @@ export class OrdersService {
     if (!targetUser) throw new NotFoundException('User not found');
 
     let amount = dto.amount;
+    let validTill: Date | null = null;
+    let accessType = 'FULL_TIME_ACCESS';
     if (dto.bookId) {
       const book = await this.prisma.book.findUnique({
         where: { id: dto.bookId },
-        select: { finalPrice: true, price: true },
+        select: { finalPrice: true, price: true, subscriptionType: true, subscriptionDuration: true },
       });
       if (!book) throw new NotFoundException('Book not found');
       if (amount === undefined) amount = book.finalPrice ?? book.price ?? 0;
+      if (book.subscriptionType === 'SUBSCRIPTION') {
+        accessType = 'SUBSCRIPTION';
+        validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
+      }
     } else if (dto.quizId) {
       const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId }, select: { price: true } });
       if (!quiz) throw new NotFoundException('Quiz not found');
@@ -137,6 +166,9 @@ export class OrdersService {
         amount: amount ?? 0,
         currency: 'INR',
         status: 'SUCCESS',
+        accessType,
+        validTill,
+        paidAt: new Date(),
         razorpayOrderId: MANUAL_ORDER_TAG,
         razorpayPaymentId: `granted_by_${grantedByUserId}${notePart}`,
       },
@@ -170,11 +202,27 @@ export class OrdersService {
       throw new BadRequestException('Payment verification failed. Invalid Razorpay signature.');
     }
 
+    let validTill: Date | null = null;
+    let accessType = 'FULL_TIME_ACCESS';
+    if (order.bookId) {
+      const book = await this.prisma.book.findUnique({
+        where: { id: order.bookId },
+        select: { subscriptionType: true, subscriptionDuration: true },
+      });
+      if (book?.subscriptionType === 'SUBSCRIPTION') {
+        accessType = 'SUBSCRIPTION';
+        validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
+      }
+    }
+
     const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'SUCCESS',
         razorpayPaymentId: paymentId,
+        validTill,
+        accessType,
+        paidAt: new Date(),
       },
     });
 
@@ -206,9 +254,28 @@ export class OrdersService {
         if (razorpayOrderId) {
           const order = await this.prisma.order.findFirst({ where: { razorpayOrderId } });
           if (order && order.status !== 'SUCCESS') {
+            let validTill: Date | null = null;
+            let accessType = 'FULL_TIME_ACCESS';
+            if (order.bookId) {
+              const book = await this.prisma.book.findUnique({
+                where: { id: order.bookId },
+                select: { subscriptionType: true, subscriptionDuration: true },
+              });
+              if (book?.subscriptionType === 'SUBSCRIPTION') {
+                accessType = 'SUBSCRIPTION';
+                validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
+              }
+            }
+
             await this.prisma.order.update({
               where: { id: order.id },
-              data: { status: 'SUCCESS', razorpayPaymentId },
+              data: {
+                status: 'SUCCESS',
+                razorpayPaymentId,
+                validTill,
+                accessType,
+                paidAt: new Date(),
+              },
             });
             if (order.userId) {
               await this.prisma.user.update({

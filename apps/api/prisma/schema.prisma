@@ -138,6 +138,9 @@ model StaffPermission {
   managePdfs          Boolean  @default(false)
   manageStaff         Boolean  @default(false)
   manageAnnouncements Boolean  @default(false)
+  /// Customer testimonials shown on the public home page.
+  manageReviews       Boolean  @default(false)
+  manageSocialLinks   Boolean  @default(false)
   grantedById         String?
   grantedBy           User?    @relation("GrantedByAdmin", fields: [grantedById], references: [id])
   createdAt           DateTime @default(now())
@@ -150,10 +153,14 @@ model Book {
   author              String
   description         String            @db.Text
   coverUrl            String
+  heroCoverUrl        String?
   pdfUrl              String?
   previewPdfUrl       String?
   previewPdfFileName  String?
   previewPdfSizeBytes Int?
+  previewAudioUrl       String?
+  previewAudioFileName  String?
+  previewAudioSizeBytes Int?
   price               Float             @default(0)
   discountPercent     Float             @default(0)
   /// Always the effective, actually-charged price (price minus the discount).
@@ -168,6 +175,7 @@ model Book {
   appleId             String?
   basePlanId          String?
   subscriptionType    String            @default("FULL_TIME_ACCESS")
+  subscriptionDuration String?
   isPremium           Boolean           @default(false)
   isPublished         Boolean           @default(true)
   /// Whether the book shows in the public/guest listing for signed-out users.
@@ -222,6 +230,11 @@ model Topic {
   youtubeUrl      String?
   audioUrl        String?
   pdfUrl          String?
+  /// Subtitle-style PDF↔audio timing map: `{ offsetMs, revision, cues: [{ startMs, endMs, page }] }`.
+  /// Stored as JSON rather than a cue table because a map is only ever read and
+  /// written whole, alongside the topic it belongs to — there is no query that
+  /// selects individual cues.
+  syncCues        Json?
   subtopics       Subtopic[]
   readingProgress ReadingProgress[]
   createdAt       DateTime          @default(now())
@@ -241,6 +254,8 @@ model Subtopic {
   youtubeUrl  String?
   audioUrl    String?
   pdfUrl      String?
+  /// Subtitle-style PDF↔audio timing map — see `Topic.syncCues`.
+  syncCues    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -292,6 +307,7 @@ model Quiz {
   isLiveMock                      Boolean          @default(false)
   isPremium                       Boolean          @default(false)
   price                           Float            @default(0)
+  imageUrl                        String?
   // Negative marking is a "for every N wrong answers, deduct M marks" rule
   // (default: every 3 wrong answers costs 1 mark), not a flat per-question
   // penalty — that's why it's two numbers instead of one. Disabled by default
@@ -570,22 +586,39 @@ model Notification {
 }
 
 model AnnouncementPopup {
-  id        String   @id @default(uuid())
-  title     String
-  message   String   @db.Text
-  imageUrl  String?
-  isActive  Boolean  @default(true)
-  startDate DateTime @default(now())
-  endDate   DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(uuid())
+  title           String
+  message         String   @db.Text
+  imageUrl        String?
+  buttonText      String?
+  redirectUrl     String?
+  backgroundColor String?
+  isActive        Boolean  @default(true)
+  orderIndex      Int      @default(0)
+  startDate       DateTime @default(now())
+  endDate         DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 // --- YouTube video library ---------------------------------------------------
-// A browsable Exam → Chapter → Video folder tree, deliberately kept separate
-// from the Book hierarchy: a Book's chapters are pages of a purchasable title,
-// whereas these are free reference material organised by exam. Mixing them
-// would force every video to hang off a book that doesn't exist.
+// Multi-level Folder and Subfolder hierarchy (matching QuizFolder).
+
+model VideoFolder {
+  id          String        @id @default(uuid())
+  name        String
+  parentId    String?
+  parent      VideoFolder?  @relation("VideoFolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    VideoFolder[] @relation("VideoFolderHierarchy")
+  description String?       @db.Text
+  orderIndex  Int           @default(0)
+  isActive    Boolean       @default(true)
+  videos      Video[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([parentId, orderIndex])
+}
 
 model VideoExam {
   id          String         @id @default(uuid())
@@ -614,37 +647,46 @@ model VideoChapter {
 }
 
 model Video {
-  id             String       @id @default(uuid())
-  chapterId      String
-  chapter        VideoChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  id             String        @id @default(uuid())
+  folderId       String?
+  folder         VideoFolder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  chapterId      String?
+  chapter        VideoChapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
   title          String
-  description    String?      @db.Text
-  /// The canonical watch URL. The admin may paste any YouTube link shape
-  /// (youtu.be, /shorts, /embed, a bare id); the API normalises all of them to
-  /// this one form so stored links are predictable.
+  description    String?       @db.Text
   youtubeUrl     String
-  /// Parsed out of the pasted link on write. Everything the app renders — the
-  /// embed player and the thumbnail — is derived from this id, so a malformed
-  /// link is rejected at the API rather than producing a dead card.
   youtubeVideoId String
-  /// Derived from `youtubeVideoId`, never uploaded. Stored rather than
-  /// recomputed per render so the URL pattern lives in exactly one place.
   thumbnailUrl   String
   pdfUrl         String?
   pdfFileName    String?
   pdfSizeBytes   Int?
-  orderIndex     Int          @default(0)
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  orderIndex     Int           @default(0)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
+  @@index([folderId, orderIndex])
   @@index([chapterId])
 }
 
 // --- PDF library -------------------------------------------------------------
-// The same Exam → Chapter → content shape as the video library, as its own set
-// of tables. The two modules are independent: an exam folder in one has no
-// bearing on the other.
+// Multi-level Folder and Subfolder hierarchy (matching QuizFolder).
+
+model PdfFolder {
+  id          String        @id @default(uuid())
+  name        String
+  parentId    String?
+  parent      PdfFolder?    @relation("PdfFolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    PdfFolder[]   @relation("PdfFolderHierarchy")
+  description String?       @db.Text
+  orderIndex  Int           @default(0)
+  isActive    Boolean       @default(true)
+  documents   PdfDocument[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([parentId, orderIndex])
+}
 
 model PdfExam {
   id          String       @id @default(uuid())
@@ -673,22 +715,50 @@ model PdfChapter {
 }
 
 model PdfDocument {
-  id            String     @id @default(uuid())
-  chapterId     String
-  chapter       PdfChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  id            String      @id @default(uuid())
+  folderId      String?
+  folder        PdfFolder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  chapterId     String?
+  chapter       PdfChapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
   title         String
-  description   String?    @db.Text
-  /// Public Supabase Storage URL. Nullable only in the window between creating
-  /// the row and the upload completing — the admin UI always does both.
+  description   String?     @db.Text
   fileUrl       String?
-  /// The name the admin uploaded, kept for display and for the download
-  /// filename; the stored object key is timestamped and sanitised.
   fileName      String?
   fileSizeBytes Int?
-  orderIndex    Int        @default(0)
-  isActive      Boolean    @default(true)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  orderIndex    Int         @default(0)
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
+  @@index([folderId, orderIndex])
   @@index([chapterId])
+}
+
+/// A customer testimonial written by an admin on a student's behalf, shown in
+/// the home-page reviews rail. Not user-submitted — there is no author
+/// relation, only the name the admin types in.
+model CustomerReview {
+  id           String   @id @default(uuid())
+  customerName String
+  rating       Int
+  comment      String   @db.Text
+  isActive     Boolean  @default(true)
+  orderIndex   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive, orderIndex])
+}
+
+/// A single settings row (fixed id) holding the public social links shown on
+/// the home page. Not user data — there is only ever one row, upserted by
+/// the admin panel, so no separate "active" list like reviews/announcements.
+model SocialLinks {
+  id           String   @id @default("singleton")
+  telegramUrl  String?
+  instagramUrl String?
+  youtubeUrl   String?
+  facebookUrl  String?
+  twitterUrl   String?
+  updatedAt    DateTime @updatedAt
 }

@@ -21,6 +21,7 @@ import {
   Badge,
   Skeleton,
   ToggleSwitch,
+  Pagination,
 } from '@psc/ui';
 import {
   Folder,
@@ -252,11 +253,25 @@ export default function AdminQuizFoldersPage() {
     }
   };
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const filteredFolders = folders.filter(
     (f) =>
       !searchTerm.trim() ||
       (f.name && f.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (f.description && f.description.toLowerCase().includes(searchTerm.toLowerCase())),
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredFolders.length / pageSize));
+  const paginatedFolders = filteredFolders.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
   );
 
   const totalQuizzes = folders.reduce((sum, f) => sum + (f.quizCount || 0), 0);
@@ -372,7 +387,7 @@ export default function AdminQuizFoldersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredFolders.map((folder) => (
+                {paginatedFolders.map((folder) => (
                   <React.Fragment key={`root-folder-${folder.id}`}>
                     <TableRow className="border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-slate-50/70 dark:hover:bg-[#0c152e]/40 transition-colors group">
                       {/* Name with Expand Chevron */}
@@ -902,6 +917,24 @@ export default function AdminQuizFoldersPage() {
             </Table>
           )}
         </div>
+
+        {/* Pagination Footer */}
+        {filteredFolders.length > 0 && (
+          <div className="p-4 border-t border-slate-200/80 dark:border-[#1e2e56]/40 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#0c152e]/30">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+              Showing <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredFolders.length, (currentPage - 1) * pageSize + 1)}</span> to{' '}
+              <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredFolders.length, currentPage * pageSize)}</span> of{' '}
+              <span className="font-bold text-slate-700 dark:text-slate-200">{filteredFolders.length}</span> folders
+            </span>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredFolders.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
+          </div>
+        )}
       </Card>
 
       {/* Add / Edit Folder Dialog */}

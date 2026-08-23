@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useFormik } from 'formik';
@@ -30,6 +30,7 @@ import {
   todayLocalDateStr,
   Select,
   ToggleSwitch,
+  useFileDrop,
 } from '@psc/ui';
 import {
   Folder,
@@ -53,7 +54,11 @@ import {
   Loader2,
   X,
   Calendar,
+  Image as ImageIcon,
+  Upload,
+  AlertCircle,
 } from 'lucide-react';
+import { validateQuizCover } from '@/lib/image-validation';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../../../admin-skeleton';
 
 export interface QuestionOption {
@@ -84,6 +89,8 @@ export interface QuizItem {
   isLiveMock: boolean;
   accessType: 'FREE' | 'PAID';
   price?: number;
+  imageUrl?: string | null;
+  createdAt?: string;
   negativeMarkingEnabled?: boolean;
   negativeMarkingEvery?: number;
   negativeMarkingDeduct?: number;
@@ -106,6 +113,7 @@ interface QuizFormValues {
   selectedFolder: string;
   accessType: 'FREE' | 'PAID' | '';
   price: string;
+  imageUrl?: string | null;
   negativeMarkingEnabled: boolean;
   negativeMarkingEvery: string;
   negativeMarkingDeduct: string;
@@ -127,6 +135,7 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   selectedFolder: 'Root',
   accessType: 'FREE',
   price: '99',
+  imageUrl: '',
   negativeMarkingEnabled: false,
   negativeMarkingEvery: '3',
   negativeMarkingDeduct: '1',
@@ -134,6 +143,14 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
 };
 
 const RELEASE_GRACE_MS = 60_000;
+const NEW_QUIZ_WINDOW_DAYS = 7;
+
+function isRecentlyUploaded(createdAt?: string): boolean {
+  if (!createdAt) return false;
+  const created = new Date(createdAt).getTime();
+  if (Number.isNaN(created)) return false;
+  return Date.now() - created <= NEW_QUIZ_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
 
 function resolveReleaseIso(releaseDate?: string, releaseTime?: string): string {
   if (!releaseDate) return '';
@@ -295,6 +312,13 @@ export default function AdminFolderQuizzesPage() {
   const [updatingStatusQuizId, setUpdatingStatusQuizId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
+  // Image Upload State
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isValidatingQuizImage, setIsValidatingQuizImage] = useState(false);
+  const [quizImageDimensions, setQuizImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [imageUploadError, setImageUploadError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (!toastMsg) return;
     const timer = setTimeout(() => setToastMsg(null), 4000);
@@ -315,6 +339,8 @@ export default function AdminFolderQuizzesPage() {
       isLiveMock: apiQuiz.isLiveMock,
       accessType: apiQuiz.accessType === 'PAID' ? 'PAID' : 'FREE',
       price: apiQuiz.price > 0 ? apiQuiz.price : undefined,
+      imageUrl: apiQuiz.imageUrl || null,
+      createdAt: apiQuiz.createdAt,
       negativeMarkingEnabled: apiQuiz.negativeMarkingEnabled ?? false,
       negativeMarkingEvery: apiQuiz.negativeMarkingEvery ?? 3,
       negativeMarkingDeduct: apiQuiz.negativeMarkingDeduct ?? 1,
@@ -595,6 +621,12 @@ export default function AdminFolderQuizzesPage() {
     },
     validationSchema: originalReleaseIso ? makeQuizSchema(originalReleaseIso) : DEFAULT_QUIZ_SCHEMA,
     onSubmit: async (values, { setSubmitting }) => {
+      if (imageUploadError) {
+        setFormSubmitError(imageUploadError);
+        setSubmitting(false);
+        return;
+      }
+
       const currentEditingQuiz = editingQuizId ? quizzes.find((q) => q.id === editingQuizId) : null;
       const isAlreadyReleased = Boolean(
         editingQuizId &&
@@ -609,7 +641,7 @@ export default function AdminFolderQuizzesPage() {
 
       const apiPayload = {
         title: values.title.trim(),
-        folderName: currentFolder,
+        folderName: (values.selectedFolder || currentFolder).trim(),
         accessType: values.accessType || 'FREE',
         isActive: values.isActive,
         showCorrectAnswerAfterSelection: values.showCorrectAnswerAfterSelection,
@@ -618,6 +650,7 @@ export default function AdminFolderQuizzesPage() {
         isLiveMock: values.isLive,
         isPremium: values.accessType === 'PAID',
         price: numericPrice,
+        imageUrl: values.imageUrl?.trim() || null,
         negativeMarkingEnabled: values.negativeMarkingEnabled,
         negativeMarkingEvery: values.negativeMarkingEnabled ? Number(values.negativeMarkingEvery) || 3 : 3,
         negativeMarkingDeduct: values.negativeMarkingEnabled ? Number(values.negativeMarkingDeduct) || 1 : 1,
@@ -641,6 +674,7 @@ export default function AdminFolderQuizzesPage() {
                     durationMinutes: apiPayload.durationMinutes,
                     isLiveMock: apiPayload.isLiveMock,
                     price: apiPayload.price,
+                    imageUrl: apiPayload.imageUrl,
                   }
                 : q,
             ),
@@ -669,10 +703,59 @@ export default function AdminFolderQuizzesPage() {
     },
   });
 
+  const handleImageFile = async (file?: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setImageUploadError('Please select a valid image file (PNG, JPG, WEBP).');
+      return;
+    }
+
+    setIsValidatingQuizImage(true);
+    setImageUploadError('');
+
+    try {
+      // 1. Strict 16:9 dimension validation before uploading to storage
+      const result = await validateQuizCover(file);
+      if (!result.valid) {
+        setQuizImageDimensions(null);
+        setImageUploadError(result.errorMessage || 'Invalid image dimensions. 16:9 landscape aspect ratio required.');
+        return;
+      }
+
+      setQuizImageDimensions({ width: result.width, height: result.height });
+      setIsUploadingImage(true);
+
+      // 2. Upload to storage
+      const res = await ApiClient.uploadQuizImage(file);
+      if (res?.url) {
+        formik.setFieldValue('imageUrl', res.url);
+      }
+    } catch (err: any) {
+      setImageUploadError(err?.message || 'Failed to upload quiz image.');
+    } finally {
+      setIsValidatingQuizImage(false);
+      setIsUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleImageFile(e.target.files?.[0]);
+  };
+
+  const imageDrop = useFileDrop({
+    accept: 'image/png,image/jpeg,image/webp,image/jpg',
+    disabled: isUploadingImage || isValidatingQuizImage,
+    onFiles: ([file]) => handleImageFile(file),
+    onReject: () => setImageUploadError('Please select a valid image file (PNG, JPG, WEBP).'),
+  });
+
   const handleOpenCreateModal = () => {
     setEditingQuizId(null);
     setOriginalReleaseIso(undefined);
     setFormSubmitError('');
+    setImageUploadError('');
+    setQuizImageDimensions(null);
     formik.resetForm({
       values: {
         ...DEFAULT_QUIZ_FORM_VALUES,
@@ -685,6 +768,8 @@ export default function AdminFolderQuizzesPage() {
   const handleOpenEditModal = (quiz: QuizItem) => {
     setEditingQuizId(quiz.id);
     setFormSubmitError('');
+    setImageUploadError('');
+    setQuizImageDimensions(null);
     const { date: relDate, time: relTime } = splitIsoToDateAndTime(quiz.releaseDate);
     setOriginalReleaseIso(combineDateAndTime(relDate, relTime) || undefined);
 
@@ -707,6 +792,7 @@ export default function AdminFolderQuizzesPage() {
         selectedFolder: currentFolder,
         accessType: quiz.accessType,
         price: quiz.price ? String(quiz.price) : '99',
+        imageUrl: quiz.imageUrl || '',
         negativeMarkingEnabled: quiz.negativeMarkingEnabled ?? false,
         negativeMarkingEvery: String(quiz.negativeMarkingEvery ?? 3),
         negativeMarkingDeduct: String(quiz.negativeMarkingDeduct ?? 1),
@@ -1300,16 +1386,31 @@ export default function AdminFolderQuizzesPage() {
                     >
                       {/* Quiz Details */}
                       <TableCell className="py-3">
-                        <div className="space-y-1 min-w-[200px] max-w-xs">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
-                              {quiz.title}
-                            </span>
-                            {quiz.isLiveMock && (
-                              <Badge variant="gold" className="text-[10px] px-1.5 py-0 font-bold shrink-0">
-                                🔥 Live Mock
-                              </Badge>
-                            )}
+                        <div className="flex items-center gap-3 min-w-[220px] max-w-xs">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-slate-200 dark:border-slate-800 bg-slate-900">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={quiz.imageUrl || (isPaid ? '/default-quiz-cover.svg' : '/default-free-quiz-cover.svg')}
+                              alt={quiz.title}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              {isRecentlyUploaded(quiz.createdAt) && (
+                                <Badge variant="success" className="text-[9px] px-1.5 py-0 font-extrabold shrink-0 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                                  NEW
+                                </Badge>
+                              )}
+                              <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                                {quiz.title}
+                              </span>
+                              {quiz.isLiveMock && (
+                                <Badge variant="gold" className="text-[10px] px-1.5 py-0 font-bold shrink-0">
+                                  🔥 Live Mock
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </TableCell>
@@ -1450,12 +1551,19 @@ export default function AdminFolderQuizzesPage() {
         title={editingQuizId ? `Edit Quiz: ${formik.values.title}` : `Create New Quiz in "${formik.values.selectedFolder || currentFolder}"`}
         className="max-w-2xl"
       >
-        <form className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto px-1 custom-scrollbar" onSubmit={formik.handleSubmit} noValidate>
+        <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           {formSubmitError && (
             <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold">
               {formSubmitError}
             </div>
           )}
+
+          {/* Destination Folder Banner */}
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs font-medium text-amber-900 dark:text-amber-300">
+            <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+            <span>Target Folder:</span>
+            <span className="font-extrabold text-slate-900 dark:text-white">{formik.values.selectedFolder || currentFolder}</span>
+          </div>
 
           <Input
             label="Quiz Title"
@@ -1536,6 +1644,143 @@ export default function AdminFolderQuizzesPage() {
                 />
               </div>
             )}
+          </div>
+
+          {/* Optional Quiz Cover Image */}
+          <div className="space-y-2.5 p-3.5 rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4 text-amber-500" />
+                  <span>Quiz Cover Image (Optional)</span>
+                </label>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Image displayed on homepage carousel and quiz cards.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                  16:9 · Recommended 1280 × 720 px
+                </span>
+                {formik.values.imageUrl && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      formik.setFieldValue('imageUrl', '');
+                      setQuizImageDimensions(null);
+                      setImageUploadError('');
+                    }}
+                    className="text-rose-500 hover:text-rose-600 border-rose-500/30 text-[11px] h-7 px-2.5 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    <span>Remove</span>
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {isValidatingQuizImage && (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-800 dark:text-amber-300 font-bold">
+                <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-amber-500 border-t-transparent shrink-0" />
+                <span>Checking 16:9 image dimensions…</span>
+              </div>
+            )}
+
+            {imageUploadError && (
+              <div className="flex items-start gap-2 p-2.5 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-700 dark:text-rose-300 font-medium">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <div className="space-y-0.5 flex-1 min-w-0">
+                  <p className="font-bold">Invalid Image Dimensions</p>
+                  <p className="text-[11px] leading-snug">{imageUploadError}</p>
+                </div>
+              </div>
+            )}
+
+            <div {...imageDrop.dropProps} className="rounded-xl">
+              {formik.values.imageUrl ? (
+                <div
+                  className={`relative aspect-video max-h-44 rounded-xl overflow-hidden border bg-slate-950 group transition-all ${
+                    imageDrop.isDragActive
+                      ? 'border-amber-500 ring-2 ring-amber-500/40 shadow-lg'
+                      : 'border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={formik.values.imageUrl}
+                    alt="Quiz cover preview"
+                    className="w-full h-full object-cover object-center"
+                  />
+                  {quizImageDimensions && (
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur-md text-[10px] font-mono font-bold text-emerald-400 border border-emerald-500/30 pointer-events-none">
+                      ✓ {quizImageDimensions.width} × {quizImageDimensions.height} px (16:9)
+                    </div>
+                  )}
+                  {imageDrop.isDragActive ? (
+                    <div className="absolute inset-0 bg-amber-500/25 backdrop-blur-xs flex items-center justify-center gap-2 text-white font-black text-xs">
+                      <Upload className="w-5 h-5 text-amber-300 animate-bounce" />
+                      <span>Drop new 16:9 image to replace</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 text-white text-xs font-bold transition-opacity cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Click or Drop to Replace 16:9 Image</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-1.5 group ${
+                    imageDrop.isDragActive
+                      ? 'border-amber-500 ring-2 ring-amber-500/40 bg-amber-500/10 scale-[0.99]'
+                      : 'border-slate-300 dark:border-slate-700 hover:border-amber-500/60 bg-white/50 dark:bg-slate-900/30'
+                  }`}
+                >
+                  {isUploadingImage ? (
+                    <>
+                      <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+                      <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Uploading 16:9 quiz image…</span>
+                    </>
+                  ) : imageDrop.isDragActive ? (
+                    <>
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center animate-pulse">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <span className="text-xs font-extrabold text-amber-600 dark:text-amber-400">
+                        Drop 16:9 image to upload
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center group-hover:scale-110 transition-transform shadow-xs">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Click or drag &amp; drop to upload a 16:9 quiz cover image
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Supports PNG, JPG, WEBP (Recommended: 1280 × 720 px · 16:9 ratio)
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/png,image/jpeg,image/webp,image/jpg"
+              onChange={handleImageSelect}
+              className="hidden"
+            />
           </div>
 
           {/* Negative Marking */}

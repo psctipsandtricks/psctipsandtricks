@@ -131,6 +131,28 @@ export class BooksController {
     return this.booksService.uploadCover(id, file);
   }
 
+  @ApiOperation({ summary: 'Upload/replace hero book-size cover image for a book (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @UseInterceptors(FileInterceptor('file'))
+  @Post(':id/hero-cover')
+  async uploadHeroCover(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.booksService.uploadHeroCover(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove hero book-size cover image for a book (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Delete(':id/hero-cover')
+  async removeHeroCover(@Param('id') id: string) {
+    return this.booksService.removeHeroCover(id);
+  }
+
   @ApiOperation({ summary: 'Upload/replace preview PDF for a book (Admin / Staff with manage_books)' })
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
@@ -151,6 +173,28 @@ export class BooksController {
   @Delete(':id/preview-pdf')
   async removePreviewPdf(@Param('id') id: string) {
     return this.booksService.removePreviewPdf(id);
+  }
+
+  @ApiOperation({ summary: 'Upload/replace preview audio for a book (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @UseInterceptors(FileInterceptor('file', { limits: AUDIO_UPLOAD_LIMITS }))
+  @Post(':id/preview-audio')
+  async uploadPreviewAudio(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.booksService.uploadPreviewAudio(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove preview audio for a book (Admin / Staff with manage_books)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_BOOKS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageBooks')
+  @Delete(':id/preview-audio')
+  async removePreviewAudio(@Param('id') id: string) {
+    return this.booksService.removePreviewAudio(id);
   }
 
   // --- Chapters ---

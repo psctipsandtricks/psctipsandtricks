@@ -1,6 +1,7 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseQueueService } from '../queue/queue.service';
+import { StorageService } from '../storage/storage.service';
 import { SendNotificationDto } from './dto/send-notification.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
@@ -12,6 +13,7 @@ export class NotificationsService {
   constructor(
     private prisma: PrismaService,
     private queueService: SupabaseQueueService,
+    private storageService: StorageService,
   ) {}
 
   async sendNotification(data: SendNotificationDto, sentById: string) {
@@ -46,7 +48,7 @@ export class NotificationsService {
   async getUserNotifications(userId: string) {
     return this.prisma.notification.findMany({
       where: {
-        OR: [{ userId }, { userId: null }],
+        OR: [{ userId }, { target: 'all' }],
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
@@ -54,7 +56,9 @@ export class NotificationsService {
   }
 
   async listAnnouncements() {
-    return this.prisma.announcementPopup.findMany({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.announcementPopup.findMany({
+      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'desc' }],
+    });
   }
 
   async getActiveAnnouncements() {
@@ -65,17 +69,30 @@ export class NotificationsService {
         startDate: { lte: now },
         endDate: { gte: now },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'desc' }],
     });
   }
 
   async createAnnouncement(dto: CreateAnnouncementDto) {
+    let orderIndex = dto.orderIndex;
+    if (orderIndex === undefined || orderIndex === null) {
+      const highest = await this.prisma.announcementPopup.findFirst({
+        orderBy: { orderIndex: 'desc' },
+        select: { orderIndex: true },
+      });
+      orderIndex = (highest?.orderIndex ?? -1) + 1;
+    }
+
     return this.prisma.announcementPopup.create({
       data: {
         title: dto.title,
         message: dto.message,
         imageUrl: dto.imageUrl,
+        buttonText: dto.buttonText,
+        redirectUrl: dto.redirectUrl,
+        backgroundColor: dto.backgroundColor,
         isActive: dto.isActive ?? true,
+        orderIndex,
         startDate: dto.startDate ? new Date(dto.startDate) : new Date(),
         endDate: new Date(dto.endDate),
       },
@@ -95,9 +112,32 @@ export class NotificationsService {
     });
   }
 
+  async reorderAnnouncements(ids: string[]) {
+    await this.prisma.$transaction(
+      ids.map((id, index) =>
+        this.prisma.announcementPopup.update({
+          where: { id },
+          data: { orderIndex: index },
+        }),
+      ),
+    );
+    return this.listAnnouncements();
+  }
+
   async removeAnnouncement(id: string) {
     const existing = await this.prisma.announcementPopup.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Announcement not found');
     return this.prisma.announcementPopup.delete({ where: { id } });
+  }
+
+  async uploadBannerImage(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No image file was provided.');
+    const url = await this.storageService.upload(
+      'book-covers',
+      `announcements/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+    return { url };
   }
 }

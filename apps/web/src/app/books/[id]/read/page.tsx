@@ -4,7 +4,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, BookOpen, CheckCircle2, PartyPopper, PlayCircle, X, FileText, Layers, ChevronLeft, ChevronRight, Youtube, Music } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, PartyPopper, PlayCircle, X, FileText, Layers, ChevronLeft, ChevronRight, Youtube, Music, Volume2 } from 'lucide-react';
 import { Button } from '@psc/ui';
 import { useAuth } from '../../../auth-provider';
 import { ApiClient } from '@/lib/api-client';
@@ -14,6 +14,14 @@ import { ReaderAudioPlayer, ReaderAudioPlayerHandle } from './reader-audio-playe
 import { ReaderYoutubeEmbed } from './reader-youtube-embed';
 import { ReaderProgressSidebar } from './reader-progress-sidebar';
 import { flattenChapters, buildChapterSummaries, ReadingUnit } from './reader-types';
+import { ReaderPdfViewerHandle } from './reader-pdf-viewer';
+import {
+  EMPTY_SYNC_MAP,
+  normalizeSyncMap,
+  resolvePageAtTime,
+  hasCues,
+} from './pdf-audio-sync';
+import { PdfSyncMap } from '@psc/shared-types';
 
 const ReaderPdfViewer = dynamic(() => import('./reader-pdf-viewer').then((m) => m.ReaderPdfViewer), {
   ssr: false,
@@ -21,7 +29,40 @@ const ReaderPdfViewer = dynamic(() => import('./reader-pdf-viewer').then((m) => 
 });
 
 const PROGRESS_SAVE_DEBOUNCE_MS = 1500;
-const MANUAL_SCROLL_QUIET_MS = 4000;
+const MANUAL_SCROLL_QUIET_MS = 3000;
+
+/** Per-user, per-unit overrides of the library's authored sync map. */
+function getSyncStorageKey(userId: string, unitId: string): string {
+  return `psc_reader_sync_${userId}_${unitId}`;
+}
+
+/** Whether Auto-Scroll is on, remembered per reader rather than per topic. */
+function getAutoScrollStorageKey(userId: string): string {
+  return `psc_reader_autoscroll_${userId}`;
+}
+
+interface DetailedReadingPosition {
+  unitIndex: number;
+  chapterId: string;
+  topicId: string;
+  pdfPage: number;
+  scrollY: number;
+  scrollRatio: number;
+  audioCurrentTime: number;
+  audioDuration: number;
+  timestamp: number;
+}
+
+function getStorageKey(userId: string, bookId: string): string {
+  return `psc_reader_pos_${userId}_${bookId}`;
+}
+
+function formatAudioTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 function BookReaderContentView({ bookId }: { bookId: string }) {
   const { user, isLoading: authLoading } = useAuth();
@@ -33,26 +74,132 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
   const [content, setContent] = useState<BookReaderContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [savedUnitIndex, setSavedUnitIndex] = useState<number | null>(null);
+  const [savedPosition, setSavedPosition] = useState<DetailedReadingPosition | null>(null);
   const [showResumeBanner, setShowResumeBanner] = useState(false);
   const [activeUnitIndex, setActiveUnitIndex] = useState(0);
   const [maxReadIndex, setMaxReadIndex] = useState(0);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [autoPlayVideo, setAutoPlayVideo] = useState(false);
+  const [currentAudioProgress, setCurrentAudioProgress] = useState<number>(0);
 
-  const unitRefs = useRef<(HTMLElement | null)[]>([]);
+  const [initialAudioTime, setInitialAudioTime] = useState<number>(0);
+  const [initialPdfPage, setInitialPdfPage] = useState<number>(1);
+
+  // --- PDF ↔ audio synchronization -----------------------------------------
+  const [syncMap, setSyncMap] = useState<PdfSyncMap>(EMPTY_SYNC_MAP);
+  const [audioTimeMs, setAudioTimeMs] = useState(0);
+  const [audioDurationMs, setAudioDurationMs] = useState(0);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [manualLatched, setManualLatched] = useState(false);
+  const [pdfNumPages, setPdfNumPages] = useState(0);
+  const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
+  const syncMapRef = useRef<PdfSyncMap>(EMPTY_SYNC_MAP);
+
+  useEffect(() => {
+    syncMapRef.current = syncMap;
+  }, [syncMap]);
+
   const audioRefs = useRef<Record<number, ReaderAudioPlayerHandle | null>>({});
+  const pdfViewerRef = useRef<ReaderPdfViewerHandle | null>(null);
   const currentlyPlayingIndexRef = useRef<number | null>(null);
   const pendingAutoPlayRef = useRef<number | null>(null);
   const lastManualInteractionRef = useRef(0);
-  const ratiosRef = useRef<Map<number, number>>(new Map());
   const hasAutoResumedRef = useRef(false);
   const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Progress is "furthest reached", never the live scroll position — scrolling
-  // back to re-read an earlier topic must not undo what's already been read.
   const maxUnitReachedRef = useRef(0);
+
+  const currentAudioTimeRef = useRef(0);
+  const currentAudioDurationRef = useRef(0);
+  const activePdfPageRef = useRef(1);
+  const activeScrollRatioRef = useRef(0);
+  const activeUnitIndexRef = useRef(0);
+
+  useEffect(() => {
+    activeUnitIndexRef.current = activeUnitIndex;
+  }, [activeUnitIndex]);
 
   useEffect(() => setMounted(true), []);
 
+  const units: ReadingUnit[] = useMemo(() => (content ? flattenChapters(content.chapters) : []), [content]);
+  const chapterSummaries = useMemo(() => (content ? buildChapterSummaries(content.chapters, units) : []), [content, units]);
+
+  // Synchronous Save to Local Storage and Debounced Backend Sync
+  const savePosition = useCallback(() => {
+    if (!user || units.length === 0) return;
+    const currentIdx = activeUnitIndexRef.current;
+    const currentUnit = units[currentIdx];
+    if (!currentUnit) return;
+
+    const audioPlayer = audioRefs.current[currentIdx];
+    const audioCurrentTime = audioPlayer ? audioPlayer.getCurrentTime() : currentAudioTimeRef.current;
+    const audioDuration = audioPlayer ? audioPlayer.getDuration() : currentAudioDurationRef.current;
+
+    const pos: DetailedReadingPosition = {
+      unitIndex: currentIdx,
+      chapterId: currentUnit.chapterId,
+      topicId: currentUnit.topicId,
+      pdfPage: pdfViewerRef.current ? pdfViewerRef.current.getCurrentPage() : activePdfPageRef.current,
+      scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
+      scrollRatio: activeScrollRatioRef.current,
+      audioCurrentTime: Math.max(0, audioCurrentTime || 0),
+      audioDuration: Math.max(0, audioDuration || 0),
+      timestamp: Date.now(),
+    };
+
+    try {
+      localStorage.setItem(getStorageKey(user.id, bookId), JSON.stringify(pos));
+    } catch {}
+
+    // Debounced Backend Progress Update
+    if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
+    progressSaveTimerRef.current = setTimeout(() => {
+      const newMax = Math.max(maxUnitReachedRef.current, currentIdx);
+      ApiClient.upsertReadingProgress({
+        bookId,
+        chapterId: currentUnit.chapterId,
+        topicId: currentUnit.topicId,
+        progressPercent: Math.round(((newMax + 1) / units.length) * 100),
+      }).catch(() => {});
+    }, PROGRESS_SAVE_DEBOUNCE_MS);
+  }, [user, bookId, units]);
+
+  // Track direct user manual gestures (wheel, touch, pointer, keys) so programmatic scroll is never blocked
+  useEffect(() => {
+    const handleUserGesture = () => {
+      lastManualInteractionRef.current = Date.now();
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) {
+        lastManualInteractionRef.current = Date.now();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        savePosition();
+      }
+    };
+    const handleBeforeUnload = () => {
+      savePosition();
+    };
+
+    window.addEventListener('wheel', handleUserGesture, { passive: true });
+    window.addEventListener('touchmove', handleUserGesture, { passive: true });
+    window.addEventListener('pointerdown', handleUserGesture, { passive: true });
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('wheel', handleUserGesture);
+      window.removeEventListener('touchmove', handleUserGesture);
+      window.removeEventListener('pointerdown', handleUserGesture);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [savePosition]);
+
+  // Load Book Content and Restore Exact Reading Position
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -73,23 +220,50 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
 
         const flatUnits = flattenChapters(readerContent.chapters);
         const progress = progressRows[0];
+
+        // 1. Check local storage for high-precision exact position (page + scroll + audio time)
+        let detailedPos: DetailedReadingPosition | null = null;
+        try {
+          const raw = localStorage.getItem(getStorageKey(user.id, bookId));
+          if (raw) {
+            detailedPos = JSON.parse(raw);
+          }
+        } catch {}
+
         let resumeIndex = -1;
-        if (progress?.topicId) {
+        if (detailedPos && detailedPos.unitIndex >= 0 && detailedPos.unitIndex < flatUnits.length) {
+          resumeIndex = detailedPos.unitIndex;
+          setSavedPosition(detailedPos);
+        } else if (progress?.topicId) {
           const found = flatUnits.findIndex((u) => u.kind === 'topic' && u.id === progress.topicId);
           if (found >= 0) resumeIndex = found;
-        }
-        if (resumeIndex < 0 && progress?.chapterId) {
+        } else if (progress?.chapterId) {
           const found = flatUnits.findIndex((u) => u.chapterId === progress.chapterId);
           if (found >= 0) resumeIndex = found;
         }
-        if (resumeIndex > 0) {
+
+        if (resumeIndex >= 0) {
           setSavedUnitIndex(resumeIndex);
           maxUnitReachedRef.current = resumeIndex;
           setMaxReadIndex(resumeIndex);
-          // Coming from the dashboard's "Continue Reading" the intent is
-          // explicit, so jump straight there; otherwise offer it as a banner
-          // and let the reader start at chapter 1 as usual.
-          if (!autoResume) setShowResumeBanner(true);
+
+          if (autoResume) {
+            hasAutoResumedRef.current = true;
+            setActiveUnitIndex(resumeIndex);
+            if (detailedPos) {
+              setInitialAudioTime(detailedPos.audioCurrentTime || 0);
+              setInitialPdfPage(detailedPos.pdfPage || 1);
+              currentAudioTimeRef.current = detailedPos.audioCurrentTime || 0;
+              activePdfPageRef.current = detailedPos.pdfPage || 1;
+              if (detailedPos.scrollY > 0) {
+                setTimeout(() => {
+                  window.scrollTo({ top: detailedPos.scrollY, behavior: 'smooth' });
+                }, 300);
+              }
+            }
+          } else if (resumeIndex > 0 || (detailedPos && (detailedPos.pdfPage > 1 || detailedPos.audioCurrentTime > 5))) {
+            setShowResumeBanner(true);
+          }
         }
       } catch {
         if (!cancelled) router.replace(`/books/${bookId}`);
@@ -103,31 +277,51 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
     };
   }, [bookId, user, authLoading, router, autoResume]);
 
-  const units: ReadingUnit[] = useMemo(() => (content ? flattenChapters(content.chapters) : []), [content]);
-  const chapterSummaries = useMemo(() => (content ? buildChapterSummaries(content.chapters, units) : []), [content, units]);
-
-  const jumpToUnit = useCallback((unitIndex: number) => {
+  const jumpToUnit = useCallback((unitIndex: number, restoreExact = false) => {
+    savePosition();
     setActiveUnitIndex(unitIndex);
     setAutoPlayVideo(false);
     const newMax = Math.max(maxUnitReachedRef.current, unitIndex);
     setMaxReadIndex(newMax);
     maxUnitReachedRef.current = newMax;
+
+    if (!restoreExact) {
+      setInitialAudioTime(0);
+      setInitialPdfPage(1);
+      setCurrentAudioProgress(0);
+      currentAudioTimeRef.current = 0;
+      activePdfPageRef.current = 1;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     ApiClient.upsertReadingProgress({
       bookId,
       chapterId: units[unitIndex]?.chapterId,
       topicId: units[unitIndex]?.topicId,
       progressPercent: Math.round(((newMax + 1) / units.length) * 100),
     }).catch(() => {});
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [bookId, units]);
+  }, [bookId, units, savePosition]);
 
-  // Dashboard "Continue Reading" deep-link: jump once the units have mounted.
-  useEffect(() => {
-    if (!autoResume || hasAutoResumedRef.current) return;
-    if (savedUnitIndex === null || units.length === 0) return;
-    hasAutoResumedRef.current = true;
-    setActiveUnitIndex(savedUnitIndex);
-  }, [autoResume, savedUnitIndex, units.length]);
+  // Apply Resume Action when User Clicks Resume Banner
+  const handleResumeClick = useCallback(() => {
+    if (savedUnitIndex === null || !units[savedUnitIndex]) return;
+    setShowResumeBanner(false);
+
+    if (savedPosition && savedPosition.unitIndex === savedUnitIndex) {
+      setInitialAudioTime(savedPosition.audioCurrentTime || 0);
+      setInitialPdfPage(savedPosition.pdfPage || 1);
+      currentAudioTimeRef.current = savedPosition.audioCurrentTime || 0;
+      activePdfPageRef.current = savedPosition.pdfPage || 1;
+      jumpToUnit(savedUnitIndex, true);
+      if (savedPosition.scrollY > 0) {
+        setTimeout(() => {
+          window.scrollTo({ top: savedPosition.scrollY, behavior: 'smooth' });
+        }, 200);
+      }
+    } else {
+      jumpToUnit(savedUnitIndex);
+    }
+  }, [savedUnitIndex, units, savedPosition, jumpToUnit]);
 
   // Handle pending autoplay after topic change
   useEffect(() => {
@@ -154,6 +348,8 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
     const prevIdx = activeUnitIndex - 1;
     setAutoPlayVideo(false);
     setActiveUnitIndex(prevIdx);
+    setInitialAudioTime(0);
+    setInitialPdfPage(1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [activeUnitIndex]);
 
@@ -169,7 +365,40 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
     if (currentlyPlayingIndexRef.current === unitIndex) {
       setIsPlayingAudio(false);
     }
+    savePosition();
+  }, [savePosition]);
+
+  // Synchronize PDF auto-scroll with audio playback time update
+  const handleAudioTimeUpdate = useCallback((currentTime: number, duration: number) => {
+    currentAudioTimeRef.current = currentTime;
+    currentAudioDurationRef.current = duration;
+
+    if (duration > 0) {
+      const ratio = currentTime / duration;
+      setCurrentAudioProgress(ratio);
+    }
   }, []);
+
+  /**
+   * Millisecond playhead — the only input to cue resolution. Page turns are
+   * derived from this in render, so pause/resume/seek all stay consistent
+   * without any extra bookkeeping: the same time always yields the same page.
+   */
+  const handleAudioTimeUpdateMs = useCallback((ms: number, durationMs: number) => {
+    setAudioTimeMs(ms);
+    if (durationMs > 0) setAudioDurationMs(durationMs);
+  }, []);
+
+  // Seeking only moves the audio; the cue map decides the page from the new
+  // playhead, so there is nothing to scroll imperatively here.
+  const handleAudioSeek = useCallback((seekTime: number, duration: number) => {
+    currentAudioTimeRef.current = seekTime;
+    currentAudioDurationRef.current = duration;
+    if (duration > 0) {
+      setCurrentAudioProgress(seekTime / duration);
+    }
+    savePosition();
+  }, [savePosition]);
 
   const handleTogglePlayAudio = useCallback((unitIndex: number) => {
     if (activeUnitIndex === unitIndex) {
@@ -204,7 +433,6 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
       if (videoEl) {
         videoEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      // Reset autoplay flag so subsequent navigation to any other topic does NOT autoplay
       setAutoPlayVideo(false);
     }, 200);
   }, [bookId, units]);
@@ -221,6 +449,88 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
     },
     [units.length, handleNextTopic],
   );
+
+  const handlePdfPageChange = useCallback((pageNumber: number, numPages: number) => {
+    activePdfPageRef.current = pageNumber;
+    activeScrollRatioRef.current = numPages > 0 ? pageNumber / numPages : 0;
+    setPdfCurrentPage(pageNumber);
+  }, []);
+
+  const handlePdfScrollPositionChange = useCallback((pageNumber: number, scrollRatio: number) => {
+    activePdfPageRef.current = pageNumber;
+    activeScrollRatioRef.current = scrollRatio;
+    setPdfCurrentPage(pageNumber);
+  }, []);
+
+  const activeUnitForSync = units[activeUnitIndex];
+  const activeUnitId = activeUnitForSync?.id;
+
+  /**
+   * Load the timing map for the unit being read: the reader's own saved
+   * correction wins over the library's authored map, so a student who fixed a
+   * drift keeps their fix even after staff publish an update.
+   */
+  useEffect(() => {
+    if (!activeUnitId) return;
+    setManualLatched(false);
+
+    const authored = normalizeSyncMap(activeUnitForSync?.syncCues ?? null);
+    let chosen = authored;
+
+    if (user) {
+      try {
+        const raw = localStorage.getItem(getSyncStorageKey(user.id, activeUnitId));
+        if (raw) {
+          const local = normalizeSyncMap(JSON.parse(raw));
+          if (hasCues(local) || local.offsetMs !== 0) chosen = local;
+        }
+      } catch {}
+    }
+    setSyncMap(chosen);
+  }, [activeUnitId, activeUnitForSync?.syncCues, user]);
+
+  // Restore the Auto-Scroll preference once per reader.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const raw = localStorage.getItem(getAutoScrollStorageKey(user.id));
+      if (raw !== null) setAutoScrollEnabled(raw === '1');
+    } catch {}
+  }, [user]);
+
+  const handleAutoScrollChange = useCallback((enabled: boolean) => {
+    setAutoScrollEnabled(enabled);
+    // Turning Auto-Scroll back on is itself the "follow the audio again"
+    // instruction, so it clears any latched manual page choice.
+    if (enabled) setManualLatched(false);
+    if (user) {
+      try {
+        localStorage.setItem(getAutoScrollStorageKey(user.id), enabled ? '1' : '0');
+      } catch {}
+    }
+  }, [user]);
+
+  /** Page the cue map calls for right now — null means "hold position". */
+  const resolvedSyncPage = useMemo(
+    () => resolvePageAtTime(syncMap, audioTimeMs),
+    [syncMap, audioTimeMs],
+  );
+
+  /** Continuous audio progress ratio (0.0 to 1.0) */
+  const audioProgress = useMemo(() => {
+    if (audioDurationMs > 0) {
+      return Math.max(0, Math.min(1, audioTimeMs / audioDurationMs));
+    }
+    return 0;
+  }, [audioTimeMs, audioDurationMs]);
+
+  /** Persist locally on every edit so a refresh never loses hand-tuned timing. */
+  const persistSyncLocally = useCallback((map: PdfSyncMap) => {
+    if (!user || !activeUnitId) return;
+    try {
+      localStorage.setItem(getSyncStorageKey(user.id, activeUnitId), JSON.stringify(map));
+    } catch {}
+  }, [user, activeUnitId]);
 
   const furthestIndex = maxReadIndex;
   const overallPercent = units.length > 0 ? Math.round(((furthestIndex + 1) / units.length) * 100) : 0;
@@ -349,26 +659,39 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
 
           {/* Resume banner */}
           {showResumeBanner && savedUnitIndex !== null && units[savedUnitIndex] && savedUnitIndex !== activeUnitIndex && (
-            <div className="flex items-center gap-3 p-3.5 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 dark:bg-cyan-500/[0.07]">
-              <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-cyan-500 shrink-0">
+            <div className="flex items-center gap-3 p-3.5 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 dark:bg-cyan-500/[0.07] shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-cyan-500 shrink-0">
                 <PlayCircle className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-black text-slate-900 dark:text-white">Pick up where you left off</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                  Chapter {units[savedUnitIndex].chapterNumber} · {units[savedUnitIndex].title}
+                <p className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>Pick up where you left off</span>
                 </p>
+                <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                  <span className="font-bold text-cyan-600 dark:text-cyan-400 truncate max-w-[200px]">
+                    Ch {units[savedUnitIndex].chapterNumber} · {units[savedUnitIndex].title}
+                  </span>
+                  {savedPosition && savedPosition.pdfPage > 1 && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-mono text-[10px] font-bold">
+                      <FileText className="w-2.5 h-2.5" />
+                      Page {savedPosition.pdfPage}
+                    </span>
+                  )}
+                  {savedPosition && savedPosition.audioCurrentTime > 0 && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 font-mono text-[10px] font-bold">
+                      <Volume2 className="w-2.5 h-2.5" />
+                      {formatAudioTime(savedPosition.audioCurrentTime)}
+                    </span>
+                  )}
+                </div>
               </div>
               <Button
                 variant="gold"
                 size="sm"
-                className="font-bold shrink-0"
-                onClick={() => {
-                  jumpToUnit(savedUnitIndex);
-                  setShowResumeBanner(false);
-                }}
+                className="font-black shrink-0 shadow-md shadow-amber-500/20 cursor-pointer"
+                onClick={handleResumeClick}
               >
-                Resume
+                Resume Book
               </Button>
               <button
                 type="button"
@@ -462,14 +785,19 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
                 <div className="space-y-5 pt-2">
                   {activeUnit.audioUrl && (
                     <ReaderAudioPlayer
+                      key={`audio-${activeUnit.id}`}
                       ref={(handle) => {
                         audioRefs.current[activeUnitIndex] = handle;
                       }}
                       src={activeUnit.audioUrl}
                       topicTitle={activeUnit.title}
                       chapterTitle={`Chapter ${activeUnit.chapterNumber} · ${activeUnit.chapterTitle}`}
+                      initialTime={initialAudioTime}
                       onPlay={() => handleAudioPlay(activeUnitIndex)}
                       onPause={() => handleAudioPause(activeUnitIndex)}
+                      onTimeUpdate={handleAudioTimeUpdate}
+                      onTimeUpdateMs={handleAudioTimeUpdateMs}
+                      onSeek={handleAudioSeek}
                       onEnded={() => handleAudioEnded(activeUnitIndex)}
                     />
                   )}
@@ -486,9 +814,21 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
 
                   {activeUnit.pdfUrl && (
                     <ReaderPdfViewer
-                      key={activeUnit.pdfUrl}
+                      key={`pdf-${activeUnit.id}`}
+                      ref={pdfViewerRef}
                       url={activeUnit.pdfUrl}
                       user={user}
+                      initialPage={initialPdfPage}
+                      isAudioPlaying={isPlayingAudio}
+                      audioProgress={audioProgress}
+                      syncPage={resolvedSyncPage}
+                      autoScrollEnabled={autoScrollEnabled}
+                      onAutoScrollChange={handleAutoScrollChange}
+                      manualLatched={manualLatched}
+                      onManualLatchChange={setManualLatched}
+                      onLoadSuccess={setPdfNumPages}
+                      onPageChange={handlePdfPageChange}
+                      onScrollPositionChange={handlePdfScrollPositionChange}
                     />
                   )}
 

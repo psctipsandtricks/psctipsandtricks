@@ -55,16 +55,35 @@ export interface StaffMember {
     staffPermission?: StaffPermission | null;
 }
 export type BookSubscriptionType = 'FULL_TIME_ACCESS' | 'LIMITED_ACCESS' | 'SUBSCRIPTION';
+export type BookSubscriptionDuration = '1_MONTH' | '3_MONTHS' | '6_MONTHS' | '1_YEAR';
+export declare const BOOK_SUBSCRIPTION_DURATIONS_LIST: readonly [{
+    readonly value: "1_MONTH";
+    readonly label: "1 Month";
+}, {
+    readonly value: "3_MONTHS";
+    readonly label: "3 Months";
+}, {
+    readonly value: "6_MONTHS";
+    readonly label: "6 Months";
+}, {
+    readonly value: "1_YEAR";
+    readonly label: "1 Year (12 Months)";
+}];
+export declare function formatSubscriptionDuration(duration?: string | null): string;
 export interface Book {
     id: string;
     title: string;
     author: string;
     description: string;
     coverUrl: string;
+    heroCoverUrl?: string | null;
     pdfUrl?: string;
     previewPdfUrl?: string | null;
     previewPdfFileName?: string | null;
     previewPdfSizeBytes?: number | null;
+    previewAudioUrl?: string | null;
+    previewAudioFileName?: string | null;
+    previewAudioSizeBytes?: number | null;
     price: number;
     discountPercent: number;
     /** Effective charged price — always price minus discountPercent, computed server-side. */
@@ -75,6 +94,7 @@ export interface Book {
     appleId?: string | null;
     basePlanId?: string | null;
     subscriptionType: BookSubscriptionType;
+    subscriptionDuration?: BookSubscriptionDuration | string | null;
     isPremium: boolean;
     isPublished: boolean;
     visibleToGuests: boolean;
@@ -89,6 +109,12 @@ export interface Book {
         hasAccess: boolean;
         price: number;
         reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
+        subscription?: {
+            isSubscription: boolean;
+            validTill?: string | null;
+            isExpired: boolean;
+            expiresInDays?: number | null;
+        } | null;
     };
     createdAt: string;
     updatedAt: string;
@@ -138,7 +164,21 @@ export interface Subtopic {
     createdAt: string;
     updatedAt: string;
 }
-/** Shared shape of the two library folder levels — exams and chapters differ only in what they contain. */
+export interface VideoFolder {
+    id: string;
+    name: string;
+    parentId?: string | null;
+    description?: string | null;
+    orderIndex: number;
+    isActive: boolean;
+    subFolderCount?: number;
+    videoCount?: number;
+    children?: VideoFolder[];
+    parent?: VideoFolder | null;
+    createdAt: string;
+    updatedAt: string;
+}
+/** Shared shape of the legacy library folder levels — maintained for backwards compatibility. */
 export interface LibraryFolder {
     id: string;
     title: string;
@@ -161,7 +201,9 @@ export interface VideoChapter extends LibraryFolder {
 }
 export interface Video {
     id: string;
-    chapterId: string;
+    folderId?: string | null;
+    folderName?: string | null;
+    chapterId?: string | null;
     title: string;
     description?: string | null;
     youtubeUrl: string;
@@ -172,6 +214,20 @@ export interface Video {
     pdfSizeBytes?: number | null;
     orderIndex: number;
     isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+export interface PdfFolder {
+    id: string;
+    name: string;
+    parentId?: string | null;
+    description?: string | null;
+    orderIndex: number;
+    isActive: boolean;
+    subFolderCount?: number;
+    documentCount?: number;
+    children?: PdfFolder[];
+    parent?: PdfFolder | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -187,7 +243,9 @@ export interface PdfChapter extends LibraryFolder {
 }
 export interface PdfDocument {
     id: string;
-    chapterId: string;
+    folderId?: string | null;
+    folderName?: string | null;
+    chapterId?: string | null;
     title: string;
     description?: string | null;
     fileUrl?: string | null;
@@ -447,6 +505,9 @@ export interface Order {
     amount: number;
     currency: string;
     status: OrderStatus;
+    accessType?: string | null;
+    validTill?: string | null;
+    paidAt?: string | null;
     razorpayOrderId?: string | null;
     razorpayPaymentId?: string | null;
     createdAt: string;
@@ -544,7 +605,11 @@ export interface AnnouncementPopup {
     title: string;
     message: string;
     imageUrl?: string | null;
+    buttonText?: string | null;
+    redirectUrl?: string | null;
+    backgroundColor?: string | null;
     isActive: boolean;
+    orderIndex: number;
     startDate: string;
     endDate: string;
     createdAt: string;

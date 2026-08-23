@@ -99,7 +99,6 @@ export const QuizPicker: React.FC<QuizPickerProps> = ({ quizzes, value, onChange
   const handleSelect = (id: string) => {
     onChange(id);
     setIsOpen(false);
-    onBlur?.();
   };
 
   const filtered = quizzes.filter((q) => q.title.toLowerCase().includes(search.trim().toLowerCase()));

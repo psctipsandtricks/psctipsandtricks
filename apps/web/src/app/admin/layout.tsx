@@ -21,6 +21,8 @@ import {
   Bell,
   Megaphone,
   MessageSquare,
+  Star,
+  Share2,
   Menu,
   X,
   Search,
@@ -124,7 +126,18 @@ function AdminPanelShell({
     { id: 'coupons', label: 'Coupon Codes', href: '/admin/coupons', icon: <Tag className="w-4 h-4" />, perm: 'manageCoupons' },
     { id: 'notifications', label: 'Push Notifications', href: '/admin/notifications', icon: <Bell className="w-4 h-4" />, perm: 'manageNotifications' },
     { id: 'announcements', label: 'Announcements', href: '/admin/announcements', icon: <Megaphone className="w-4 h-4" />, perm: 'manageAnnouncements' },
+    { id: 'reviews', label: 'Customer Reviews', href: '/admin/reviews', icon: <Star className="w-4 h-4" />, perm: 'manageReviews' },
+    { id: 'social-links', label: 'Social Media Links', href: '/admin/social-links', icon: <Share2 className="w-4 h-4" />, perm: 'manageSocialLinks' },
   ];
+
+  useEffect(() => {
+    // Warm up all admin routes immediately for 0ms transitions
+    allSidebarItems.forEach((item) => {
+      try {
+        router.prefetch(item.href);
+      } catch {}
+    });
+  }, [router]);
 
   const sidebarItems =
     adminUser.role === 'ADMIN'
@@ -148,9 +161,11 @@ function AdminPanelShell({
         }
         items={sidebarItems}
         pathname={pathname || ''}
-        onNavigate={(href, e) => {
-          e.preventDefault();
-          router.push(href);
+        linkComponent={Link}
+        onPrefetch={(href) => {
+          try {
+            router.prefetch(href);
+          } catch {}
         }}
       />
 
@@ -219,15 +234,24 @@ function AdminPanelShell({
             {sidebarItems.map((item) => {
               const isActive = pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href));
               return (
-                <a
+                <Link
                   key={item.id}
                   href={item.href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setMobileNavOpen(false);
-                    router.push(item.href);
+                  prefetch={true}
+                  onMouseEnter={() => {
+                    try {
+                      router.prefetch(item.href);
+                    } catch {}
                   }}
-                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  onTouchStart={() => {
+                    try {
+                      router.prefetch(item.href);
+                    } catch {}
+                  }}
+                  onClick={() => {
+                    setMobileNavOpen(false);
+                  }}
+                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-98 cursor-pointer ${
                     isActive
                       ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                       : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900'
@@ -235,7 +259,7 @@ function AdminPanelShell({
                 >
                   <span className={isActive ? 'text-amber-500' : 'text-slate-400'}>{item.icon}</span>
                   <span>{item.label}</span>
-                </a>
+                </Link>
               );
             })}
           </div>

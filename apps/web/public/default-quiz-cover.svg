@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080e1e" />
+      <stop offset="50%" stop-color="#0c1733" />
+      <stop offset="100%" stop-color="#071026" />
+    </linearGradient>
+    <linearGradient id="accent-amber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="accent-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="shield-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.9" />
+    </linearGradient>
+    <radialGradient id="glow-amber" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.25" />
+      <stop offset="60%" stop-color="#f59e0b" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glow-cyan" cx="80%" cy="20%" r="40%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
+    </radialGradient>
+    <pattern id="grid-dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#38bdf8" fill-opacity="0.12" />
+    </pattern>
+    <filter id="subtle-blur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="30" />
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="800" height="450" fill="url(#bg-grad)" />
+
+  <!-- Ambient Glows -->
+  <circle cx="400" cy="210" r="220" fill="url(#glow-amber)" />
+  <circle cx="680" cy="100" r="180" fill="url(#glow-cyan)" />
+
+  <!-- Grid Pattern -->
+  <rect width="800" height="450" fill="url(#grid-dots)" />
+
+  <!-- Abstract Graphic Accents (Polygons & Lines) -->
+  <g opacity="0.15" stroke="#f59e0b" stroke-width="1.5" fill="none">
+    <circle cx="400" cy="200" r="140" stroke-dasharray="6 6" />
+    <circle cx="400" cy="200" r="170" stroke-dasharray="4 8" />
+    <polygon points="400,70 510,135 510,265 400,330 290,265 290,135" />
+  </g>
+
+  <!-- Floating Sparkles / Stars -->
+  <g fill="#fbbf24" opacity="0.6">
+    <path d="M 230 110 Q 230 120 240 120 Q 230 120 230 130 Q 230 120 220 120 Q 230 120 230 110" />
+    <path d="M 580 280 Q 580 290 590 290 Q 580 290 580 300 Q 580 290 570 290 Q 580 290 580 280" />
+    <path d="M 620 120 Q 620 127 627 127 Q 620 127 620 134 Q 620 127 613 127 Q 620 127 620 120" opacity="0.4" />
+  </g>
+
+  <!-- Center Emblem Shield Card -->
+  <g transform="translate(400, 200)">
+    <!-- Backing Glow -->
+    <rect x="-85" y="-85" width="170" height="170" rx="36" fill="#f59e0b" opacity="0.1" filter="url(#subtle-blur)" />
+    
+    <!-- Outer Shield Container -->
+    <rect x="-65" y="-65" width="130" height="130" rx="28" fill="url(#shield-grad)" stroke="#f59e0b" stroke-opacity="0.35" stroke-width="2" />
+    
+    <!-- Inner Emblem Icon (Trophy / Star / Quiz symbol) -->
+    <!-- Gradient Quiz Trophy & Star -->
+    <g transform="translate(0, -6)">
+      <!-- Trophy Cup Base -->
+      <path d="M -26 -22 L 26 -22 C 26 6 16 20 0 24 C -16 20 -26 6 -26 -22 Z" fill="url(#accent-amber)" opacity="0.9" />
+      <path d="M -26 -14 C -36 -14 -40 -4 -34 6 C -28 14 -20 14 -16 12" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" />
+      <path d="M 26 -14 C 36 -14 40 -4 34 6 C 28 14 20 14 16 12" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" />
+      <path d="M -5 24 L 5 24 L 8 36 L -8 36 Z" fill="url(#accent-amber)" />
+      <rect x="-16" y="36" width="32" height="6" rx="3" fill="#fbbf24" />
+      
+      <!-- Trophy Star Center -->
+      <polygon points="0,-14 3,-5 12,-5 5,1 7,10 0,5 -7,10 -5,1 -12,-5 -3,-5" fill="#ffffff" opacity="0.95" />
+    </g>
+
+    <!-- Label Badge under icon -->
+    <rect x="-70" y="75" width="140" height="26" rx="13" fill="#0f172a" stroke="#38bdf8" stroke-opacity="0.3" stroke-width="1.5" />
+    <text x="0" y="92" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="900" fill="#38bdf8" letter-spacing="1.5">PREMIUM QUIZ</text>
+  </g>
+
+  <!-- Bottom Brand Text -->
+  <text x="400" y="415" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#94a3b8" letter-spacing="2.5" opacity="0.6">KERALA PSC PRACTICE HUB</text>
+</svg>

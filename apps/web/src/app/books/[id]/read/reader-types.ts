@@ -1,4 +1,4 @@
-import { ReaderChapter } from '@psc/shared-types';
+import { PdfSyncMap, ReaderChapter } from '@psc/shared-types';
 
 /** One continuously-scrolling block in the reader — a Topic, or one of its Subtopics. */
 export interface ReadingUnit {
@@ -20,6 +20,8 @@ export interface ReadingUnit {
   youtubeUrl?: string | null;
   audioUrl?: string | null;
   pdfUrl?: string | null;
+  /** Authored PDF↔audio timing map for this unit's audio + PDF pair. */
+  syncCues?: PdfSyncMap | null;
 }
 
 export interface ChapterSummary {
@@ -72,6 +74,7 @@ export function flattenChapters(chapters: ReaderChapter[]): ReadingUnit[] {
         youtubeUrl: topic.youtubeUrl,
         audioUrl: topic.audioUrl,
         pdfUrl: topic.pdfUrl,
+        syncCues: topic.syncCues,
       });
       isChapterStart = false;
 
@@ -91,6 +94,7 @@ export function flattenChapters(chapters: ReaderChapter[]): ReadingUnit[] {
           youtubeUrl: subtopic.youtubeUrl,
           audioUrl: subtopic.audioUrl,
           pdfUrl: subtopic.pdfUrl,
+          syncCues: subtopic.syncCues,
         });
       }
     }

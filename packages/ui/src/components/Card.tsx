@@ -10,7 +10,7 @@ export const Card: React.FC<CardProps> = ({ className, hoverEffect = false, chil
     <div
       className={cn(
         'glass-card p-6',
-        hoverEffect && 'hover:-translate-y-1 hover:shadow-lg hover:shadow-amber-500/10 hover:border-amber-500/30',
+        hoverEffect && 'liquid-glass-hover hover:-translate-y-1',
         className
       )}
       {...props}
@@ -33,7 +33,7 @@ export const CardTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({ 
 );
 
 export const CardDescription: React.FC<React.HTMLAttributes<HTMLParagraphElement>> = ({ className, children, ...props }) => (
-  <p className={cn('text-sm text-slate-500 dark:text-slate-400', className)} {...props}>
+  <p className={cn('text-sm text-slate-600 dark:text-slate-300 font-medium', className)} {...props}>
     {children}
   </p>
 );

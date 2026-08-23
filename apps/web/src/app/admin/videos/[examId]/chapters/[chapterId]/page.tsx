@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Badge, Button, Card, ConfirmDialog, Dialog, Input, Skeleton, ToggleSwitch } from '@psc/ui';
+import { Badge, Button, Card, ConfirmDialog, Dialog, FileDropZone, Input, Skeleton, ToggleSwitch } from '@psc/ui';
 import {
   ArrowLeft,
   ArrowDown,
@@ -387,7 +387,7 @@ export default function AdminChapterVideosPage() {
         onClose={() => setIsDialogOpen(false)}
         title={editingVideo ? 'Edit Video & Attached PDF' : 'Add Video'}
       >
-        <form className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto px-1 custom-scrollbar" onSubmit={formik.handleSubmit} noValidate>
+        <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input
             label="YouTube Link"
             name="youtubeUrl"
@@ -520,22 +520,27 @@ export default function AdminChapterVideosPage() {
             )}
 
             {/* PDF Picker Button */}
-            <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all">
-              <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
-              <span>
-                {pdfFile
-                  ? 'Change PDF file…'
-                  : editingVideo?.pdfUrl && !removeExistingPdf
-                    ? 'Upload new PDF to replace current…'
-                    : 'Choose a PDF file to attach…'}
-              </span>
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                className="hidden"
-                onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
-              />
-            </label>
+            <FileDropZone
+              accept="application/pdf,.pdf"
+              onFiles={([file]) => handlePickFile(file)}
+              onReject={() => alert('Only PDF files can be attached here.')}
+              className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all"
+            >
+              {({ isDragActive }) => (
+                <>
+                  <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
+                  <span>
+                    {isDragActive
+                      ? 'Drop PDF to upload…'
+                      : pdfFile
+                        ? 'Change PDF file…'
+                        : editingVideo?.pdfUrl && !removeExistingPdf
+                          ? 'Upload new PDF to replace current…'
+                          : 'Choose a PDF file to attach…'}
+                  </span>
+                </>
+              )}
+            </FileDropZone>
 
             {uploadPercent !== null && (
               <div className="space-y-1 pt-1">

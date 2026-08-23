@@ -1,62 +1,31 @@
 import 'package:flutter/material.dart';
-import 'core/theme/app_theme.dart';
-import 'features/home/presentation/home_screen.dart';
-import 'features/quizzes/presentation/quizzes_screen.dart';
-import 'features/books/presentation/books_screen.dart';
-import 'features/dashboard/presentation/dashboard_screen.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  runApp(const PscTipsApp());
-}
+import 'app.dart';
+import 'core/providers/app_providers.dart';
 
-class PscTipsApp extends StatelessWidget {
-  const PscTipsApp({super.key});
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'PSC Tips & Tricks',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      home: const MainNavigationWrapper(),
-    );
-  }
-}
+  // Portrait-only: the reader, the quiz timer and the chat composer are all
+  // laid out for a single column, and a landscape rotation mid-quiz would
+  // rebuild the timer's ancestors for no benefit.
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(statusBarColor: Colors.transparent),
+  );
 
-class MainNavigationWrapper extends StatefulWidget {
-  const MainNavigationWrapper({super.key});
+  final prefs = await SharedPreferences.getInstance();
 
-  @override
-  State<MainNavigationWrapper> createState() => _MainNavigationWrapperState();
-}
-
-class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
-  int _currentIndex = 0;
-
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    QuizzesScreen(),
-    BooksScreen(),
-    DashboardScreen(),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.quiz_rounded), label: 'Quizzes'),
-          BottomNavigationBarItem(icon: Icon(Icons.menu_book_rounded), label: 'Books'),
-          BottomNavigationBarItem(icon: Icon(Icons.analytics_rounded), label: 'Dashboard'),
-        ],
-      ),
-    );
-  }
+  runApp(
+    ProviderScope(
+      overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+      child: const PscStudentApp(),
+    ),
+  );
 }

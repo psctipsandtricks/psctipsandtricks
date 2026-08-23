@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { Card, Button, Dialog, ConfirmDialog, Input, ToggleSwitch, Badge, Skeleton } from '@psc/ui';
+import { Card, Button, Dialog, ConfirmDialog, Input, ToggleSwitch, Badge, Skeleton, FileDropZone } from '@psc/ui';
 import {
   ArrowLeft,
   ArrowUp,
@@ -679,22 +679,27 @@ export function ContentHierarchyPage({
               </div>
             )}
 
-            <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all">
-              <UploadCloud className="w-3.5 h-3.5 text-cyan-500" />
-              <span>
-                {audioFile
-                  ? 'Change audio file…'
-                  : editingItem?.audioUrl
-                    ? 'Upload new audio to replace current…'
-                    : 'Choose an audio file…'}
-              </span>
-              <input
-                type="file"
-                accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg"
-                className="hidden"
-                onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
-              />
-            </label>
+            <FileDropZone
+              accept="audio/mpeg,audio/wav,audio/ogg,.mp3,.wav,.ogg"
+              onFiles={([file]) => setAudioFile(file)}
+              onReject={() => alert('Only MP3, WAV, or OGG audio files can be attached here.')}
+              className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-cyan-500/50 hover:bg-cyan-500/5 transition-all"
+            >
+              {({ isDragActive }) => (
+                <>
+                  <UploadCloud className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>
+                    {isDragActive
+                      ? 'Drop audio file to upload…'
+                      : audioFile
+                        ? 'Change audio file…'
+                        : editingItem?.audioUrl
+                          ? 'Upload new audio to replace current…'
+                          : 'Choose an audio file…'}
+                  </span>
+                </>
+              )}
+            </FileDropZone>
           </div>
 
           <div className="space-y-2 p-3 rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
@@ -751,22 +756,27 @@ export function ContentHierarchyPage({
               </div>
             )}
 
-            <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all">
-              <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
-              <span>
-                {pdfFile
-                  ? 'Change PDF file…'
-                  : editingItem?.pdfUrl
-                    ? 'Upload new PDF to replace current…'
-                    : 'Choose a PDF file…'}
-              </span>
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                className="hidden"
-                onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-              />
-            </label>
+            <FileDropZone
+              accept="application/pdf,.pdf"
+              onFiles={([file]) => setPdfFile(file)}
+              onReject={() => alert('Only PDF files can be attached here.')}
+              className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all"
+            >
+              {({ isDragActive }) => (
+                <>
+                  <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
+                  <span>
+                    {isDragActive
+                      ? 'Drop PDF to upload…'
+                      : pdfFile
+                        ? 'Change PDF file…'
+                        : editingItem?.pdfUrl
+                          ? 'Upload new PDF to replace current…'
+                          : 'Choose a PDF file…'}
+                  </span>
+                </>
+              )}
+            </FileDropZone>
           </div>
 
           <Button type="submit" variant="gold" className="w-full font-bold shadow-md shadow-cyan-500/20" isLoading={formik.isSubmitting}>

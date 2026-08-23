@@ -348,7 +348,7 @@ export default function AdminCouponsPage() {
         }}
         title={editingCoupon ? `Edit Coupon — ${editingCoupon.code}` : 'Create Discount Coupon'}
       >
-        <form className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto px-0.5 custom-scrollbar" onSubmit={formik.handleSubmit} noValidate>
+        <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input
             label="Coupon Code"
             name="code"

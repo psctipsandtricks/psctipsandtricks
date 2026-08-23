@@ -488,7 +488,11 @@ export default function AdminMockTestsPage() {
           <QuizPicker
             quizzes={quizzes}
             value={formik.values.quizId}
-            onChange={(id) => formik.setFieldValue('quizId', id, true)}
+            onChange={(id) => {
+              formik.setFieldValue('quizId', id, true);
+              formik.setFieldError('quizId', undefined);
+              formik.setFieldTouched('quizId', true, false);
+            }}
             onBlur={() => formik.setFieldTouched('quizId', true, true)}
             error={formik.touched.quizId && formik.errors.quizId ? formik.errors.quizId : undefined}
           />

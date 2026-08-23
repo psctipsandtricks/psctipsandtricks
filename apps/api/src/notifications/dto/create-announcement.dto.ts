@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
 
 export class CreateAnnouncementDto {
   @IsString()
@@ -12,8 +12,24 @@ export class CreateAnnouncementDto {
   imageUrl?: string;
 
   @IsOptional()
+  @IsString()
+  buttonText?: string;
+
+  @IsOptional()
+  @IsString()
+  redirectUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  backgroundColor?: string;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  orderIndex?: number;
 
   @IsOptional()
   @IsDateString()

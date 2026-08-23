@@ -39,6 +39,8 @@ export interface StaffPermission {
   managePdfs: boolean;
   manageStaff: boolean;
   manageAnnouncements: boolean;
+  manageReviews: boolean;
+  manageSocialLinks: boolean;
   grantedById?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -58,6 +60,29 @@ export interface StaffMember {
 }
 
 export type BookSubscriptionType = 'FULL_TIME_ACCESS' | 'LIMITED_ACCESS' | 'SUBSCRIPTION';
+export type BookSubscriptionDuration = '1_MONTH' | '3_MONTHS' | '6_MONTHS' | '1_YEAR';
+
+export const BOOK_SUBSCRIPTION_DURATIONS_LIST = [
+  { value: '1_MONTH', label: '1 Month' },
+  { value: '3_MONTHS', label: '3 Months' },
+  { value: '6_MONTHS', label: '6 Months' },
+  { value: '1_YEAR', label: '1 Year (12 Months)' },
+] as const;
+
+export function formatSubscriptionDuration(duration?: string | null) {
+  switch (duration) {
+    case '1_MONTH':
+      return '1 Month';
+    case '3_MONTHS':
+      return '3 Months';
+    case '6_MONTHS':
+      return '6 Months';
+    case '1_YEAR':
+      return '1 Year';
+    default:
+      return duration ? duration.replace(/_/g, ' ') : '';
+  }
+}
 
 export interface Book {
   id: string;
@@ -65,10 +90,14 @@ export interface Book {
   author: string;
   description: string;
   coverUrl: string;
+  heroCoverUrl?: string | null;
   pdfUrl?: string;
   previewPdfUrl?: string | null;
   previewPdfFileName?: string | null;
   previewPdfSizeBytes?: number | null;
+  previewAudioUrl?: string | null;
+  previewAudioFileName?: string | null;
+  previewAudioSizeBytes?: number | null;
   price: number;
   discountPercent: number;
   /** Effective charged price — always price minus discountPercent, computed server-side. */
@@ -79,6 +108,7 @@ export interface Book {
   appleId?: string | null;
   basePlanId?: string | null;
   subscriptionType: BookSubscriptionType;
+  subscriptionDuration?: BookSubscriptionDuration | string | null;
   isPremium: boolean;
   isPublished: boolean;
   visibleToGuests: boolean;
@@ -93,6 +123,12 @@ export interface Book {
     hasAccess: boolean;
     price: number;
     reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
+    subscription?: {
+      isSubscription: boolean;
+      validTill?: string | null;
+      isExpired: boolean;
+      expiresInDays?: number | null;
+    } | null;
   };
   createdAt: string;
   updatedAt: string;
@@ -116,6 +152,39 @@ export interface Chapter {
   updatedAt: string;
 }
 
+/**
+ * One subtitle-style segment of an audio track, mapped to the PDF page that
+ * should be on screen while it plays. Timestamps are integer **milliseconds**
+ * from the start of the audio — page turns in a lecture land between words, so
+ * whole seconds are too coarse to place them precisely.
+ *
+ * Cues are sparse by design: gaps between them hold the previous page rather
+ * than falling back to a duration-derived guess, which is what lets a page of
+ * dense diagrams stay put while the narrator talks over it.
+ */
+export interface PdfSyncCue {
+  /** Inclusive segment start, in ms from the beginning of the audio. */
+  startMs: number;
+  /** Exclusive segment end, in ms. Always greater than `startMs`. */
+  endMs: number;
+  /** 1-based PDF page to display for this segment. */
+  page: number;
+}
+
+/** The saved PDF↔audio mapping for one reading unit. */
+export interface PdfSyncMap {
+  /**
+   * Global correction applied to every cue, in ms. Positive values make pages
+   * turn later. Lets a reader fix a whole track that drifted uniformly without
+   * re-timing each cue.
+   */
+  offsetMs: number;
+  cues: PdfSyncCue[];
+  /** Bumped whenever cues are edited, so a stale cached copy can be detected. */
+  revision?: number;
+  updatedAt?: string;
+}
+
 export interface Topic {
   id: string;
   chapterId: string;
@@ -126,6 +195,8 @@ export interface Topic {
   youtubeUrl?: string | null;
   audioUrl?: string | null;
   pdfUrl?: string | null;
+  /** Authored PDF↔audio timing map. Null when this topic was never synced. */
+  syncCues?: PdfSyncMap | null;
   subtopicsCount?: number;
   subtopics?: Subtopic[];
   createdAt: string;
@@ -142,13 +213,30 @@ export interface Subtopic {
   youtubeUrl?: string | null;
   audioUrl?: string | null;
   pdfUrl?: string | null;
+  /** Authored PDF↔audio timing map. Null when this subtopic was never synced. */
+  syncCues?: PdfSyncMap | null;
   createdAt: string;
   updatedAt: string;
 }
 
-// --- YouTube video library (Exam → Chapter → Video) ---
+// --- YouTube video library (Folders & Multi-level Subfolders) ---
 
-/** Shared shape of the two library folder levels — exams and chapters differ only in what they contain. */
+export interface VideoFolder {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  description?: string | null;
+  orderIndex: number;
+  isActive: boolean;
+  subFolderCount?: number;
+  videoCount?: number;
+  children?: VideoFolder[];
+  parent?: VideoFolder | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Shared shape of the legacy library folder levels — maintained for backwards compatibility. */
 export interface LibraryFolder {
   id: string;
   title: string;
@@ -174,7 +262,9 @@ export interface VideoChapter extends LibraryFolder {
 
 export interface Video {
   id: string;
-  chapterId: string;
+  folderId?: string | null;
+  folderName?: string | null;
+  chapterId?: string | null;
   title: string;
   description?: string | null;
   youtubeUrl: string;
@@ -189,7 +279,22 @@ export interface Video {
   updatedAt: string;
 }
 
-// --- PDF library (Exam → Chapter → PDF) ---
+// --- PDF library (Folders & Multi-level Subfolders) ---
+
+export interface PdfFolder {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  description?: string | null;
+  orderIndex: number;
+  isActive: boolean;
+  subFolderCount?: number;
+  documentCount?: number;
+  children?: PdfFolder[];
+  parent?: PdfFolder | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface PdfExam extends LibraryFolder {
   documentCount?: number;
@@ -205,7 +310,9 @@ export interface PdfChapter extends LibraryFolder {
 
 export interface PdfDocument {
   id: string;
-  chapterId: string;
+  folderId?: string | null;
+  folderName?: string | null;
+  chapterId?: string | null;
   title: string;
   description?: string | null;
   fileUrl?: string | null;
@@ -292,6 +399,7 @@ export interface Quiz {
   durationMinutes: number;
   isLiveMock: boolean;
   isPremium: boolean;
+  imageUrl?: string | null;
   showCorrectAnswerAfterSelection?: boolean;
   price: number;
   /** "For every N wrong answers, deduct M marks" — disabled by default. */
@@ -471,6 +579,9 @@ export interface Order {
   amount: number;
   currency: string;
   status: OrderStatus;
+  accessType?: string | null;
+  validTill?: string | null;
+  paidAt?: string | null;
   razorpayOrderId?: string | null;
   razorpayPaymentId?: string | null;
   createdAt: string;
@@ -481,6 +592,28 @@ export interface Order {
 export interface OrderWithItems extends Order {
   book?: { id: string; title: string; coverUrl: string } | null;
   quiz?: { id: string; title: string; isLiveMock: boolean } | null;
+}
+
+export interface SocialLinks {
+  id: string;
+  telegramUrl: string | null;
+  instagramUrl: string | null;
+  youtubeUrl: string | null;
+  facebookUrl: string | null;
+  twitterUrl: string | null;
+  updatedAt: string | null;
+}
+
+export interface CustomerReview {
+  id: string;
+  customerName: string;
+  /** Whole stars, 1–5. */
+  rating: number;
+  comment: string;
+  isActive: boolean;
+  orderIndex: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Coupon {
@@ -570,7 +703,11 @@ export interface AnnouncementPopup {
   title: string;
   message: string;
   imageUrl?: string | null;
+  buttonText?: string | null;
+  redirectUrl?: string | null;
+  backgroundColor?: string | null;
   isActive: boolean;
+  orderIndex: number;
   startDate: string;
   endDate: string;
   createdAt: string;

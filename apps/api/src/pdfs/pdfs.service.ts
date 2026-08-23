@@ -6,19 +6,9 @@ import { AccessActor } from '../common/access/quiz-access.service';
 import { CreateLibraryFolderDto, ReorderDto, UpdateLibraryFolderDto } from '../common/dto/library-folder.dto';
 import { CreatePdfDocumentDto, UpdatePdfDocumentDto } from './dto/pdf-document.dto';
 
-/** Supabase Storage bucket holding every document in this library. */
 const PDF_BUCKET = 'library-pdfs';
-
-/** See the matching note in videos.service.ts — write paths must see hidden rows. */
 const CURATOR: AccessActor = { id: '', role: UserRole.ADMIN };
 
-/**
- * The PDF library: Exam → Chapter → PDF.
- *
- * Structurally a twin of the video library, and deliberately its own module —
- * the two have separate tables, permissions, and exam folders, so curating one
- * never disturbs the other.
- */
 @Injectable()
 export class PdfsService {
   constructor(
@@ -34,191 +24,353 @@ export class PdfsService {
     return PdfsService.isCurator(actor) ? {} : { isActive: true };
   }
 
-  // --- Exams ---
-
-  async listExams(actor?: AccessActor | null) {
-    const isCurator = PdfsService.isCurator(actor);
-    const exams = await this.prisma.pdfExam.findMany({
-      where: this.activeFilter(actor),
-      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-      include: {
-        chapters: {
-          where: this.activeFilter(actor),
-          orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            orderIndex: true,
-            isActive: true,
-            examId: true,
-            _count: { select: { documents: isCurator ? true : { where: { isActive: true } } } },
-          },
-        },
-      },
-    });
-
-    const mapped = exams.map(({ chapters, ...exam }) => {
-      const activeChapters = isCurator ? chapters : chapters.filter((c) => c._count.documents > 0);
-      const documentCount = activeChapters.reduce((total, chapter) => total + chapter._count.documents, 0);
-
-      return {
-        ...exam,
-        chapterCount: activeChapters.length,
-        documentCount,
-        chapters: activeChapters.map((c) => ({
-          id: c.id,
-          examId: c.examId,
-          title: c.title,
-          description: c.description,
-          orderIndex: c.orderIndex,
-          isActive: c.isActive,
-          documentCount: c._count.documents,
-        })),
-      };
-    });
-
-    return isCurator ? mapped : mapped.filter((exam) => exam.documentCount > 0);
-  }
-
-  async findExam(examId: string, actor?: AccessActor | null) {
-    const exam = await this.prisma.pdfExam.findUnique({ where: { id: examId } });
-    if (!exam || (!exam.isActive && !PdfsService.isCurator(actor))) {
-      throw new NotFoundException('Exam folder not found');
+  // --- Ensure Migration from Legacy PdfExam / PdfChapter ---
+  private async ensureMigration() {
+    try {
+      const exams = await this.prisma.pdfExam.findMany({
+        include: { chapters: { include: { documents: true } } },
+      });
+      for (const exam of exams) {
+        let topFolder = await this.prisma.pdfFolder.findFirst({
+          where: { name: exam.title, parentId: null },
+        });
+        if (!topFolder) {
+          topFolder = await this.prisma.pdfFolder.create({
+            data: {
+              name: exam.title,
+              description: exam.description,
+              orderIndex: exam.orderIndex,
+              isActive: exam.isActive,
+            },
+          });
+        }
+        for (const ch of exam.chapters) {
+          let sub = await this.prisma.pdfFolder.findFirst({
+            where: { name: ch.title, parentId: topFolder.id },
+          });
+          if (!sub) {
+            sub = await this.prisma.pdfFolder.create({
+              data: {
+                name: ch.title,
+                description: ch.description,
+                parentId: topFolder.id,
+                orderIndex: ch.orderIndex,
+                isActive: ch.isActive,
+              },
+            });
+          }
+          for (const doc of ch.documents) {
+            if (!doc.folderId) {
+              await this.prisma.pdfDocument.update({
+                where: { id: doc.id },
+                data: { folderId: sub.id },
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore migration errors
     }
-    return exam;
   }
 
-  async createExam(dto: CreateLibraryFolderDto) {
-    return this.prisma.pdfExam.create({ data: dto });
+  private computeRecursiveCounts(allFolders: { id: string; parentId: string | null }[], directCountMap: Record<string, number>): Record<string, number> {
+    const childrenMap = new Map<string, string[]>();
+    for (const f of allFolders) {
+      if (f.parentId) {
+        const existing = childrenMap.get(f.parentId) || [];
+        existing.push(f.id);
+        childrenMap.set(f.parentId, existing);
+      }
+    }
+
+    const memo = new Map<string, number>();
+
+    const getCount = (folderId: string): number => {
+      if (memo.has(folderId)) return memo.get(folderId)!;
+      let total = directCountMap[folderId] || 0;
+      const childIds = childrenMap.get(folderId) || [];
+      for (const cId of childIds) {
+        total += getCount(cId);
+      }
+      memo.set(folderId, total);
+      return total;
+    };
+
+    const result: Record<string, number> = {};
+    for (const f of allFolders) {
+      result[f.id] = getCount(f.id);
+    }
+    return result;
   }
 
-  async updateExam(examId: string, dto: UpdateLibraryFolderDto) {
-    await this.findExam(examId, CURATOR);
-    return this.prisma.pdfExam.update({ where: { id: examId }, data: dto });
-  }
+  // --- PDF Folders (Recursive Tree) ---
 
-  async removeExam(examId: string) {
-    await this.findExam(examId, CURATOR);
-    return this.prisma.pdfExam.delete({ where: { id: examId } });
-  }
-
-  async reorderExams(dto: ReorderDto) {
-    await this.prisma.$transaction(
-      dto.items.map((item) =>
-        this.prisma.pdfExam.update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } }),
-      ),
-    );
-    return this.listExams(CURATOR);
-  }
-
-  // --- Chapters ---
-
-  async listChapters(examId: string, actor?: AccessActor | null) {
+  async listFolders(actor?: AccessActor | null, parentId?: string | null) {
+    await this.ensureMigration();
     const isCurator = PdfsService.isCurator(actor);
-    await this.findExam(examId, actor);
-    const chapters = await this.prisma.pdfChapter.findMany({
-      where: { examId, ...this.activeFilter(actor) },
-      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-      include: {
-        _count: { select: { documents: isCurator ? true : { where: { isActive: true } } } },
-        documents: {
-          where: this.activeFilter(actor),
-          orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-          select: {
-            id: true,
-            title: true,
-            fileUrl: true,
-            fileName: true,
-            fileSizeBytes: true,
-            orderIndex: true,
-            isActive: true,
+    const where: any = this.activeFilter(actor);
+
+    if (parentId !== undefined && parentId !== null) {
+      if (parentId === 'root' || parentId === 'null' || parentId === '') {
+        where.parentId = null;
+      } else {
+        where.parentId = parentId;
+      }
+    }
+
+    const [folders, allFolders, docGroupCounts] = await Promise.all([
+      this.prisma.pdfFolder.findMany({
+        where,
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          parent: true,
+          _count: {
+            select: {
+              children: isCurator ? true : { where: { isActive: true } },
+              documents: isCurator ? true : { where: { isActive: true } },
+            },
           },
         },
-      },
-    });
-    const mapped = chapters.map(({ _count, documents, ...chapter }) => ({
-      ...chapter,
-      documentCount: _count.documents,
-      documents,
+      }),
+      this.prisma.pdfFolder.findMany({
+        where: isCurator ? {} : { isActive: true },
+        select: { id: true, parentId: true },
+      }),
+      this.prisma.pdfDocument.groupBy({
+        by: ['folderId'],
+        where: isCurator ? { folderId: { not: null } } : { folderId: { not: null }, isActive: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    const directCountMap: Record<string, number> = {};
+    for (const g of docGroupCounts) {
+      if (g.folderId) {
+        directCountMap[g.folderId] = g._count.id;
+      }
+    }
+    const recursiveCounts = this.computeRecursiveCounts(allFolders, directCountMap);
+
+    const mapped = folders.map((f) => ({
+      id: f.id,
+      name: f.name,
+      title: f.name,
+      parentId: f.parentId,
+      parentName: f.parent?.name || null,
+      description: f.description,
+      orderIndex: f.orderIndex,
+      isActive: f.isActive,
+      subFolderCount: f._count.children,
+      documentCount: recursiveCounts[f.id] !== undefined ? recursiveCounts[f.id] : f._count.documents,
+      directDocumentCount: f._count.documents,
+      createdAt: f.createdAt.toISOString(),
+      updatedAt: f.updatedAt.toISOString(),
     }));
 
-    return isCurator ? mapped : mapped.filter((chapter) => chapter.documentCount > 0);
+    return isCurator ? mapped : mapped.filter((f) => (f.documentCount || 0) > 0);
   }
 
-  async findChapter(chapterId: string, actor?: AccessActor | null) {
-    const chapter = await this.prisma.pdfChapter.findUnique({
-      where: { id: chapterId },
-      include: { exam: true },
-    });
-    if (!chapter) throw new NotFoundException('Chapter folder not found');
-    if (!PdfsService.isCurator(actor) && (!chapter.isActive || !chapter.exam.isActive)) {
-      throw new NotFoundException('Chapter folder not found');
+  async findFolder(folderId: string, actor?: AccessActor | null) {
+    const isCurator = PdfsService.isCurator(actor);
+    const [folder, allFolders, docGroupCounts] = await Promise.all([
+      this.prisma.pdfFolder.findUnique({
+        where: { id: folderId },
+        include: {
+          parent: {
+            include: {
+              parent: true,
+            },
+          },
+          children: {
+            where: this.activeFilter(actor),
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+            include: {
+              _count: {
+                select: {
+                  children: true,
+                  documents: true,
+                },
+              },
+            },
+          },
+          documents: {
+            where: this.activeFilter(actor),
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+      }),
+      this.prisma.pdfFolder.findMany({
+        where: isCurator ? {} : { isActive: true },
+        select: { id: true, parentId: true },
+      }),
+      this.prisma.pdfDocument.groupBy({
+        by: ['folderId'],
+        where: isCurator ? { folderId: { not: null } } : { folderId: { not: null }, isActive: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    if (!folder) throw new NotFoundException('PDF folder not found');
+
+    const directCountMap: Record<string, number> = {};
+    for (const g of docGroupCounts) {
+      if (g.folderId) {
+        directCountMap[g.folderId] = g._count.id;
+      }
     }
-    return chapter;
+    const recursiveCounts = this.computeRecursiveCounts(allFolders, directCountMap);
+
+    if (!folder || (!folder.isActive && !PdfsService.isCurator(actor))) {
+      throw new NotFoundException('PDF folder not found');
+    }
+
+    // Build breadcrumbs array
+    const breadcrumbs: { id: string; name: string }[] = [];
+    let curr: any = folder;
+    while (curr) {
+      breadcrumbs.unshift({ id: curr.id, name: curr.name });
+      curr = curr.parent;
+    }
+
+    const mappedChildren = folder.children
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        title: c.name,
+        parentId: c.parentId,
+        description: c.description,
+        orderIndex: c.orderIndex,
+        isActive: c.isActive,
+        subFolderCount: c._count.children,
+        documentCount: recursiveCounts[c.id] !== undefined ? recursiveCounts[c.id] : c._count.documents,
+        directDocumentCount: c._count.documents,
+        createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt.toISOString(),
+      }))
+      .filter((c) => (isCurator ? true : (c.documentCount || 0) > 0));
+
+    return {
+      ...folder,
+      breadcrumbs,
+      subFolderCount: mappedChildren.length,
+      documentCount: recursiveCounts[folder.id] !== undefined ? recursiveCounts[folder.id] : folder.documents.length,
+      directDocumentCount: folder.documents.length,
+      children: mappedChildren,
+    };
   }
 
-  async createChapter(examId: string, dto: CreateLibraryFolderDto) {
-    await this.findExam(examId, CURATOR);
-    return this.prisma.pdfChapter.create({ data: { ...dto, examId } });
+  async createFolder(dto: { name: string; parentId?: string | null; description?: string; isActive?: boolean }) {
+    if (dto.parentId) {
+      const parent = await this.prisma.pdfFolder.findUnique({ where: { id: dto.parentId } });
+      if (!parent) throw new NotFoundException('Parent folder not found');
+    }
+
+    return this.prisma.pdfFolder.create({
+      data: {
+        name: dto.name,
+        parentId: dto.parentId || null,
+        description: dto.description || null,
+        isActive: dto.isActive !== undefined ? dto.isActive : true,
+      },
+    });
   }
 
-  async updateChapter(chapterId: string, dto: UpdateLibraryFolderDto) {
-    await this.findChapter(chapterId, CURATOR);
-    return this.prisma.pdfChapter.update({ where: { id: chapterId }, data: dto });
+  async updateFolder(folderId: string, dto: { name?: string; parentId?: string | null; description?: string; isActive?: boolean; orderIndex?: number }) {
+    await this.findFolder(folderId, CURATOR);
+    return this.prisma.pdfFolder.update({
+      where: { id: folderId },
+      data: dto,
+    });
   }
 
-  async removeChapter(chapterId: string) {
-    await this.findChapter(chapterId, CURATOR);
-    return this.prisma.pdfChapter.delete({ where: { id: chapterId } });
+  async removeFolder(folderId: string) {
+    await this.findFolder(folderId, CURATOR);
+    return this.prisma.pdfFolder.delete({
+      where: { id: folderId },
+    });
   }
 
-  async reorderChapters(examId: string, dto: ReorderDto) {
-    await this.findExam(examId, CURATOR);
+  async reorderFolders(dto: ReorderDto) {
     await this.prisma.$transaction(
       dto.items.map((item) =>
-        this.prisma.pdfChapter.update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } }),
+        this.prisma.pdfFolder.update({
+          where: { id: item.id },
+          data: { orderIndex: item.orderIndex },
+        }),
       ),
     );
-    return this.listChapters(examId, CURATOR);
+    return this.listFolders(CURATOR);
   }
 
-  // --- Documents ---
+  // --- PDF Documents ---
 
-  async listDocuments(chapterId: string, actor?: AccessActor | null) {
-    await this.findChapter(chapterId, actor);
-    const documents = await this.prisma.pdfDocument.findMany({
-      where: { chapterId, ...this.activeFilter(actor) },
+  async listDocuments(params: { folderId?: string; chapterId?: string; search?: string }, actor?: AccessActor | null) {
+    const where: any = { ...this.activeFilter(actor) };
+
+    if (params.folderId) {
+      where.folderId = params.folderId;
+    } else if (params.chapterId) {
+      where.chapterId = params.chapterId;
+    }
+
+    if (params.search) {
+      where.OR = [
+        { title: { contains: params.search, mode: 'insensitive' } },
+        { description: { contains: params.search, mode: 'insensitive' } },
+      ];
+    }
+
+    return this.prisma.pdfDocument.findMany({
+      where,
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        folder: {
+          select: { id: true, name: true },
+        },
+      },
     });
-    // A row whose upload never completed has nothing for a student to open, so
-    // it stays in the admin's list (to finish or delete) but not in theirs.
-    return PdfsService.isCurator(actor) ? documents : documents.filter((doc) => doc.fileUrl);
   }
 
   async findDocument(documentId: string, actor?: AccessActor | null) {
-    const document = await this.prisma.pdfDocument.findUnique({
+    const doc = await this.prisma.pdfDocument.findUnique({
       where: { id: documentId },
-      include: { chapter: { include: { exam: true } } },
+      include: { folder: true, chapter: { include: { exam: true } } },
     });
-    if (!document) throw new NotFoundException('PDF not found');
-    if (
-      !PdfsService.isCurator(actor) &&
-      (!document.isActive || !document.chapter.isActive || !document.chapter.exam.isActive)
-    ) {
-      throw new NotFoundException('PDF not found');
+    if (!doc) throw new NotFoundException('PDF document not found');
+    if (!PdfsService.isCurator(actor) && !doc.isActive) {
+      throw new NotFoundException('PDF document not found');
     }
-    return document;
+    return doc;
   }
 
-  async createDocument(chapterId: string, dto: CreatePdfDocumentDto) {
-    await this.findChapter(chapterId, CURATOR);
-    return this.prisma.pdfDocument.create({ data: { ...dto, chapterId } });
+  async createDocument(dto: CreatePdfDocumentDto) {
+    const { folderId, chapterId, ...rest } = dto;
+    if (!folderId && !chapterId) {
+      throw new BadRequestException('Either folderId or chapterId is required');
+    }
+
+    if (folderId) {
+      await this.findFolder(folderId, CURATOR);
+    } else if (chapterId) {
+      await this.findChapter(chapterId, CURATOR);
+    }
+
+    return this.prisma.pdfDocument.create({
+      data: {
+        ...rest,
+        folderId: folderId || null,
+        chapterId: chapterId || null,
+      },
+    });
   }
 
   async updateDocument(documentId: string, dto: UpdatePdfDocumentDto) {
     await this.findDocument(documentId, CURATOR);
-    return this.prisma.pdfDocument.update({ where: { id: documentId }, data: dto });
+    return this.prisma.pdfDocument.update({
+      where: { id: documentId },
+      data: dto,
+    });
   }
 
   async removeDocument(documentId: string) {
@@ -226,36 +378,98 @@ export class PdfsService {
     return this.prisma.pdfDocument.delete({ where: { id: documentId } });
   }
 
-  async reorderDocuments(chapterId: string, dto: ReorderDto) {
-    await this.findChapter(chapterId, CURATOR);
+  async reorderDocuments(dto: ReorderDto) {
     await this.prisma.$transaction(
       dto.items.map((item) =>
         this.prisma.pdfDocument.update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } }),
       ),
     );
-    return this.listDocuments(chapterId, CURATOR);
+    return { success: true };
   }
 
-  async uploadDocumentFile(documentId: string, file: Express.Multer.File) {
-    const document = await this.findDocument(documentId, CURATOR);
+  async uploadPdfFile(documentId: string, file: Express.Multer.File) {
+    const doc = await this.findDocument(documentId, CURATOR);
     if (!file) throw new BadRequestException('No file was uploaded');
-    // Multer hands over whatever the browser claimed. Anything that is not a
-    // PDF would end up served from a public bucket under a .pdf-shaped link,
-    // so it is refused here rather than stored and discovered later.
     if (file.mimetype !== 'application/pdf') {
-      throw new BadRequestException('Only PDF files can be uploaded to the PDF library');
+      throw new BadRequestException('Only PDF files can be uploaded');
     }
 
     const url = await this.storageService.upload(
       PDF_BUCKET,
-      `${document.chapterId}/${documentId}/${Date.now()}-${file.originalname}`,
+      `documents/${doc.folderId || doc.chapterId || 'general'}/${documentId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
 
     return this.prisma.pdfDocument.update({
       where: { id: documentId },
-      data: { fileUrl: url, fileName: file.originalname, fileSizeBytes: file.size },
+      data: {
+        fileUrl: url,
+        fileName: file.originalname,
+        fileSizeBytes: file.size,
+      },
     });
+  }
+
+  async removePdfFile(documentId: string) {
+    await this.findDocument(documentId, CURATOR);
+    return this.prisma.pdfDocument.update({
+      where: { id: documentId },
+      data: {
+        fileUrl: null,
+        fileName: null,
+        fileSizeBytes: null,
+      },
+    });
+  }
+
+  // --- Legacy Backwards Compatibility (Exams & Chapters) ---
+
+  async listExams(actor?: AccessActor | null) {
+    return this.listFolders(actor, 'root');
+  }
+
+  async findExam(examId: string, actor?: AccessActor | null) {
+    return this.findFolder(examId, actor);
+  }
+
+  async createExam(dto: CreateLibraryFolderDto) {
+    return this.createFolder({ name: dto.title, description: dto.description, isActive: dto.isActive });
+  }
+
+  async updateExam(examId: string, dto: UpdateLibraryFolderDto) {
+    return this.updateFolder(examId, { name: dto.title, description: dto.description, isActive: dto.isActive, orderIndex: dto.orderIndex });
+  }
+
+  async removeExam(examId: string) {
+    return this.removeFolder(examId);
+  }
+
+  async reorderExams(dto: ReorderDto) {
+    return this.reorderFolders(dto);
+  }
+
+  async listChapters(examId: string, actor?: AccessActor | null) {
+    return this.listFolders(actor, examId);
+  }
+
+  async findChapter(chapterId: string, actor?: AccessActor | null) {
+    return this.findFolder(chapterId, actor);
+  }
+
+  async createChapter(examId: string, dto: CreateLibraryFolderDto) {
+    return this.createFolder({ name: dto.title, parentId: examId, description: dto.description, isActive: dto.isActive });
+  }
+
+  async updateChapter(chapterId: string, dto: UpdateLibraryFolderDto) {
+    return this.updateFolder(chapterId, { name: dto.title, description: dto.description, isActive: dto.isActive, orderIndex: dto.orderIndex });
+  }
+
+  async removeChapter(chapterId: string) {
+    return this.removeFolder(chapterId);
+  }
+
+  async reorderChapters(examId: string, dto: ReorderDto) {
+    return this.reorderFolders(dto);
   }
 }

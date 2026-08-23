@@ -11,6 +11,13 @@ export interface PaywallableBook {
   price?: number | null;
 }
 
+export interface BookSubscriptionAccessInfo {
+  isSubscription: boolean;
+  validTill?: string | null;
+  isExpired: boolean;
+  expiresInDays?: number | null;
+}
+
 /** What the caller is allowed to do with a book, and why. */
 export interface BookAccessState {
   /** The book is sold rather than free. */
@@ -19,14 +26,12 @@ export interface BookAccessState {
   hasAccess: boolean;
   price: number;
   reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
+  subscription?: BookSubscriptionAccessInfo | null;
 }
 
 /**
- * Decides who may download a paid e-book. Mirrors QuizAccessService exactly:
- * entitlement comes from a SUCCESS order for that specific book, never from
- * the account-wide `user.isPremium` flag — that flag is set by any
- * successful purchase, so trusting it would unlock every paid book after a
- * single unrelated payment.
+ * Decides who may download/read a paid e-book. Entitlement comes from an active,
+ * non-expired SUCCESS order for that specific book.
  */
 @Injectable()
 export class BookAccessService {
@@ -41,20 +46,32 @@ export class BookAccessService {
     return actor?.role === UserRole.ADMIN || actor?.role === UserRole.STAFF;
   }
 
-  /** True when the user holds a settled payment for this book. */
+  /** True when the user holds an active, non-expired settled payment for this book. */
   async hasPurchased(userId: string, bookId: string): Promise<boolean> {
+    const now = new Date();
     const paidOrder = await this.prisma.order.findFirst({
-      where: { userId, bookId, status: 'SUCCESS' },
+      where: {
+        userId,
+        bookId,
+        status: 'SUCCESS',
+        OR: [{ validTill: null }, { validTill: { gt: now } }],
+      },
       select: { id: true },
     });
     return !!paidOrder;
   }
 
-  /** Every book this user has settled payment for — one query for list routes. */
+  /** Every book this user currently has active, valid access for — one query for list routes. */
   async getPurchasedBookIds(userId?: string | null): Promise<Set<string>> {
     if (!userId) return new Set();
+    const now = new Date();
     const orders = await this.prisma.order.findMany({
-      where: { userId, status: 'SUCCESS', bookId: { not: null } },
+      where: {
+        userId,
+        status: 'SUCCESS',
+        bookId: { not: null },
+        OR: [{ validTill: null }, { validTill: { gt: now } }],
+      },
       select: { bookId: true },
     });
     return new Set(orders.map((o) => o.bookId as string));
@@ -67,21 +84,57 @@ export class BookAccessService {
     const price = book?.finalPrice ?? book?.price ?? 0;
 
     if (!this.isPaidBook(book)) {
-      return { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
-    }
-    if (this.isStaff(actor)) {
-      return { isPaid: true, hasAccess: true, price, reason: 'STAFF' };
+      return { isPaid: false, hasAccess: true, price: 0, reason: 'FREE', subscription: null };
     }
     if (!actor?.id) {
-      return { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
+      return { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED', subscription: null };
     }
 
-    const purchased = await this.hasPurchased(actor.id, book!.id);
+    const now = new Date();
+    // Find latest successful order for this book
+    const order = await this.prisma.order.findFirst({
+      where: { userId: actor.id, bookId: book!.id, status: 'SUCCESS' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, validTill: true, accessType: true },
+    });
+
+    if (!order) {
+      return {
+        isPaid: true,
+        hasAccess: false,
+        price,
+        reason: 'PAYMENT_REQUIRED',
+        subscription: null,
+      };
+    }
+
+    if (order.validTill) {
+      const validTillDate = new Date(order.validTill);
+      const isExpired = validTillDate.getTime() <= now.getTime();
+      const diffMs = validTillDate.getTime() - now.getTime();
+      const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+      return {
+        isPaid: true,
+        hasAccess: !isExpired,
+        price,
+        reason: !isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+        subscription: {
+          isSubscription: true,
+          validTill: validTillDate.toISOString(),
+          isExpired,
+          expiresInDays,
+        },
+      };
+    }
+
+    // Full time access / Lifetime purchase
     return {
       isPaid: true,
-      hasAccess: purchased,
+      hasAccess: true,
       price,
-      reason: purchased ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+      reason: 'PURCHASED',
+      subscription: null,
     };
   }
 
@@ -90,22 +143,60 @@ export class BookAccessService {
     actor: AccessActor | null | undefined,
     books: T[],
   ): Promise<(T & { access: BookAccessState })[]> {
-    const staff = this.isStaff(actor);
-    const purchased = staff ? new Set<string>() : await this.getPurchasedBookIds(actor?.id);
+    const now = new Date();
+
+    // Fetch user's latest orders for these books if logged in
+    const userOrdersMap = new Map<string, { validTill: Date | null; accessType: string | null }>();
+    if (actor?.id) {
+      const bookIds = books.map((b) => b.id);
+      const orders = await this.prisma.order.findMany({
+        where: {
+          userId: actor.id,
+          bookId: { in: bookIds },
+          status: 'SUCCESS',
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { bookId: true, validTill: true, accessType: true },
+      });
+      for (const ord of orders) {
+        if (ord.bookId && !userOrdersMap.has(ord.bookId)) {
+          userOrdersMap.set(ord.bookId, { validTill: ord.validTill, accessType: ord.accessType });
+        }
+      }
+    }
 
     return books.map((book) => {
       const price = book.finalPrice ?? book.price ?? 0;
       let access: BookAccessState;
 
       if (!this.isPaidBook(book)) {
-        access = { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
-      } else if (staff) {
-        access = { isPaid: true, hasAccess: true, price, reason: 'STAFF' };
+        access = { isPaid: false, hasAccess: true, price: 0, reason: 'FREE', subscription: null };
       } else if (!actor?.id) {
-        access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
+        access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED', subscription: null };
       } else {
-        const bought = purchased.has(book.id);
-        access = { isPaid: true, hasAccess: bought, price, reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED' };
+        const order = userOrdersMap.get(book.id);
+        if (!order) {
+          access = { isPaid: true, hasAccess: false, price, reason: 'PAYMENT_REQUIRED', subscription: null };
+        } else if (order.validTill) {
+          const validTillDate = new Date(order.validTill);
+          const isExpired = validTillDate.getTime() <= now.getTime();
+          const diffMs = validTillDate.getTime() - now.getTime();
+          const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+          access = {
+            isPaid: true,
+            hasAccess: !isExpired,
+            price,
+            reason: !isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+            subscription: {
+              isSubscription: true,
+              validTill: validTillDate.toISOString(),
+              isExpired,
+              expiresInDays,
+            },
+          };
+        } else {
+          access = { isPaid: true, hasAccess: true, price, reason: 'PURCHASED', subscription: null };
+        }
       }
 
       return { ...this.stripPdfIfLocked(book, access), access };
@@ -119,6 +210,11 @@ export class BookAccessService {
   ): Promise<BookAccessState> {
     const state = await this.getAccessState(actor, book);
     if (!state.hasAccess) {
+      if (state.subscription?.isExpired) {
+        throw new ForbiddenException(
+          'Your subscription for this book has expired. Please renew to continue reading and downloading.',
+        );
+      }
       throw new ForbiddenException(
         state.reason === 'LOGIN_REQUIRED'
           ? 'Log in to download this premium book.'
@@ -134,3 +230,4 @@ export class BookAccessService {
     return { ...(book as object), pdfUrl: null } as T;
   }
 }
+

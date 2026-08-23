@@ -1,27 +1,34 @@
 import React from 'react';
 import Link from 'next/link';
 import { Button, Card, Badge } from '@psc/ui';
-import {
-  Sparkles,
-  BookOpen,
-  ArrowRight,
-  CheckCircle2,
-  Music,
-  FileText,
-  MessageCircle,
-  FileQuestion,
-  HelpCircle,
-} from 'lucide-react';
+import { MessageCircle, HelpCircle, ArrowRight } from 'lucide-react';
+import { ApiClient } from '@/lib/api-client';
+import { Book } from '@psc/shared-types';
 import { HomeBooksShowcase } from './home-books-showcase';
+import { HomeBookCarousel } from './home-book-carousel';
+import { HomeQuizCarousel } from './home-quiz-carousel';
+import { HomeReviewsCarousel } from './home-reviews-carousel';
+import { HomeSocialLinks } from './home-social-links';
+import { Reveal } from './reveal';
 
 const CONTACT_PHONE_DISPLAY = '+91 88919 30605';
 const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
+
+async function getInitialBooks(): Promise<Book[]> {
+  try {
+    const res = await ApiClient.getBooks();
+    const list: Book[] = Array.isArray(res) ? res : (res as any)?.data || [];
+    return list.filter((b: Book) => b.isPublished);
+  } catch {
+    return [];
+  }
+}
 
 const FAQS = [
   {
     question: 'How do PSC Tips And Tricks E-Books work?',
     answer:
-      'Our E-Books are interactive multimedia study modules. Instead of boring static PDFs, each book is broken into structured chapters with audio narrations, SCERT notes, and video classes you can study anywhere.',
+      'Our E-Books are interactive multimedia study modules. Instead of boring static PDFs, each book is broken into structured chapters with audio narrations, detailed notes, and video classes you can study anywhere.',
   },
   {
     question: 'Can I listen to audio explanations while reading?',
@@ -29,24 +36,14 @@ const FAQS = [
       'Yes! Every topic includes a teacher audio lesson you can play alongside your notes, right in the reader.',
   },
   {
-    question: 'Are SCERT textbooks from Class 5 to 10 covered?',
+    question: 'Can I prepare for Kerala PSC exams on mobile?',
     answer:
-      'Yes. We provide complete SCERT Basic Science and Social Science subdivisions mapped line-by-line to the Kerala PSC 10th Level, Plus Two, and Degree Level syllabi.',
+      'Yes. Our mobile app and responsive web reader offer offline-ready reading, dark mode, high-yield summaries, and audio lectures.',
   },
   {
-    question: 'Can I read the books on mobile phones and tablets?',
+    question: 'How do I take chapter-wise mock tests and quizzes?',
     answer:
-      'Yes. Our reader is fully responsive and optimized for mobile screens with dark mode, single-unit fast loading, and touch-friendly controls.',
-  },
-  {
-    question: 'Are there also practice quizzes available?',
-    answer:
-      'Yes. After studying each E-book chapter, you can test your retention with our minimal daily quizzes and previous-year mock tests.',
-  },
-  {
-    question: 'How do I get help if I have payment or access questions?',
-    answer:
-      'You can reach our student support team directly via WhatsApp or phone at +91 88919 30605 for instant assistance.',
+      'Each subject module includes timed quizzes, rank calculations, and instant answer explanations to assess your retention.',
   },
 ] as const;
 
@@ -54,180 +51,109 @@ function SectionHeading({
   eyebrow,
   title,
   description,
+  action,
 }: {
   eyebrow: string;
   title: React.ReactNode;
   description?: string;
+  action?: React.ReactNode;
 }) {
   return (
-    <div className="max-w-2xl mx-auto text-center space-y-3 mb-10 sm:mb-12">
-      <Badge variant="gold" className="text-[11px] uppercase tracking-widest px-3 py-1">
-        {eyebrow}
-      </Badge>
-      <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
-        {title}
-      </h2>
-      {description && (
-        <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base leading-relaxed">{description}</p>
+    <div className="relative mb-10 sm:mb-12">
+      <div className="max-w-2xl mx-auto text-center space-y-3">
+        <Badge variant="gold" className="text-[11px] uppercase tracking-widest px-3 py-1">
+          {eyebrow}
+        </Badge>
+        <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
+          {title}
+        </h2>
+        {description && (
+          <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base leading-relaxed">{description}</p>
+        )}
+      </div>
+      {action && (
+        <div className="mt-4 sm:mt-0 flex justify-center sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2">
+          {action}
+        </div>
       )}
     </div>
   );
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  const initialBooks = await getInitialBooks();
+
   return (
     <div className="space-y-20 sm:space-y-28 py-4">
-      {/* ── 1. Hero Section (E-Book Centric) ─────────────────────────── */}
-      <section className="relative overflow-hidden rounded-3xl glass-panel p-6 sm:p-14 flex flex-col lg:flex-row items-center justify-between gap-10 shadow-2xl">
-        <div className="absolute top-0 right-0 w-96 h-96 ambient-glow-amber rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 ambient-glow-cyan rounded-full blur-3xl pointer-events-none" />
-
-        <div className="space-y-6 max-w-2xl relative z-10 text-center lg:text-left reveal-fade-up">
-          <div className="flex items-center gap-2 justify-center lg:justify-start text-sm font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
-            <BookOpen className="w-4 h-4 text-amber-500" />
-            <span>PSC Multimedia E-Books</span>
-          </div>
-
-          <Badge variant="gold" className="text-xs uppercase tracking-widest px-3.5 py-1 inline-flex items-center space-x-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>Kerala PSC 2026 Study Material</span>
-          </Badge>
-
-          <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-tight text-slate-900 dark:text-white">
-            Master Kerala PSC with{' '}
-            <span className="bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-500 bg-clip-text text-transparent">
-              Smart Multimedia E-Books
-            </span>
-          </h1>
-
-          <p className="text-slate-600 dark:text-slate-300 text-lg leading-relaxed font-medium">
-            Study SCERT Class 5–10 textbook notes with audio teacher explanations, video lessons,
-            and memory shortcuts designed specifically for Kerala PSC top-rank preparation.
-          </p>
-
-          <div className="flex flex-wrap gap-3 pt-2 justify-center lg:justify-start">
-            <Link href="/books">
-              <Button size="lg" variant="gold" className="font-extrabold shadow-lg shadow-amber-500/20 px-6">
-                <BookOpen className="w-4 h-4 mr-2" />
-                Browse PSC E-Books
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </Link>
-            <Link href="/books">
-              <Button size="lg" variant="primary" className="font-bold">
-                <Music className="w-4 h-4 mr-2" />
-                Try Audio Reader
-              </Button>
-            </Link>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2 justify-center lg:justify-start text-xs font-semibold text-slate-500 dark:text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Teacher Audio Lessons
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> SCERT Class 5–10 Mapped
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Mobile & Tablet Ready
-            </span>
-          </div>
-        </div>
-
-        {/* E-Book 3D Preview Highlight Card */}
-        <div className="w-full max-w-sm glass-card p-6 border-slate-200/80 dark:border-slate-800/80 relative z-10 shadow-xl reveal-fade-up" style={{ animationDelay: '150ms' }}>
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-bold text-amber-500 uppercase tracking-wider flex items-center space-x-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Featured E-Book</span>
-            </span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              AUDIO ENABLED
-            </span>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex gap-3 items-center">
-              <div className="w-16 h-20 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 p-0.5 shadow-md shrink-0 flex items-center justify-center text-white">
-                <BookOpen className="w-8 h-8" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400">SCERT Series</p>
-                <h4 className="text-sm font-black text-slate-900 dark:text-white truncate leading-snug">
-                  NEW SCERT Basic Science & Social Science (STD 5–10)
-                </h4>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Chapters 1–10 with Audio Notes</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5 p-3 rounded-2xl bg-slate-100/70 dark:bg-[#070e22]/70 text-xs">
-              <div className="flex items-center gap-2">
-                <Music className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Audio Lessons</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">PDF Notes</span>
-              </div>
-            </div>
-
-            <Link href="/books" className="block">
-              <Button className="w-full font-bold shadow-md shadow-amber-500/20" variant="gold">
-                <span>Start Reading Now</span>
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
+      {/* ── 1. Book Cover Carousel (Live Book Showcase) ──────────────── */}
+      <HomeBookCarousel initialBooks={initialBooks} />
 
       {/* ── 2. Featured E-Books Showcase Catalog ───────────────────── */}
-      <section id="books-catalog">
+      <Reveal as="section" id="books-catalog">
         <SectionHeading
           eyebrow="PSC E-Book Catalog"
           title="Curated Study Materials & Standard E-Books"
           description="Explore our complete library of PSC exam preparation books with audio narrations, diagrams, and topic notes."
-        />
-        <HomeBooksShowcase />
-      </section>
-
-      {/* ── 3. Secondary & Minimal Quiz Section (Secondary Accent) ──── */}
-      <section className="rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-gradient-to-r from-slate-50 via-white to-slate-50 dark:from-[#0c152e] dark:via-[#091124] dark:to-[#0c152e] p-6 sm:p-8 shadow-md">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 text-center md:text-left max-w-xl">
-            <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
-              <FileQuestion className="w-3.5 h-3.5" />
-              <span>Quick Revision & Quizzes</span>
-            </div>
-            <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-              Test your knowledge after reading
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Reinforce what you studied in the E-Books with 10,000+ topic-wise practice questions and live mock tests.
-            </p>
-            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs font-semibold text-slate-500 dark:text-slate-400 justify-center md:justify-start">
-              <span className="inline-flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Free Daily Quizzes
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Live Rank Lists
-              </span>
-            </div>
-          </div>
-
-          <div className="shrink-0">
-            <Link href="/quizzes">
-              <Button size="lg" variant="outline" className="font-bold border-cyan-500/40 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10">
-                <span>Browse Quizzes & Mocks</span>
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+          action={
+            <Link
+              href="/books"
+              className="group inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-slate-100 dark:bg-slate-800/80 hover:bg-cyan-500/10 dark:hover:bg-cyan-500/20 text-slate-700 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 border border-slate-200/80 dark:border-slate-700/80 hover:border-cyan-500/40 transition-all shadow-sm cursor-pointer"
+            >
+              <span>All Books</span>
+              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 text-cyan-500" />
             </Link>
-          </div>
-        </div>
-      </section>
+          }
+        />
+        <HomeBooksShowcase initialBooks={initialBooks} />
+      </Reveal>
 
-      {/* ── 4. Frequently Asked Questions ─────────────────────────── */}
-      <section>
+      {/* ── 3. Latest Quizzes Rail (Secondary Accent) ──────────────── */}
+      <Reveal as="section" id="quizzes-catalog">
+        <SectionHeading
+          eyebrow="Quick Revision & Quizzes"
+          title="Test Your Knowledge After Reading"
+          description="Reinforce every E-Book chapter with topic-wise practice questions and live mock tests — the newest quizzes come first."
+          action={
+            <Link
+              href="/quizzes"
+              className="group inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-slate-100 dark:bg-slate-800/80 hover:bg-cyan-500/10 dark:hover:bg-cyan-500/20 text-slate-700 dark:text-slate-200 hover:text-cyan-600 dark:hover:text-cyan-400 border border-slate-200/80 dark:border-slate-700/80 hover:border-cyan-500/40 transition-all shadow-sm cursor-pointer"
+            >
+              <span>All Quizzes</span>
+              <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 text-cyan-500" />
+            </Link>
+          }
+        />
+        <HomeQuizCarousel />
+      </Reveal>
+
+      {/* ── 4. Customer Reviews ────────────────────────────────────── */}
+      {/* Owns its own section wrapper — with no active reviews the whole
+          block, heading included, drops out of the page. */}
+      <HomeReviewsCarousel
+        heading={
+          <SectionHeading
+            eyebrow="Student Reviews"
+            title="Trusted by Kerala PSC Aspirants"
+            description="Real words from students who prepared with our E-Books, quizzes, and audio lessons."
+          />
+        }
+      />
+
+      {/* ── 5. Social Media ────────────────────────────────────────── */}
+      {/* Owns its own section wrapper — with no configured links the whole
+          block, heading included, drops out of the page. */}
+      <HomeSocialLinks
+        heading={
+          <SectionHeading
+            eyebrow="Stay Connected"
+            title="Follow Us Everywhere"
+            description="Get daily updates, quick tips, and exclusive content across our official channels."
+          />
+        }
+      />
+
+      {/* ── 6. Frequently Asked Questions ─────────────────────────── */}
+      <Reveal as="section">
         <SectionHeading
           eyebrow="Got Questions?"
           title="Frequently Asked Questions"
@@ -235,36 +161,93 @@ export default function HomePage() {
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-5xl mx-auto">
           {FAQS.map((faq) => (
-            <Card key={faq.question} className="space-y-2 p-6">
-              <h3 className="font-extrabold text-slate-900 dark:text-white text-base flex items-start gap-2.5">
-                <HelpCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                <span>{faq.question}</span>
-              </h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed pl-7.5">{faq.answer}</p>
-            </Card>
+            <div
+              key={faq.question}
+              className="group relative overflow-hidden rounded-3xl border border-slate-200/90 dark:border-[#1e2e56] bg-white/95 dark:bg-[#0c152e]/90 p-6 sm:p-7 shadow-lg shadow-slate-200/50 dark:shadow-2xl dark:shadow-black/50 hover:shadow-2xl hover:border-cyan-500/40 dark:hover:border-cyan-500/40 hover:-translate-y-1 transition-all duration-300 backdrop-blur-md flex flex-col justify-between"
+            >
+              {/* Top Accent Gradient Bar on Hover */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-cyan-500 to-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-slate-950 flex items-center justify-center shrink-0 shadow-md shadow-amber-500/20 transition-transform duration-300 group-hover:scale-110">
+                    <HelpCircle className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-black text-slate-900 dark:text-white text-base sm:text-lg leading-snug group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors pt-0.5">
+                    {faq.question}
+                  </h3>
+                </div>
+                <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-normal pl-0 sm:pl-[54px]">
+                  {faq.answer}
+                </p>
+              </div>
+            </div>
           ))}
         </div>
-      </section>
+      </Reveal>
 
-      {/* ── 5. Aspirant Community & Help Hotline Banner ─────────────── */}
-      <section className="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 via-cyan-500/10 to-amber-500/10 p-8 sm:p-12 text-center space-y-5">
-        <div className="max-w-2xl mx-auto space-y-2">
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
+      {/* ── 7. Aspirant Community & Help Hotline Banner ─────────────── */}
+      <Reveal
+        as="section"
+        className="relative overflow-hidden rounded-3xl sm:rounded-4xl border border-emerald-500/30 dark:border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.08] via-white to-teal-500/[0.08] dark:from-[#061e1a] dark:via-[#09152b] dark:to-[#04131b] p-8 sm:p-14 shadow-2xl shadow-emerald-500/10 dark:shadow-black/60 text-center space-y-6"
+      >
+        {/* Background glowing aurora orbs */}
+        <div className="absolute -top-24 -left-24 w-80 h-80 bg-emerald-500/15 dark:bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-teal-500/15 dark:bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Top Accent Gradient Line */}
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-400" />
+
+        {/* Eyebrow Pill */}
+        <div className="flex items-center justify-center">
+          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-sm backdrop-blur-md">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Instant WhatsApp Support &amp; Guidance
+          </span>
+        </div>
+
+        {/* Headline & Description */}
+        <div className="max-w-2xl mx-auto space-y-3 relative z-10">
+          <h2 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-snug">
             Need Guidance with Kerala PSC E-Books?
           </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-            Join 25,000+ fellow aspirants or message our support team on WhatsApp for book recommendations and syllabus guidance.
+          <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+            Join 25,000+ fellow aspirants or message our dedicated academic support team on WhatsApp for personalized book recommendations, exam strategies, and syllabus walkthroughs.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-          <a href={CONTACT_PHONE_WHATSAPP} target="_blank" rel="noopener noreferrer">
-            <Button size="lg" variant="gold" className="font-bold shadow-md shadow-emerald-500/20">
-              <MessageCircle className="w-4 h-4 mr-2" />
-              Chat on WhatsApp ({CONTACT_PHONE_DISPLAY})
-            </Button>
+
+        {/* Feature Highlights Pills */}
+        <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1 relative z-10">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 border border-emerald-500/20 shadow-xs backdrop-blur-md">
+            <span className="text-emerald-500 font-black">✓</span> Instant WhatsApp Reply
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 border border-emerald-500/20 shadow-xs backdrop-blur-md">
+            <span className="text-emerald-500 font-black">✓</span> 1-on-1 Book Recommendations
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white/80 dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 border border-emerald-500/20 shadow-xs backdrop-blur-md">
+            <span className="text-emerald-500 font-black">✓</span> 25,000+ Active Aspirants
+          </div>
+        </div>
+
+        {/* WhatsApp Action Button */}
+        <div className="flex flex-wrap items-center justify-center gap-3 pt-2 relative z-10">
+          <a
+            href={CONTACT_PHONE_WHATSAPP}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group inline-flex items-center gap-3 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm sm:text-base shadow-xl shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+          >
+            <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center">
+              <MessageCircle className="w-4 h-4 text-white" />
+            </div>
+            <span>Chat on WhatsApp ({CONTACT_PHONE_DISPLAY})</span>
+            <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
           </a>
         </div>
-      </section>
+      </Reveal>
     </div>
   );
 }

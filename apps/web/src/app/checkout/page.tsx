@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../auth-provider';
 import { ApiClient } from '@/lib/api-client';
 import { loadRazorpayScript } from '@/lib/razorpay';
+import { CheckoutSkeleton } from '../skeletons/page-skeletons';
 
 const couponSchema = Yup.object({
   couponCode: Yup.string()
@@ -106,11 +107,7 @@ function CheckoutFormContent() {
   });
 
   if (!mounted || authLoading || !user) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500"></div>
-      </div>
-    );
+    return <CheckoutSkeleton />;
   }
 
   if (!itemId) {
@@ -123,11 +120,7 @@ function CheckoutFormContent() {
   }
 
   if (itemLoading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500"></div>
-      </div>
-    );
+    return <CheckoutSkeleton />;
   }
 
   if (itemLoadError || !item) {

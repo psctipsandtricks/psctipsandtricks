@@ -1,0 +1,85 @@
+import '../../core/utils/json.dart';
+import 'quiz.dart';
+
+enum MockTestStatus { upcoming, live, completed }
+
+MockTestStatus mockStatusFrom(dynamic v) {
+  switch (J.str(v).toUpperCase()) {
+    case 'LIVE':
+      return MockTestStatus.live;
+    case 'COMPLETED':
+      return MockTestStatus.completed;
+    default:
+      return MockTestStatus.upcoming;
+  }
+}
+
+class MockTest {
+  const MockTest({
+    required this.id,
+    required this.title,
+    required this.quizId,
+    required this.scheduledAt,
+    required this.status,
+    this.quiz,
+    this.participantCount = 0,
+    this.joined = false,
+    this.submitted = false,
+  });
+
+  final String id;
+  final String title;
+  final String quizId;
+  final DateTime scheduledAt;
+  final MockTestStatus status;
+  final Quiz? quiz;
+  final int participantCount;
+  final bool joined;
+  final bool submitted;
+
+  bool get isLive => status == MockTestStatus.live;
+  bool get isUpcoming => status == MockTestStatus.upcoming;
+  Duration get startsIn => scheduledAt.difference(DateTime.now());
+
+  factory MockTest.fromJson(Map<String, dynamic> json) => MockTest(
+        id: J.str(json['id']),
+        title: J.str(json['title']),
+        quizId: J.str(json['quizId']),
+        scheduledAt: J.date(json['scheduledAt']),
+        status: mockStatusFrom(json['status']),
+        quiz: json['quiz'] is Map ? Quiz.fromJson(J.map(json['quiz'])) : null,
+        participantCount: J.intVal(json['participantCount']),
+        joined: J.boolVal(json['joined']),
+        submitted: J.boolVal(json['submitted']),
+      );
+}
+
+class MockTestParticipant {
+  const MockTestParticipant({
+    required this.id,
+    required this.mockTestId,
+    this.score,
+    this.rank,
+    this.submittedAt,
+    this.title,
+  });
+
+  final String id;
+  final String mockTestId;
+  final double? score;
+  final int? rank;
+  final DateTime? submittedAt;
+  final String? title;
+
+  factory MockTestParticipant.fromJson(Map<String, dynamic> json) {
+    final mock = J.map(json['mockTest']);
+    return MockTestParticipant(
+      id: J.str(json['id']),
+      mockTestId: J.str(json['mockTestId']),
+      score: J.dblOrNull(json['score']),
+      rank: J.intOrNull(json['rank']),
+      submittedAt: J.dateOrNull(json['submittedAt']),
+      title: J.strOrNull(mock['title']),
+    );
+  }
+}

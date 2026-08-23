@@ -220,6 +220,16 @@ export default function MyOrdersPage() {
                 : { label: 'Quiz', icon: HelpCircle, color: 'text-amber-500' };
             const KindIcon = kindMeta.icon;
 
+            const isSubscriptionOrder = Boolean(order.validTill);
+            const isExpired = order.validTill ? new Date(order.validTill).getTime() <= Date.now() : false;
+            const validTillFormatted = order.validTill
+              ? new Date(order.validTill).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
+              : null;
+
             return (
               <Card key={order.id} className="p-4 sm:p-5 glass-card space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-[#1e2e56] pb-3">
@@ -233,6 +243,23 @@ export default function MyOrdersPage() {
                         {kindMeta.label}
                       </Badge>
                       {statusBadge(order.status)}
+                      {order.status === 'SUCCESS' && kind === 'BOOK' && (
+                        isSubscriptionOrder ? (
+                          isExpired ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                              Expired on {validTillFormatted}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              Valid till {validTillFormatted}
+                            </span>
+                          )
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                            Full-Time
+                          </span>
+                        )
+                      )}
                     </div>
                     <div className="flex items-center space-x-3 text-xs text-slate-500 dark:text-slate-400">
                       <span className="flex items-center space-x-1">
@@ -258,8 +285,8 @@ export default function MyOrdersPage() {
 
                     {order.status === 'SUCCESS' && kind === 'BOOK' && order.book && (
                       <Link href={`/books/${order.book.id}`}>
-                        <Button variant="gold" size="sm" className="font-bold">
-                          View Book
+                        <Button variant={isExpired ? "danger" : "gold"} size="sm" className="font-bold">
+                          {isExpired ? 'Renew Book' : 'View Book'}
                         </Button>
                       </Link>
                     )}

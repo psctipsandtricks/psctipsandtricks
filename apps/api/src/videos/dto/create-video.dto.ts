@@ -1,6 +1,14 @@
 import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateVideoDto {
+  @IsOptional()
+  @IsString()
+  folderId?: string;
+
+  @IsOptional()
+  @IsString()
+  chapterId?: string;
+
   @IsString()
   @IsNotEmpty()
   title: string;

@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards, Request, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { QuizzesService } from './quizzes.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -131,6 +132,40 @@ export class QuizzesController {
   @Put(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateQuizDto) {
     return this.quizzesService.update(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Upload an image for a quiz (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('upload-image')
+  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    return this.quizzesService.uploadImage(file);
+  }
+
+  @ApiOperation({ summary: 'Upload/replace image for a specific quiz (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @UseInterceptors(FileInterceptor('file'))
+  @Post(':id/image')
+  async uploadQuizImage(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.quizzesService.uploadQuizImage(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove quiz image (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Delete(':id/image')
+  async removeQuizImage(@Param('id') id: string) {
+    return this.quizzesService.removeQuizImage(id);
   }
 
   @ApiOperation({ summary: 'Delete a quiz (Admin / Staff with manage_quizzes)' })

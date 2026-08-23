@@ -209,7 +209,7 @@ export default function DashboardPage() {
     return () => clearInterval(tick);
   }, []);
 
-  if (authLoading || (loading && !data)) return <DashboardSkeleton />;
+  if (authLoading || !user || (loading && !data)) return <DashboardSkeleton />;
 
   if (error && !data) {
     return (

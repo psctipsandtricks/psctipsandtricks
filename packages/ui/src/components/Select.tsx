@@ -55,10 +55,16 @@ export const Select: React.FC<SelectProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMounted, setIsMounted] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number }>({
-    top: 0,
+  const [position, setPosition] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    placeAbove: boolean;
+  }>({
     left: 0,
     width: 0,
+    placeAbove: false,
   });
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,17 +110,38 @@ export const Select: React.FC<SelectProps> = ({
   const computePosition = useCallback(() => {
     if (!triggerRef.current) return null;
     const rect = triggerRef.current.getBoundingClientRect();
-    const dropdownHeight = 280;
+    
+    // Estimate height based on option count if not yet mounted
+    const actualHeight = dropdownRef.current ? dropdownRef.current.offsetHeight : null;
+    const itemCount = filteredOptions.length || normalizedOptions.length;
+    const estimatedHeight = Math.min(
+      260,
+      Math.max(48, itemCount * 40 + (isSearchEnabled ? 52 : 12))
+    );
+    const height = actualHeight || estimatedHeight;
+
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
-    const placeAbove = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
+    
+    // Only place above if not enough space below AND there is more space above
+    const placeAbove = spaceBelow < height + 12 && spaceAbove > spaceBelow;
+
+    if (placeAbove) {
+      return {
+        bottom: Math.max(8, window.innerHeight - rect.top + 6),
+        left: rect.left,
+        width: rect.width,
+        placeAbove: true,
+      };
+    }
 
     return {
-      top: placeAbove ? Math.max(8, rect.top - dropdownHeight - 6) : rect.bottom + 6,
+      top: rect.bottom + 6,
       left: rect.left,
       width: rect.width,
+      placeAbove: false,
     };
-  }, []);
+  }, [filteredOptions.length, normalizedOptions.length, isSearchEnabled]);
 
   const openDropdown = useCallback(() => {
     if (disabled) return;
@@ -282,12 +309,15 @@ export const Select: React.FC<SelectProps> = ({
             role="listbox"
             style={{
               position: 'fixed',
-              top: position.top,
+              ...(position.placeAbove
+                ? { bottom: position.bottom, top: 'auto' }
+                : { top: position.top, bottom: 'auto' }),
               left: position.left,
               width: position.width,
             }}
             className={cn(
-              'z-[99999] rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#091124]/95 shadow-2xl backdrop-blur-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150',
+              'z-[99999] rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#091124]/95 shadow-2xl backdrop-blur-xl overflow-hidden duration-150',
+              position.placeAbove ? 'animate-in fade-in slide-in-from-bottom-1' : 'animate-in fade-in slide-in-from-top-1',
               dropdownClassName
             )}
           >

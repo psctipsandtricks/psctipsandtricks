@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
   UploadedFile,
   UseGuards,
@@ -24,15 +25,8 @@ import { CreateLibraryFolderDto, ReorderDto, UpdateLibraryFolderDto } from '../c
 import { CreatePdfDocumentDto, UpdatePdfDocumentDto } from './dto/pdf-document.dto';
 
 const MANAGE_PDFS_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
-// Study material regularly runs to full solved-paper collections, so the cap is
-// well above the 20MB used for a single book chapter's PDF.
-const PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 }; // 50MB, matches the "Max: 50MB" field hint
+const PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 };
 
-/**
- * Every route requires a signed-in user: the library is free, but not public.
- * Reads are open to any student; writes need ADMIN, or STAFF holding
- * `managePdfs`.
- */
 @ApiTags('PDFs')
 @ApiBearerAuth()
 @Controller('pdfs')
@@ -40,21 +34,137 @@ const PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 }; // 50MB, matches the "
 export class PdfsController {
   constructor(private readonly pdfsService: PdfsService) {}
 
-  // --- Exams ---
+  // --- PDF Folders (Recursive Tree) ---
 
-  @ApiOperation({ summary: 'List exam folders in the PDF library' })
+  @ApiOperation({ summary: 'List PDF folders (optionally filtered by parentId)' })
+  @Get('folders')
+  async listFolders(@Request() req: any, @Query('parentId') parentId?: string) {
+    return this.pdfsService.listFolders(req.user, parentId);
+  }
+
+  @ApiOperation({ summary: 'Get a single PDF folder with its subfolders and documents' })
+  @Get('folders/:id')
+  async getFolder(@Request() req: any, @Param('id') id: string) {
+    return this.pdfsService.findFolder(id, req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a PDF folder or subfolder (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Post('folders')
+  async createFolder(@Body() dto: { name: string; parentId?: string | null; description?: string; isActive?: boolean }) {
+    return this.pdfsService.createFolder(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a PDF folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Patch('folders/:id')
+  async updateFolder(
+    @Param('id') id: string,
+    @Body() dto: { name?: string; parentId?: string | null; description?: string; isActive?: boolean; orderIndex?: number },
+  ) {
+    return this.pdfsService.updateFolder(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a PDF folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Delete('folders/:id')
+  async removeFolder(@Param('id') id: string) {
+    return this.pdfsService.removeFolder(id);
+  }
+
+  @ApiOperation({ summary: 'Reorder PDF folders (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Patch('folders/reorder')
+  async reorderFolders(@Body() dto: ReorderDto) {
+    return this.pdfsService.reorderFolders(dto);
+  }
+
+  // --- PDF Documents ---
+
+  @ApiOperation({ summary: 'List PDF documents (optionally by folderId, chapterId, or search query)' })
+  @Get()
+  async listDocuments(
+    @Request() req: any,
+    @Query('folderId') folderId?: string,
+    @Query('chapterId') chapterId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.pdfsService.listDocuments({ folderId, chapterId, search }, req.user);
+  }
+
+  @ApiOperation({ summary: 'Get a single PDF document' })
+  @Get(':id')
+  async getDocument(@Request() req: any, @Param('id') id: string) {
+    return this.pdfsService.findDocument(id, req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a PDF document inside any folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Post()
+  async createDocument(@Body() dto: CreatePdfDocumentDto) {
+    return this.pdfsService.createDocument(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Patch(':id')
+  async updateDocument(@Param('id') id: string, @Body() dto: UpdatePdfDocumentDto) {
+    return this.pdfsService.updateDocument(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Delete(':id')
+  async removeDocument(@Param('id') id: string) {
+    return this.pdfsService.removeDocument(id);
+  }
+
+  @ApiOperation({ summary: 'Upload file to a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: PDF_UPLOAD_LIMITS }))
+  @Post(':id/file')
+  async uploadPdfFile(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.pdfsService.uploadPdfFile(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove file from a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Delete(':id/file')
+  async removePdfFile(@Param('id') id: string) {
+    return this.pdfsService.removePdfFile(id);
+  }
+
+  // --- Legacy Compatibility Routes ---
+
   @Get('exams')
   async listExams(@Request() req: any) {
     return this.pdfsService.listExams(req.user);
   }
 
-  @ApiOperation({ summary: 'Get a single exam folder' })
   @Get('exams/:examId')
   async getExam(@Request() req: any, @Param('examId') examId: string) {
     return this.pdfsService.findExam(examId, req.user);
   }
 
-  @ApiOperation({ summary: 'Create an exam folder (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -63,7 +173,6 @@ export class PdfsController {
     return this.pdfsService.createExam(dto);
   }
 
-  @ApiOperation({ summary: 'Reorder exam folders (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -72,7 +181,6 @@ export class PdfsController {
     return this.pdfsService.reorderExams(dto);
   }
 
-  @ApiOperation({ summary: 'Update an exam folder (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -81,7 +189,6 @@ export class PdfsController {
     return this.pdfsService.updateExam(examId, dto);
   }
 
-  @ApiOperation({ summary: 'Delete an exam folder and everything inside it (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -90,15 +197,11 @@ export class PdfsController {
     return this.pdfsService.removeExam(examId);
   }
 
-  // --- Chapters ---
-
-  @ApiOperation({ summary: 'List chapter folders inside an exam' })
   @Get('exams/:examId/chapters')
   async listChapters(@Request() req: any, @Param('examId') examId: string) {
     return this.pdfsService.listChapters(examId, req.user);
   }
 
-  @ApiOperation({ summary: 'Add a chapter folder to an exam (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -107,7 +210,6 @@ export class PdfsController {
     return this.pdfsService.createChapter(examId, dto);
   }
 
-  @ApiOperation({ summary: 'Reorder chapter folders within an exam (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -116,13 +218,11 @@ export class PdfsController {
     return this.pdfsService.reorderChapters(examId, dto);
   }
 
-  @ApiOperation({ summary: 'Get a single chapter folder' })
   @Get('chapters/:chapterId')
   async getChapter(@Request() req: any, @Param('chapterId') chapterId: string) {
     return this.pdfsService.findChapter(chapterId, req.user);
   }
 
-  @ApiOperation({ summary: 'Update a chapter folder (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -131,7 +231,6 @@ export class PdfsController {
     return this.pdfsService.updateChapter(chapterId, dto);
   }
 
-  @ApiOperation({ summary: 'Delete a chapter folder and its PDFs (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
@@ -140,64 +239,16 @@ export class PdfsController {
     return this.pdfsService.removeChapter(chapterId);
   }
 
-  // --- Documents ---
-
-  @ApiOperation({ summary: 'List PDFs inside a chapter folder' })
   @Get('chapters/:chapterId/documents')
-  async listDocuments(@Request() req: any, @Param('chapterId') chapterId: string) {
-    return this.pdfsService.listDocuments(chapterId, req.user);
+  async listChapterDocuments(@Request() req: any, @Param('chapterId') chapterId: string) {
+    return this.pdfsService.listDocuments({ chapterId }, req.user);
   }
 
-  @ApiOperation({ summary: 'Add a PDF entry to a chapter (Admin / Staff with manage_pdfs)' })
   @UseGuards(...MANAGE_PDFS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @RequirePermissions('managePdfs')
   @Post('chapters/:chapterId/documents')
-  async createDocument(@Param('chapterId') chapterId: string, @Body() dto: CreatePdfDocumentDto) {
-    return this.pdfsService.createDocument(chapterId, dto);
-  }
-
-  @ApiOperation({ summary: 'Reorder PDFs within a chapter (Admin / Staff with manage_pdfs)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Patch('chapters/:chapterId/documents/reorder')
-  async reorderDocuments(@Param('chapterId') chapterId: string, @Body() dto: ReorderDto) {
-    return this.pdfsService.reorderDocuments(chapterId, dto);
-  }
-
-  @ApiOperation({ summary: 'Get a single PDF entry' })
-  @Get('documents/:documentId')
-  async getDocument(@Request() req: any, @Param('documentId') documentId: string) {
-    return this.pdfsService.findDocument(documentId, req.user);
-  }
-
-  @ApiOperation({ summary: 'Update a PDF entry (Admin / Staff with manage_pdfs)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Patch('documents/:documentId')
-  async updateDocument(@Param('documentId') documentId: string, @Body() dto: UpdatePdfDocumentDto) {
-    return this.pdfsService.updateDocument(documentId, dto);
-  }
-
-  @ApiOperation({ summary: 'Delete a PDF entry (Admin / Staff with manage_pdfs)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Delete('documents/:documentId')
-  async removeDocument(@Param('documentId') documentId: string) {
-    return this.pdfsService.removeDocument(documentId);
-  }
-
-  @ApiOperation({ summary: 'Upload/replace the file for a PDF entry (Admin / Staff with manage_pdfs)' })
-  @ApiConsumes('multipart/form-data')
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @UseInterceptors(FileInterceptor('file', { limits: PDF_UPLOAD_LIMITS }))
-  @Post('documents/:documentId/file')
-  async uploadDocumentFile(@Param('documentId') documentId: string, @UploadedFile() file: Express.Multer.File) {
-    return this.pdfsService.uploadDocumentFile(documentId, file);
+  async createChapterDocument(@Param('chapterId') chapterId: string, @Body() dto: CreatePdfDocumentDto) {
+    return this.pdfsService.createDocument({ ...dto, chapterId });
   }
 }

@@ -20,6 +20,8 @@ import { MockTestsModule } from './mock-tests/mock-tests.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { VideosModule } from './videos/videos.module';
 import { PdfsModule } from './pdfs/pdfs.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { SocialLinksModule } from './social-links/social-links.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { PdfsModule } from './pdfs/pdfs.module';
     AnalyticsModule,
     VideosModule,
     PdfsModule,
+    ReviewsModule,
+    SocialLinksModule,
   ],
 })
 export class AppModule {}

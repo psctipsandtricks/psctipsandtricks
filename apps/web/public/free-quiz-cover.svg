@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="100%" height="100%">
+  <defs>
+    <linearGradient id="free-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06161a" />
+      <stop offset="50%" stop-color="#072023" />
+      <stop offset="100%" stop-color="#05151c" />
+    </linearGradient>
+    <linearGradient id="accent-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="accent-teal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <linearGradient id="free-shield-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f2b2b" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#071b1d" stop-opacity="0.95" />
+    </linearGradient>
+    <radialGradient id="glow-emerald" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.25" />
+      <stop offset="60%" stop-color="#10b981" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glow-teal" cx="75%" cy="25%" r="40%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
+    </radialGradient>
+    <pattern id="free-grid-dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#34d399" fill-opacity="0.12" />
+    </pattern>
+    <filter id="free-subtle-blur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="30" />
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="800" height="450" fill="url(#free-bg-grad)" />
+
+  <!-- Ambient Glows -->
+  <circle cx="400" cy="210" r="220" fill="url(#glow-emerald)" />
+  <circle cx="680" cy="120" r="180" fill="url(#glow-teal)" />
+
+  <!-- Grid Pattern -->
+  <rect width="800" height="450" fill="url(#free-grid-dots)" />
+
+  <!-- Abstract Graphic Geometry Accents -->
+  <g opacity="0.16" stroke="#10b981" stroke-width="1.5" fill="none">
+    <circle cx="400" cy="200" r="140" stroke-dasharray="6 6" />
+    <circle cx="400" cy="200" r="170" stroke-dasharray="4 8" />
+    <polygon points="400,70 510,135 510,265 400,330 290,265 290,135" />
+  </g>
+
+  <!-- Floating Sparkles / Stars -->
+  <g fill="#34d399" opacity="0.6">
+    <path d="M 230 110 Q 230 120 240 120 Q 230 120 230 130 Q 230 120 220 120 Q 230 120 230 110" />
+    <path d="M 580 280 Q 580 290 590 290 Q 580 290 580 300 Q 580 290 570 290 Q 580 290 580 280" />
+    <path d="M 620 120 Q 620 127 627 127 Q 620 127 620 134 Q 620 127 613 127 Q 620 127 620 120" opacity="0.4" />
+  </g>
+
+  <!-- Center Emblem Shield Card -->
+  <g transform="translate(400, 200)">
+    <!-- Backing Glow -->
+    <rect x="-85" y="-85" width="170" height="170" rx="36" fill="#10b981" opacity="0.12" filter="url(#free-subtle-blur)" />
+    
+    <!-- Outer Shield Container -->
+    <rect x="-65" y="-65" width="130" height="130" rx="28" fill="url(#free-shield-grad)" stroke="#10b981" stroke-opacity="0.4" stroke-width="2" />
+    
+    <!-- Inner Emblem Icon (Open Book / Quiz Question Sparkle) -->
+    <g transform="translate(0, -6)">
+      <!-- Open Book / Document Leaves -->
+      <path d="M 0 16 C -12 10 -24 10 -30 12 L -30 -16 C -24 -18 -12 -18 0 -12 Z" fill="url(#accent-emerald)" opacity="0.9" />
+      <path d="M 0 16 C 12 10 24 10 30 12 L 30 -16 C 24 -18 12 -18 0 -12 Z" fill="url(#accent-teal)" opacity="0.95" />
+      <line x1="0" y1="-12" x2="0" y2="18" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.8" />
+      
+      <!-- Checkmark / Sparkle floating above book -->
+      <circle cx="0" cy="-24" r="11" fill="#10b981" />
+      <polyline points="-4,-24 -1,-21 5,-27" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+
+    <!-- Label Badge under icon -->
+    <rect x="-65" y="75" width="130" height="26" rx="13" fill="#071b1d" stroke="#10b981" stroke-opacity="0.4" stroke-width="1.5" />
+    <text x="0" y="92" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="900" fill="#34d399" letter-spacing="1.5">FREE QUIZ</text>
+  </g>
+
+  <!-- Bottom Brand Text -->
+  <text x="400" y="415" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#94a3b8" letter-spacing="2.5" opacity="0.6">KERALA PSC PRACTICE HUB</text>
+</svg>

@@ -43,6 +43,10 @@ export interface NavbarProps {
    * scratch, which is what causes the logged-out flash.
    */
   onNavigate?: (href: string, e: React.MouseEvent<HTMLAnchorElement>) => void;
+  /** Custom link component (e.g. Next.js Link) for native prefetching and instant client routing */
+  linkComponent?: React.ElementType;
+  /** Prefetch callback called on link mouseEnter or focus */
+  onPrefetch?: (href: string) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -56,7 +60,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   className,
   onNavigate,
+  linkComponent,
+  onPrefetch,
 }) => {
+  const LinkTag = linkComponent || 'a';
   const [localTheme, setLocalTheme] = useState<'dark' | 'light'>('dark');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -118,10 +125,14 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className={cn('sticky top-0 z-40 w-full glass-header bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200/90 dark:border-slate-800/90', className)}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-8">
-          <a
+          <LinkTag
             href="/"
-            onClick={(e) => onNavigate?.('/', e)}
-            className="flex items-center space-x-2.5 font-black text-xl tracking-tight group"
+            prefetch={linkComponent ? true : undefined}
+            onMouseEnter={() => onPrefetch?.('/')}
+            onFocus={() => onPrefetch?.('/')}
+            onTouchStart={() => onPrefetch?.('/')}
+            onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.('/', e)}
+            className="flex items-center space-x-2.5 font-black text-xl tracking-tight group cursor-pointer active:scale-95 transition-transform duration-150"
           >
             {logo ? (
               logo
@@ -135,22 +146,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 dark:from-cyan-400 dark:via-cyan-300 dark:to-blue-400 bg-clip-text text-transparent drop-shadow-xs font-black">
               {brandName}
             </span>
-          </a>
+          </LinkTag>
           <nav className="hidden md:flex items-center space-x-1">
             {links.map((link) => (
-              <a
+              <LinkTag
                 key={link.href}
                 href={link.href}
-                onClick={(e) => onNavigate?.(link.href, e)}
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.(link.href)}
+                onFocus={() => onPrefetch?.(link.href)}
+                onTouchStart={() => onPrefetch?.(link.href)}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.(link.href, e)}
                 className={cn(
-                  'px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-200',
+                  'px-3.5 py-2 rounded-xl text-sm font-semibold transition-all duration-150 active:scale-95 cursor-pointer select-none',
                   link.active
-                    ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 font-bold border border-cyan-500/30'
+                    ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 font-bold border border-cyan-500/30 shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-[#0c152e]/60'
                 )}
               >
                 {link.label}
-              </a>
+              </LinkTag>
             ))}
           </nav>
         </div>
@@ -160,7 +175,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={handleToggleTheme}
-            className="p-2.5 rounded-xl border border-slate-300 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition-all duration-200 shadow-xs cursor-pointer"
+            className="p-2.5 rounded-xl border border-slate-300 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition-all duration-200 shadow-xs cursor-pointer active:scale-90"
             title={mounted && activeTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             aria-label="Toggle Theme"
           >
@@ -179,7 +194,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className={cn(
-                  "flex items-center space-x-2.5 py-1.5 px-2.5 rounded-2xl border transition-all duration-200 cursor-pointer shadow-xs",
+                  "flex items-center space-x-2.5 py-1.5 px-2.5 rounded-2xl border transition-all duration-200 cursor-pointer shadow-xs active:scale-95",
                   dropdownOpen
                     ? "bg-white dark:bg-[#0c1631] border-cyan-500/50 shadow-md shadow-cyan-500/10 ring-2 ring-cyan-500/20"
                     : "bg-slate-100/90 dark:bg-[#091124]/90 border-slate-200 dark:border-[#1e2e56] hover:border-cyan-500/40 hover:bg-white dark:hover:bg-[#0d1833]"
@@ -266,13 +281,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   {/* Menu items */}
                   <div className="space-y-0.5">
-                    <a
+                    <LinkTag
                       href="/profile"
-                      onClick={(e) => {
+                      prefetch={linkComponent ? true : undefined}
+                      onMouseEnter={() => onPrefetch?.('/profile')}
+                      onFocus={() => onPrefetch?.('/profile')}
+                      onTouchStart={() => onPrefetch?.('/profile')}
+                      onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                         setDropdownOpen(false);
                         onNavigate?.('/profile', e);
                       }}
-                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all cursor-pointer"
+                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all cursor-pointer active:scale-98"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-500 dark:text-cyan-400 group-hover:bg-cyan-500 group-hover:text-white transition-all shrink-0">
@@ -284,15 +303,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       </div>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                    </a>
+                    </LinkTag>
 
-                    <a
+                    <LinkTag
                       href="/books?filter=purchased"
-                      onClick={(e) => {
+                      prefetch={linkComponent ? true : undefined}
+                      onMouseEnter={() => onPrefetch?.('/books?filter=purchased')}
+                      onFocus={() => onPrefetch?.('/books?filter=purchased')}
+                      onTouchStart={() => onPrefetch?.('/books?filter=purchased')}
+                      onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                         setDropdownOpen(false);
                         onNavigate?.('/books?filter=purchased', e);
                       }}
-                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer"
+                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all cursor-pointer active:scale-98"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500 dark:text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white transition-all shrink-0">
@@ -309,15 +332,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       </div>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                    </a>
+                    </LinkTag>
 
-                    <a
+                    <LinkTag
                       href="/orders"
-                      onClick={(e) => {
+                      prefetch={linkComponent ? true : undefined}
+                      onMouseEnter={() => onPrefetch?.('/orders')}
+                      onFocus={() => onPrefetch?.('/orders')}
+                      onTouchStart={() => onPrefetch?.('/orders')}
+                      onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                         setDropdownOpen(false);
                         onNavigate?.('/orders', e);
                       }}
-                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-all cursor-pointer"
+                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-all cursor-pointer active:scale-98"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 dark:text-amber-400 group-hover:bg-amber-500 group-hover:text-white transition-all shrink-0">
@@ -329,15 +356,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       </div>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                    </a>
+                    </LinkTag>
 
-                    <a
+                    <LinkTag
                       href="/dashboard"
-                      onClick={(e) => {
+                      prefetch={linkComponent ? true : undefined}
+                      onMouseEnter={() => onPrefetch?.('/dashboard')}
+                      onFocus={() => onPrefetch?.('/dashboard')}
+                      onTouchStart={() => onPrefetch?.('/dashboard')}
+                      onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                         setDropdownOpen(false);
                         onNavigate?.('/dashboard', e);
                       }}
-                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all cursor-pointer"
+                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all cursor-pointer active:scale-98"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 dark:text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-all shrink-0">
@@ -349,16 +380,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       </div>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                    </a>
+                    </LinkTag>
 
                     {(user.role === 'ADMIN' || user.role === 'STAFF') && (
-                      <a
+                      <LinkTag
                         href="/admin"
-                        onClick={(e) => {
+                        prefetch={linkComponent ? true : undefined}
+                        onMouseEnter={() => onPrefetch?.('/admin')}
+                        onFocus={() => onPrefetch?.('/admin')}
+                        onTouchStart={() => onPrefetch?.('/admin')}
+                        onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                           setDropdownOpen(false);
                           onNavigate?.('/admin', e);
                         }}
-                        className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer"
+                        className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer active:scale-98"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-500 dark:text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-all shrink-0">
@@ -370,7 +405,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </div>
                         </div>
                         <ChevronRight className="w-3.5 h-3.5 text-purple-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                      </a>
+                      </LinkTag>
                     )}
                   </div>
 
@@ -383,7 +418,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         setDropdownOpen(false);
                         setShowLogoutModal(true);
                       }}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer group"
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer group active:scale-98"
                     >
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 group-hover:bg-rose-500 group-hover:text-white transition-all shrink-0">
@@ -398,20 +433,28 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           ) : (
             <div className="hidden sm:flex items-center space-x-2">
-              <a
+              <LinkTag
                 href="/login"
-                onClick={(e) => onNavigate?.('/login', e)}
-                className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-cyan-400 px-3.5 py-2 rounded-xl transition-colors"
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/login')}
+                onFocus={() => onPrefetch?.('/login')}
+                onTouchStart={() => onPrefetch?.('/login')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.('/login', e)}
+                className="text-sm font-semibold text-slate-700 dark:text-slate-300 hover:text-cyan-400 px-3.5 py-2 rounded-xl transition-colors active:scale-95 cursor-pointer"
               >
                 Log In
-              </a>
-              <a
+              </LinkTag>
+              <LinkTag
                 href="/signup"
-                onClick={(e) => onNavigate?.('/signup', e)}
-                className="btn-shine-effect text-sm font-extrabold bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:text-slate-950 px-4 py-2 rounded-xl shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60 transition-all duration-200"
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/signup')}
+                onFocus={() => onPrefetch?.('/signup')}
+                onTouchStart={() => onPrefetch?.('/signup')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.('/signup', e)}
+                className="btn-shine-effect text-sm font-extrabold bg-gradient-to-r from-cyan-600 via-cyan-500 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white dark:from-cyan-400 dark:via-cyan-500 dark:to-blue-500 dark:text-slate-950 px-4 py-2 rounded-xl shadow-md shadow-cyan-600/20 dark:shadow-[0_0_15px_rgba(6,182,212,0.35)] border border-cyan-500/30 dark:border-cyan-300/60 transition-all duration-200 active:scale-95 cursor-pointer"
               >
                 Get Started
-              </a>
+              </LinkTag>
             </div>
           )}
 
@@ -419,7 +462,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-xl border border-slate-300 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300"
+            className="md:hidden p-2 rounded-xl border border-slate-300 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300 active:scale-90"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -430,22 +473,26 @@ export const Navbar: React.FC<NavbarProps> = ({
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl px-4 py-4 space-y-2 animate-in slide-in-from-top-2">
           {links.map((link) => (
-            <a
+            <LinkTag
               key={link.href}
               href={link.href}
-              onClick={(e) => {
+              prefetch={linkComponent ? true : undefined}
+              onMouseEnter={() => onPrefetch?.(link.href)}
+              onFocus={() => onPrefetch?.(link.href)}
+              onTouchStart={() => onPrefetch?.(link.href)}
+              onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                 setMobileMenuOpen(false);
                 onNavigate?.(link.href, e);
               }}
               className={cn(
-                'block px-4 py-2.5 rounded-xl text-sm font-semibold transition-all',
+                'block px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-98 cursor-pointer',
                 link.active
                   ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 font-bold border border-cyan-500/30'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#091124]'
               )}
             >
               {link.label}
-            </a>
+            </LinkTag>
           ))}
           {user && onLogout && (
             <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56]">

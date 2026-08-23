@@ -1,6 +1,7 @@
 import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export const BOOK_SUBSCRIPTION_TYPES = ['FULL_TIME_ACCESS', 'LIMITED_ACCESS', 'SUBSCRIPTION'] as const;
+export const BOOK_SUBSCRIPTION_DURATIONS = ['1_MONTH', '3_MONTHS', '6_MONTHS', '1_YEAR'] as const;
 
 export class CreateBookDto {
   @IsString()
@@ -17,6 +18,10 @@ export class CreateBookDto {
 
   @IsOptional()
   @IsString()
+  heroCoverUrl?: string;
+
+  @IsOptional()
+  @IsString()
   pdfUrl?: string;
 
   @IsOptional()
@@ -30,6 +35,18 @@ export class CreateBookDto {
   @IsOptional()
   @IsInt()
   previewPdfSizeBytes?: number;
+
+  @IsOptional()
+  @IsString()
+  previewAudioUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  previewAudioFileName?: string;
+
+  @IsOptional()
+  @IsInt()
+  previewAudioSizeBytes?: number;
 
   @IsOptional()
   @IsNumber()
@@ -64,6 +81,10 @@ export class CreateBookDto {
   @IsOptional()
   @IsIn(BOOK_SUBSCRIPTION_TYPES)
   subscriptionType?: (typeof BOOK_SUBSCRIPTION_TYPES)[number];
+
+  @IsOptional()
+  @IsIn(BOOK_SUBSCRIPTION_DURATIONS)
+  subscriptionDuration?: (typeof BOOK_SUBSCRIPTION_DURATIONS)[number];
 
   @IsOptional()
   @IsBoolean()

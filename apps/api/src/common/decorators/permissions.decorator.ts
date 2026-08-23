@@ -11,7 +11,10 @@ export type StaffPermissionKey =
   | 'viewAnalytics'
   | 'manageUsers'
   | 'manageVideos'
-  | 'managePdfs';
+  | 'managePdfs'
+  | 'manageAnnouncements'
+  | 'manageReviews'
+  | 'manageSocialLinks';
 
 export const PERMISSIONS_KEY = 'permissions';
 export const RequirePermissions = (...permissions: StaffPermissionKey[]) =>

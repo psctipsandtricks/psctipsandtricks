@@ -77,8 +77,7 @@ export class QuizAccessService {
     actor: AccessActor | null | undefined,
     quizzes: T[],
   ): Promise<(T & { access: QuizAccessState })[]> {
-    const staff = this.isStaff(actor);
-    const purchased = staff ? new Set<string>() : await this.getPurchasedQuizIds(actor?.id);
+    const purchased = await this.getPurchasedQuizIds(actor?.id);
 
     return quizzes.map((quiz) => {
       const price = quiz.price ?? 0;
@@ -86,8 +85,6 @@ export class QuizAccessService {
 
       if (!this.isPaidQuiz(quiz)) {
         access = { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
-      } else if (staff) {
-        access = { isPaid: true, hasAccess: true, price, reason: 'STAFF' };
       } else if (!actor?.id) {
         access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
       } else {
@@ -107,10 +104,6 @@ export class QuizAccessService {
 
     if (!this.isPaidQuiz(quiz)) {
       return { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
-    }
-    // Staff need to preview and manage paid content without buying it.
-    if (this.isStaff(actor)) {
-      return { isPaid: true, hasAccess: true, price, reason: 'STAFF' };
     }
     if (!actor?.id) {
       return { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };

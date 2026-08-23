@@ -1,27 +1,1318 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { useFormik } from 'formik';
+import * as Yup from 'yup';
 import { ApiClient } from '@/lib/api-client';
-import { LibraryFolderManager } from '../library-folder-manager';
-import type { PdfExam } from '@psc/shared-types';
+import {
+  Card,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  Button,
+  Dialog,
+  ConfirmDialog,
+  Input,
+  Badge,
+  ToggleSwitch,
+  FileDropZone,
+  Pagination,
+} from '@psc/ui';
+import {
+  Folder,
+  FolderOpen,
+  Plus,
+  Trash2,
+  Edit3,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  FileText,
+  Eye,
+  X,
+  CheckCircle2,
+  ExternalLink,
+  UploadCloud,
+} from 'lucide-react';
+import type { PdfFolder, PdfDocument } from '@psc/shared-types';
+import { AdminSkeletonTable } from '../admin-skeleton';
 
-export default function AdminPdfExamsPage() {
+const folderSchema = Yup.object({
+  name: Yup.string().trim().required('Folder name is required'),
+});
+
+const documentSchema = Yup.object({
+  title: Yup.string().trim().required('Document title is required'),
+});
+
+export default function AdminPdfFoldersPage() {
+  const [loading, setLoading] = useState(true);
+  const [folders, setFolders] = useState<PdfFolder[]>([]);
+  const [allFoldersList, setAllFoldersList] = useState<PdfFolder[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [pageError, setPageError] = useState('');
+
+  // Folder Dialog
+  const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
+  const [editingFolder, setEditingFolder] = useState<PdfFolder | null>(null);
+  const [parentForNewFolder, setParentForNewFolder] = useState<PdfFolder | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<PdfFolder | null>(null);
+
+  // Document Dialog
+  const [isDocDialogOpen, setIsDocDialogOpen] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<PdfDocument | null>(null);
+  const [targetFolderForDoc, setTargetFolderForDoc] = useState<PdfFolder | null>(null);
+  const [deleteDocTarget, setDeleteDocTarget] = useState<PdfDocument | null>(null);
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [pdfUploadPercent, setPdfUploadPercent] = useState<number | null>(null);
+
+  // Toast
+  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
+
+  // Expandable Hierarchy Tree State
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [folderContents, setFolderContents] = useState<
+    Record<string, { subFolders: PdfFolder[]; documents: PdfDocument[]; loading: boolean }>
+  >({});
+
+  useEffect(() => {
+    if (!toastMsg) return;
+    const timer = setTimeout(() => setToastMsg(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toastMsg]);
+
+  const loadFolders = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const [topLevel, allFolders] = await Promise.all([
+        ApiClient.getPdfFolders('root'),
+        ApiClient.getPdfFolders(),
+      ]);
+      setFolders(topLevel || []);
+      setAllFoldersList(allFolders || []);
+    } catch (err: any) {
+      setPageError(err.message || 'Failed to load PDF folders.');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFolders();
+  }, [loadFolders]);
+
+  const refreshFolderContents = async (folderId: string) => {
+    try {
+      const [childrenFolders, docList] = await Promise.all([
+        ApiClient.getPdfFolders(folderId),
+        ApiClient.getPdfDocuments({ folderId }),
+      ]);
+      setFolderContents((prev) => ({
+        ...prev,
+        [folderId]: {
+          subFolders: childrenFolders || [],
+          documents: docList || [],
+          loading: false,
+        },
+      }));
+    } catch {
+      // Ignore refresh error
+    }
+  };
+
+  const toggleExpandFolder = async (folder: PdfFolder) => {
+    const nextState = !expandedFolders[folder.id];
+    setExpandedFolders((prev) => ({ ...prev, [folder.id]: nextState }));
+
+    if (nextState && !folderContents[folder.id]) {
+      setFolderContents((prev) => ({
+        ...prev,
+        [folder.id]: { subFolders: [], documents: [], loading: true },
+      }));
+      await refreshFolderContents(folder.id);
+    }
+  };
+
+  // Folder Formik
+  const folderFormik = useFormik({
+    initialValues: { name: '', description: '', parentId: '', isActive: true },
+    validationSchema: folderSchema,
+    onSubmit: async (values, { setSubmitting, resetForm }) => {
+      try {
+        if (editingFolder) {
+          await ApiClient.updatePdfFolder(editingFolder.id, {
+            name: values.name.trim(),
+            description: values.description?.trim() || null,
+            parentId: values.parentId || null,
+            isActive: values.isActive,
+          });
+          setToastMsg({ type: 'success', text: `Folder "${values.name}" updated successfully.` });
+        } else {
+          await ApiClient.createPdfFolder({
+            name: values.name.trim(),
+            description: values.description?.trim() || null,
+            parentId: values.parentId || null,
+            isActive: values.isActive,
+          });
+          setToastMsg({ type: 'success', text: `Folder "${values.name}" created successfully.` });
+        }
+        setIsFolderDialogOpen(false);
+        setEditingFolder(null);
+        setParentForNewFolder(null);
+        resetForm();
+        await loadFolders(true);
+        if (values.parentId) {
+          await refreshFolderContents(values.parentId);
+        }
+      } catch (err: any) {
+        folderFormik.setFieldError('name', err.message || 'Failed to save folder.');
+      } finally {
+        setSubmitting(false);
+      }
+    },
+  });
+
+  // Document Formik
+  const docFormik = useFormik({
+    initialValues: { title: '', description: '', folderId: '', isActive: true },
+    validationSchema: documentSchema,
+    onSubmit: async (values, { setSubmitting, resetForm }) => {
+      try {
+        let savedDoc: PdfDocument;
+        if (editingDoc) {
+          savedDoc = await ApiClient.updatePdfDocument(editingDoc.id, {
+            title: values.title.trim(),
+            description: values.description?.trim() || undefined,
+            folderId: values.folderId,
+            isActive: values.isActive,
+          });
+          setToastMsg({ type: 'success', text: `Document "${values.title}" updated.` });
+        } else {
+          if (!docFile) {
+            docFormik.setFieldError('title', 'Please choose a PDF file to upload.');
+            setSubmitting(false);
+            return;
+          }
+          savedDoc = await ApiClient.createPdfDocument({
+            title: values.title.trim(),
+            description: values.description?.trim() || undefined,
+            folderId: values.folderId,
+            isActive: values.isActive,
+          });
+          setToastMsg({ type: 'success', text: `Document "${values.title}" created.` });
+        }
+
+        if (docFile && savedDoc?.id) {
+          setPdfUploadPercent(0);
+          await ApiClient.uploadPdfDocumentFile(savedDoc.id, docFile, setPdfUploadPercent);
+        }
+
+        setIsDocDialogOpen(false);
+        setEditingDoc(null);
+        setTargetFolderForDoc(null);
+        setDocFile(null);
+        resetForm();
+        if (values.folderId) {
+          await refreshFolderContents(values.folderId);
+        }
+        await loadFolders(true);
+      } catch (err: any) {
+        docFormik.setFieldError('title', err.message || 'Failed to save PDF document.');
+      } finally {
+        setPdfUploadPercent(null);
+        setSubmitting(false);
+      }
+    },
+  });
+
+  const handleOpenCreateFolder = (parent?: PdfFolder | null) => {
+    setEditingFolder(null);
+    setParentForNewFolder(parent || null);
+    folderFormik.resetForm({
+      values: {
+        name: '',
+        description: '',
+        parentId: parent?.id || '',
+        isActive: true,
+      },
+    });
+    setIsFolderDialogOpen(true);
+  };
+
+  const handleOpenEditFolder = (folder: PdfFolder) => {
+    setEditingFolder(folder);
+    setParentForNewFolder(null);
+    folderFormik.resetForm({
+      values: {
+        name: folder.name,
+        description: folder.description || '',
+        parentId: folder.parentId || '',
+        isActive: folder.isActive !== false,
+      },
+    });
+    setIsFolderDialogOpen(true);
+  };
+
+  const handleOpenCreateDoc = (folder: PdfFolder) => {
+    setEditingDoc(null);
+    setTargetFolderForDoc(folder);
+    setDocFile(null);
+    docFormik.resetForm({
+      values: {
+        title: '',
+        description: '',
+        folderId: folder.id,
+        isActive: true,
+      },
+    });
+    setIsDocDialogOpen(true);
+  };
+
+  const handleOpenEditDoc = (doc: PdfDocument) => {
+    setEditingDoc(doc);
+    setTargetFolderForDoc(null);
+    setDocFile(null);
+    docFormik.resetForm({
+      values: {
+        title: doc.title,
+        description: doc.description || '',
+        folderId: doc.folderId || '',
+        isActive: doc.isActive !== false,
+      },
+    });
+    setIsDocDialogOpen(true);
+  };
+
+  const handleDeleteFolder = async () => {
+    if (!deleteFolderTarget) return;
+    const target = deleteFolderTarget;
+    const parentId = target.parentId;
+    const prevFolders = folders;
+    const prevFolderContents = folderContents;
+
+    // 1. Immediately dismiss modal in 0ms
+    setDeleteFolderTarget(null);
+
+    // 2. Optimistically remove folder from table state
+    setFolders((prev) => prev.filter((f) => f.id !== target.id));
+    if (parentId && prevFolderContents[parentId]) {
+      setFolderContents((prev) => ({
+        ...prev,
+        [parentId]: {
+          ...prev[parentId],
+          subFolders: prev[parentId].subFolders.filter((sf) => sf.id !== target.id),
+        },
+      }));
+    }
+
+    try {
+      await ApiClient.deletePdfFolder(target.id);
+      setToastMsg({ type: 'success', text: `Folder "${target.name}" deleted.` });
+      await loadFolders(true);
+      if (parentId) {
+        await refreshFolderContents(parentId);
+      }
+    } catch (err: any) {
+      setFolders(prevFolders);
+      setFolderContents(prevFolderContents);
+      setToastMsg({ type: 'error', text: err.message || 'Failed to delete folder.' });
+    }
+  };
+
+  const handleDeleteDoc = async () => {
+    if (!deleteDocTarget) return;
+    const target = deleteDocTarget;
+    const folderId = target.folderId;
+    const prevFolderContents = folderContents;
+
+    // 1. Immediately dismiss modal in 0ms
+    setDeleteDocTarget(null);
+
+    // 2. Optimistically remove document from table state
+    if (folderId && prevFolderContents[folderId]) {
+      setFolderContents((prev) => ({
+        ...prev,
+        [folderId]: {
+          ...prev[folderId],
+          documents: prev[folderId].documents.filter((d) => d.id !== target.id),
+        },
+      }));
+    }
+
+    try {
+      await ApiClient.deletePdfDocument(target.id);
+      setToastMsg({ type: 'success', text: `Document "${target.title}" deleted.` });
+      if (folderId) {
+        await refreshFolderContents(folderId);
+      }
+      await loadFolders(true);
+    } catch (err: any) {
+      setFolderContents(prevFolderContents);
+      setToastMsg({ type: 'error', text: err.message || 'Failed to delete document.' });
+    }
+  };
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const filteredFolders = folders.filter(
+    (f) =>
+      !searchTerm.trim() ||
+      f.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (f.description && f.description.toLowerCase().includes(searchTerm.toLowerCase())),
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredFolders.length / pageSize));
+  const paginatedFolders = filteredFolders.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+
+  const totalDocuments = folders.reduce((sum, f) => sum + (f.documentCount || 0), 0);
+
   return (
-    <LibraryFolderManager
-      nounSingular="Exam"
-      nounPlural="Exams"
-      pageTitle="PDF Library"
-      pageSubtitle="Top level of the PDF library. Each exam holds chapters, and each chapter holds PDF study material."
-      fetchItems={() => ApiClient.getPdfExams()}
-      createItem={(payload) => ApiClient.createPdfExam(payload)}
-      updateItem={(examId, payload) => ApiClient.updatePdfExam(examId, payload)}
-      deleteItem={(examId) => ApiClient.deletePdfExam(examId)}
-      reorderItems={(items) => ApiClient.reorderPdfExams(items)}
-      getChildHref={(exam) => `/admin/pdfs/${exam.id}`}
-      getSummary={(exam) => {
-        const { chapterCount = 0, documentCount = 0 } = exam as PdfExam;
-        return `${chapterCount} chapter${chapterCount === 1 ? '' : 's'} · ${documentCount} PDF${documentCount === 1 ? '' : 's'}`;
-      }}
-    />
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-xl border text-xs font-bold flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-3 duration-200 ${
+            toastMsg.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/90 border-emerald-500/40 text-emerald-800 dark:text-emerald-300'
+              : toastMsg.type === 'warning'
+                ? 'bg-amber-50 dark:bg-amber-950/90 border-amber-500/40 text-amber-800 dark:text-amber-300'
+                : 'bg-rose-50 dark:bg-rose-950/90 border-rose-500/40 text-rose-800 dark:text-rose-300'
+          }`}
+        >
+          <span>{toastMsg.text}</span>
+          <button type="button" onClick={() => setToastMsg(null)} className="ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Header Section */}
+      <div className="shrink-0 space-y-3">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                PDF Folders
+              </h1>
+              <Badge variant="gold" className="font-extrabold text-xs">
+                {folders.length} {folders.length === 1 ? 'Folder' : 'Folders'}
+              </Badge>
+              <Badge variant="default" className="font-bold text-xs">
+                {totalDocuments} {totalDocuments === 1 ? 'Total Document' : 'Total Documents'}
+              </Badge>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1">
+              Expand any folder dropdown to view and manage its inner sub-folders and PDF documents.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="gold"
+              size="sm"
+              className="font-bold shadow-md shadow-amber-500/20 cursor-pointer"
+              onClick={() => handleOpenCreateFolder(null)}
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Folder</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative max-w-md">
+          <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+          <Input
+            placeholder="Search PDF folders..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9 h-9 text-xs"
+          />
+        </div>
+      </div>
+
+      {pageError && (
+        <div className="shrink-0 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between">
+          <span>{pageError}</span>
+          <button type="button" onClick={() => setPageError('')} className="cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Folders Tree Table Card */}
+      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden p-0">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {loading ? (
+            <AdminSkeletonTable rowsCount={5} colsCount={5} />
+          ) : filteredFolders.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shadow-inner">
+                <FolderOpen className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  No PDF Folders Found
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
+                  {searchTerm ? 'Try clearing your search term.' : 'Click "Add Folder" to create your first top-level PDF study material folder.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+                  <TableHead className="font-bold text-xs">Folder / Item Name</TableHead>
+                  <TableHead className="font-bold text-xs">Type</TableHead>
+                  <TableHead className="font-bold text-xs">Contents</TableHead>
+                  <TableHead className="font-bold text-xs">Status</TableHead>
+                  <TableHead className="font-bold text-xs text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedFolders.map((folder) => {
+                  const folderHasContents = (folder.subFolderCount || 0) > 0 || (folder.documentCount || 0) > 0;
+                  return (
+                    <React.Fragment key={`root-pdf-folder-${folder.id}`}>
+                      {/* Top-Level Folder Row */}
+                      <TableRow className="border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-slate-50/70 dark:hover:bg-[#0c152e]/40 transition-colors group">
+                        {/* Name with Expand Chevron Box */}
+                        <TableCell className="py-3">
+                          <div className="flex items-center gap-2.5">
+                            {folderHasContents ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleExpandFolder(folder)}
+                                className="w-7 h-7 rounded-lg border border-cyan-500/40 dark:border-cyan-400/40 flex items-center justify-center text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer shrink-0"
+                                title={expandedFolders[folder.id] ? 'Collapse inner contents' : 'Expand inner contents'}
+                              >
+                                <ChevronDown
+                                  className={`w-4 h-4 transition-transform duration-200 ${
+                                    expandedFolders[folder.id] ? '' : '-rotate-90'
+                                  }`}
+                                />
+                              </button>
+                            ) : (
+                              <div className="w-7 h-7 flex items-center justify-center text-slate-300 dark:text-slate-700 font-mono text-xs shrink-0">
+                                •
+                              </div>
+                            )}
+
+                            <Link
+                              href={`/admin/pdfs/folder/${folder.id}`}
+                              className="flex items-center gap-3 group/link min-w-[260px]"
+                            >
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0 shadow-inner group-hover/link:scale-105 transition-transform">
+                              <Folder className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-wide truncate group-hover/link:text-cyan-600 dark:group-hover/link:text-cyan-400 transition-colors">
+                                {folder.name}
+                              </span>
+                              {folder.description && (
+                                <p className="text-xs text-slate-400 truncate max-w-xs">{folder.description}</p>
+                              )}
+                            </div>
+                          </Link>
+                        </div>
+                      </TableCell>
+
+                      {/* Type */}
+                      <TableCell className="py-3">
+                        <Badge variant="outline" className="font-bold text-xs flex items-center gap-1 border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5">
+                          <Folder className="w-3 h-3" />
+                          <span>Top Folder</span>
+                        </Badge>
+                      </TableCell>
+
+                      {/* Contents Count */}
+                      <TableCell className="py-3">
+                        <div className="flex items-center gap-2 text-xs font-mono">
+                          {folder.subFolderCount ? (
+                            <span className="font-bold text-amber-600 dark:text-amber-400">
+                              {folder.subFolderCount} {folder.subFolderCount === 1 ? 'sub-folder' : 'sub-folders'}
+                            </span>
+                          ) : null}
+                          {folder.subFolderCount && folder.documentCount !== undefined ? <span className="text-slate-300 dark:text-slate-700">·</span> : null}
+                          <span className="font-bold text-cyan-600 dark:text-cyan-400">
+                            {folder.documentCount || 0} {(folder.documentCount || 0) === 1 ? 'document' : 'documents'}
+                          </span>
+                        </div>
+                      </TableCell>
+
+                      {/* Status */}
+                      <TableCell className="py-3">
+                        {folder.isActive !== false ? (
+                          <Badge variant="success" className="font-bold text-xs flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Active</span>
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="font-bold text-xs flex items-center gap-1 text-slate-400">
+                            <Eye className="w-3 h-3" />
+                            <span>Hidden</span>
+                          </Badge>
+                        )}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell className="py-3 text-right">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7 px-2 font-bold text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+                            onClick={() => handleOpenCreateDoc(folder)}
+                            title={`Add PDF in ${folder.name}`}
+                          >
+                            <Plus className="w-3 h-3 mr-0.5" />
+                            <span>PDF</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7 px-2 font-bold text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
+                            onClick={() => handleOpenCreateFolder(folder)}
+                            title={`Add sub-folder inside ${folder.name}`}
+                          >
+                            <Plus className="w-3 h-3 mr-0.5" />
+                            <span>Subfolder</span>
+                          </Button>
+                          <Link href={`/admin/pdfs/folder/${folder.id}`}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7 px-2.5 font-bold border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 cursor-pointer"
+                            >
+                              <span>Open</span>
+                              <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-amber-500 h-7 w-7 p-0 cursor-pointer"
+                            onClick={() => handleOpenEditFolder(folder)}
+                            title="Edit Folder"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-rose-500 h-7 w-7 p-0 cursor-pointer"
+                            onClick={() => setDeleteFolderTarget(folder)}
+                            title="Delete Folder"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Expanded Inner Hierarchy (Nested Subfolders & Documents) */}
+                    {expandedFolders[folder.id] && (
+                      <>
+                        {folderContents[folder.id]?.loading ? (
+                          <TableRow className="bg-slate-50/40 dark:bg-[#0c152e]/30 border-b border-slate-100 dark:border-[#1e2e56]/30">
+                            <TableCell colSpan={5} className="py-3 pl-12">
+                              <div className="flex items-center space-x-2 text-xs text-slate-400">
+                                <span className="w-3.5 h-3.5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                                <span>Loading inner contents for &ldquo;{folder.name}&rdquo;...</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (folderContents[folder.id]?.documents?.length === 0 && folderContents[folder.id]?.subFolders?.length === 0) ? (
+                          <TableRow className="bg-slate-50/40 dark:bg-[#0c152e]/30 border-b border-slate-100 dark:border-[#1e2e56]/30">
+                            <TableCell colSpan={5} className="py-3 pl-12">
+                              <div className="flex items-center justify-between py-1 flex-wrap gap-2">
+                                <div className="flex items-center gap-2 text-xs text-slate-400">
+                                  <span className="text-slate-300 dark:text-slate-600 font-mono">└──</span>
+                                  <span>No documents or sub-folders inside &ldquo;{folder.name}&rdquo; yet.</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 px-2 font-bold text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+                                    onClick={() => handleOpenCreateDoc(folder)}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    <span>Add PDF</span>
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 px-2 font-bold text-amber-600 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
+                                    onClick={() => handleOpenCreateFolder(folder)}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    <span>Add Subfolder</span>
+                                  </Button>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          <>
+                            {/* Inner Sub-Folders */}
+                            {folderContents[folder.id]?.subFolders?.map((subF) => {
+                              const sfHasContents = (subF.subFolderCount || 0) > 0 || (subF.documentCount || 0) > 0;
+                              return (
+                              <React.Fragment key={`sub-pdf-frag-${subF.id}`}>
+                                <TableRow className="bg-slate-50/50 dark:bg-[#0c152e]/40 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-amber-500/[0.04] transition-colors">
+                                  {/* Item details with chevron expand */}
+                                  <TableCell className="py-2.5 pl-10">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">├──</span>
+                                      {sfHasContents ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleExpandFolder(subF)}
+                                          className="p-1 rounded text-slate-400 hover:text-cyan-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                                          title={expandedFolders[subF.id] ? 'Collapse inner contents' : 'Expand inner contents'}
+                                        >
+                                          <ChevronRight
+                                            className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                                              expandedFolders[subF.id] ? 'rotate-90 text-cyan-500' : ''
+                                            }`}
+                                          />
+                                        </button>
+                                      ) : (
+                                        <div className="w-5 h-5 flex items-center justify-center text-slate-300 dark:text-slate-700 font-mono text-xs shrink-0">
+                                          •
+                                        </div>
+                                      )}
+                                      <Link
+                                        href={`/admin/pdfs/folder/${subF.id}`}
+                                        className="flex items-center gap-2 group/inner"
+                                      >
+                                        <div className="w-6 h-6 rounded bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                                          <Folder className="w-3.5 h-3.5" />
+                                        </div>
+                                        <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200 group-hover/inner:text-amber-500">
+                                          {subF.name}
+                                        </span>
+                                        <Badge variant="default" className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-600">
+                                          Sub-folder
+                                        </Badge>
+                                      </Link>
+                                    </div>
+                                  </TableCell>
+
+                                  {/* Type */}
+                                  <TableCell className="py-2.5">
+                                    <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/30">
+                                      Sub-folder
+                                    </Badge>
+                                  </TableCell>
+
+                                  {/* Contents */}
+                                  <TableCell className="py-2.5 text-xs font-mono text-cyan-600">
+                                    {subF.documentCount || 0} {(subF.documentCount || 0) === 1 ? 'Document' : 'Documents'}
+                                  </TableCell>
+
+                                  {/* Status */}
+                                  <TableCell className="py-2.5">
+                                    {subF.isActive !== false ? (
+                                      <Badge variant="success" className="text-[10px]">Active</Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] text-slate-400">Hidden</Badge>
+                                    )}
+                                  </TableCell>
+
+                                  {/* Actions for Sub-Folder */}
+                                  <TableCell className="py-2.5 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7 px-2 font-bold text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+                                        onClick={() => handleOpenCreateDoc(subF)}
+                                        title={`Add PDF in ${subF.name}`}
+                                      >
+                                        <Plus className="w-3 h-3 mr-0.5" />
+                                        <span>PDF</span>
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7 px-2 font-bold text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer"
+                                        onClick={() => handleOpenCreateFolder(subF)}
+                                        title={`Create sub-folder inside ${subF.name}`}
+                                      >
+                                        <Plus className="w-3 h-3 mr-0.5" />
+                                        <span>Folder</span>
+                                      </Button>
+                                      <Link href={`/admin/pdfs/folder/${subF.id}`}>
+                                        <Button variant="outline" size="sm" className="text-xs h-7 px-2 font-bold cursor-pointer">
+                                          <span>Open</span>
+                                          <ChevronRight className="w-3 h-3 ml-0.5" />
+                                        </Button>
+                                      </Link>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 w-7 p-0 text-slate-400 hover:text-amber-500 cursor-pointer"
+                                        onClick={() => handleOpenEditFolder(subF)}
+                                        title="Edit Sub-folder"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 w-7 p-0 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                        onClick={() => setDeleteFolderTarget(subF)}
+                                        title="Delete Sub-folder"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+
+                                {/* Child Documents or sub-subfolders inside subF */}
+                                {expandedFolders[subF.id] && (
+                                  <>
+                                    {folderContents[subF.id]?.loading ? (
+                                      <TableRow className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30">
+                                        <TableCell colSpan={5} className="py-2.5 pl-20">
+                                          <div className="flex items-center space-x-2 text-xs text-slate-400">
+                                            <span className="w-3 h-3 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                                            <span>Loading inner items for &ldquo;{subF.name}&rdquo;...</span>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ) : (folderContents[subF.id]?.documents?.length === 0 && folderContents[subF.id]?.subFolders?.length === 0) ? (
+                                      <TableRow className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30">
+                                        <TableCell colSpan={5} className="py-2.5 pl-20">
+                                          <div className="flex items-center justify-between py-1 flex-wrap gap-2">
+                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                              <span className="text-slate-300 dark:text-slate-600 font-mono">└──</span>
+                                              <span>No PDF documents inside &ldquo;{subF.name}&rdquo; yet.</span>
+                                            </div>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="text-xs h-6 px-2 font-bold text-cyan-600 border-cyan-500/30"
+                                              onClick={() => handleOpenCreateDoc(subF)}
+                                            >
+                                              <Plus className="w-3 h-3 mr-1" />
+                                              <span>Add PDF</span>
+                                            </Button>
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ) : (
+                                      <>
+                                        {/* Sub-subfolders */}
+                                        {folderContents[subF.id]?.subFolders?.map((innerSub) => (
+                                          <TableRow
+                                            key={`innersub-pdf-${innerSub.id}`}
+                                            className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-amber-500/[0.04] transition-colors"
+                                          >
+                                            <TableCell className="py-2 pl-20">
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">└──</span>
+                                                <Link
+                                                  href={`/admin/pdfs/folder/${innerSub.id}`}
+                                                  className="flex items-center gap-2 group/inner"
+                                                >
+                                                  <div className="w-5 h-5 rounded bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                                                    <Folder className="w-3 h-3" />
+                                                  </div>
+                                                  <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200 group-hover/inner:text-amber-500">
+                                                    {innerSub.name}
+                                                  </span>
+                                                  <Badge variant="default" className="text-[8px] px-1 py-0 bg-amber-500/10 text-amber-600">
+                                                    Sub-folder
+                                                  </Badge>
+                                                </Link>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="py-2">
+                                              <Badge variant="outline" className="text-[9px] text-amber-600 border-amber-500/30">
+                                                Sub-folder
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell className="py-2 text-xs font-mono text-cyan-600">
+                                              {innerSub.documentCount || 0} Documents
+                                            </TableCell>
+                                            <TableCell className="py-2">
+                                              {innerSub.isActive !== false ? (
+                                                <Badge variant="success" className="text-[9px]">Active</Badge>
+                                              ) : (
+                                                <Badge variant="outline" className="text-[9px] text-slate-400">Hidden</Badge>
+                                              )}
+                                            </TableCell>
+                                            <TableCell className="py-2 text-right">
+                                              <div className="flex items-center justify-end gap-1">
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  className="text-xs h-6 px-1.5 font-bold text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+                                                  onClick={() => handleOpenCreateDoc(innerSub)}
+                                                  title={`Add PDF in ${innerSub.name}`}
+                                                >
+                                                  <Plus className="w-3 h-3 mr-0.5" />
+                                                  <span>PDF</span>
+                                                </Button>
+                                                <Link href={`/admin/pdfs/folder/${innerSub.id}`}>
+                                                  <Button variant="outline" size="sm" className="text-xs h-6 px-2 font-bold cursor-pointer">
+                                                    <span>Open</span>
+                                                    <ChevronRight className="w-3 h-3 ml-0.5" />
+                                                  </Button>
+                                                </Link>
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+
+                                        {/* Documents inside subF */}
+                                        {folderContents[subF.id]?.documents?.map((doc) => (
+                                          <TableRow
+                                            key={`subdoc-item-${doc.id}`}
+                                            className="bg-slate-50/20 dark:bg-[#0c152e]/15 border-b border-slate-100 dark:border-[#1e2e56]/20 hover:bg-cyan-500/[0.04] transition-colors"
+                                          >
+                                            <TableCell className="py-2 pl-24">
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">└──</span>
+                                                <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate max-w-sm">
+                                                  {doc.title}
+                                                </span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="py-2">
+                                              <Badge variant="outline" className="text-[9px] text-cyan-600 dark:text-cyan-400 border-cyan-500/30 bg-cyan-500/5">
+                                                PDF
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell className="py-2 text-xs font-mono text-slate-500">
+                                              {doc.fileName ? doc.fileName : 'Study Material PDF'}
+                                            </TableCell>
+                                            <TableCell className="py-2">
+                                              {doc.isActive !== false ? (
+                                                <Badge variant="success" className="text-[9px]">Active</Badge>
+                                              ) : (
+                                                <Badge variant="outline" className="text-[9px] text-slate-400">Hidden</Badge>
+                                              )}
+                                            </TableCell>
+                                            <TableCell className="py-2 text-right">
+                                              <div className="flex items-center justify-end gap-1">
+                                                {doc.fileUrl && (
+                                                  <a
+                                                    href={doc.fileUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline px-2 py-1"
+                                                  >
+                                                    <span>View</span>
+                                                    <ExternalLink className="w-3 h-3" />
+                                                  </a>
+                                                )}
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-6 w-6 p-0 text-slate-400 hover:text-amber-500 cursor-pointer"
+                                                  onClick={() => handleOpenEditDoc(doc)}
+                                                  title="Edit Document"
+                                                >
+                                                  <Edit3 className="w-3 h-3" />
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-6 w-6 p-0 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                                  onClick={() => setDeleteDocTarget(doc)}
+                                                  title="Delete Document"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                </Button>
+                                              </div>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                                </React.Fragment>
+                              );
+                            })}
+
+                            {/* Direct Documents under Top Folder */}
+                            {folderContents[folder.id]?.documents?.map((doc) => (
+                              <TableRow
+                                key={`top-doc-item-${doc.id}`}
+                                className="bg-slate-50/30 dark:bg-[#0c152e]/20 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-cyan-500/[0.04] transition-colors"
+                              >
+                                <TableCell className="py-2.5 pl-12">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-slate-300 dark:text-slate-600 text-xs font-mono">└──</span>
+                                    <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate max-w-md">
+                                      {doc.title}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-2.5">
+                                  <Badge variant="outline" className="text-[9px] text-cyan-600 dark:text-cyan-400 border-cyan-500/30 bg-cyan-500/5">
+                                    PDF
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="py-2.5 text-xs font-mono text-slate-500">
+                                  {doc.fileName ? doc.fileName : 'Study Material PDF'}
+                                </TableCell>
+                                <TableCell className="py-2.5">
+                                  {doc.isActive !== false ? (
+                                    <Badge variant="success" className="text-[9px]">Active</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[9px] text-slate-400">Hidden</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="py-2.5 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    {doc.fileUrl && (
+                                      <a
+                                        href={doc.fileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline px-2 py-1"
+                                      >
+                                        <span>View</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-slate-400 hover:text-amber-500 cursor-pointer"
+                                      onClick={() => handleOpenEditDoc(doc)}
+                                      title="Edit Document"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                      onClick={() => setDeleteDocTarget(doc)}
+                                      title="Delete Document"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        {/* Pagination Footer */}
+        {filteredFolders.length > 0 && (
+          <div className="p-4 border-t border-slate-200/80 dark:border-[#1e2e56]/40 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#0c152e]/30">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+              Showing <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredFolders.length, (currentPage - 1) * pageSize + 1)}</span> to{' '}
+              <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredFolders.length, currentPage * pageSize)}</span> of{' '}
+              <span className="font-bold text-slate-700 dark:text-slate-200">{filteredFolders.length}</span> folders
+            </span>
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredFolders.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
+          </div>
+        )}
+      </Card>
+
+      {/* Folder Dialog */}
+      <Dialog
+        isOpen={isFolderDialogOpen}
+        onClose={() => setIsFolderDialogOpen(false)}
+        title={editingFolder ? 'Edit PDF Folder' : parentForNewFolder ? `Add Subfolder inside "${parentForNewFolder.name}"` : 'Create PDF Folder'}
+      >
+        <form onSubmit={folderFormik.handleSubmit} className="space-y-4 pt-2">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Folder Name <span className="text-rose-500">*</span>
+            </label>
+            <Input
+              name="name"
+              placeholder="e.g. Previous Question Papers"
+              value={folderFormik.values.name}
+              onChange={folderFormik.handleChange}
+              onBlur={folderFormik.handleBlur}
+              error={folderFormik.touched.name && folderFormik.errors.name ? folderFormik.errors.name : undefined}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Parent Folder (Optional)
+            </label>
+            <select
+              name="parentId"
+              value={folderFormik.values.parentId}
+              onChange={folderFormik.handleChange}
+              className="w-full px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-white"
+            >
+              <option value="">Top Level (No Parent)</option>
+              {allFoldersList
+                .filter((f) => !editingFolder || f.id !== editingFolder.id)
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Description (Optional)
+            </label>
+            <textarea
+              name="description"
+              rows={3}
+              placeholder="Brief description of study PDFs stored here..."
+              value={folderFormik.values.description}
+              onChange={folderFormik.handleChange}
+              className="w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+            />
+          </div>
+
+          <ToggleSwitch
+            label="Active Status"
+            description="Visible to students in PDF library"
+            checked={folderFormik.values.isActive}
+            onChange={(checked) => folderFormik.setFieldValue('isActive', checked)}
+            variant="emerald"
+          />
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFolderDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="gold"
+              size="sm"
+              disabled={folderFormik.isSubmitting}
+            >
+              {folderFormik.isSubmitting ? 'Saving...' : editingFolder ? 'Save Changes' : 'Create Folder'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Document Dialog */}
+      <Dialog
+        isOpen={isDocDialogOpen}
+        onClose={() => setIsDocDialogOpen(false)}
+        title={editingDoc ? 'Edit PDF Document' : `Add PDF Document to "${targetFolderForDoc?.name || 'Folder'}"`}
+      >
+        <form onSubmit={docFormik.handleSubmit} className="space-y-4 pt-2">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Document Title <span className="text-rose-500">*</span>
+            </label>
+            <Input
+              name="title"
+              placeholder="e.g. 2025 Secretariat Assistant Solved Paper"
+              value={docFormik.values.title}
+              onChange={docFormik.handleChange}
+              onBlur={docFormik.handleBlur}
+              error={docFormik.touched.title && docFormik.errors.title ? docFormik.errors.title : undefined}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Folder <span className="text-rose-500">*</span>
+            </label>
+            <select
+              name="folderId"
+              value={docFormik.values.folderId}
+              onChange={docFormik.handleChange}
+              className="w-full px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-white"
+            >
+              {allFoldersList.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Description (Optional)
+            </label>
+            <textarea
+              name="description"
+              rows={2}
+              placeholder="Brief summary..."
+              value={docFormik.values.description}
+              onChange={docFormik.handleChange}
+              className="w-full px-3 py-2 rounded-xl text-xs bg-white dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+            />
+          </div>
+
+          {/* PDF File Upload */}
+          <div className="space-y-2 p-3 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-amber-500" />
+                <span>PDF File {!editingDoc && <span className="text-rose-500">*</span>}</span>
+              </label>
+              <span className="text-[10px] text-slate-400">PDF · Max 50MB</span>
+            </div>
+
+            {editingDoc?.fileUrl && !docFile && (
+              <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs">
+                <p className="font-bold text-amber-900 dark:text-amber-300 truncate">
+                  {editingDoc.fileName || 'Current Uploaded PDF'}
+                </p>
+                <a
+                  href={editingDoc.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] font-bold text-amber-600 hover:underline inline-flex items-center gap-0.5"
+                >
+                  <span>View</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+
+            {docFile && (
+              <div className="flex items-center justify-between gap-2 p-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-300">
+                <p className="font-bold truncate">{docFile.name}</p>
+                <button type="button" onClick={() => setDocFile(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            <FileDropZone
+              accept="application/pdf,.pdf"
+              onFiles={([file]) => {
+                if (file && file.size > 50 * 1024 * 1024) {
+                  alert('PDF file size must be less than 50MB.');
+                  return;
+                }
+                setDocFile(file);
+              }}
+              onReject={() => alert('Only PDF files can be attached here.')}
+              className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-300 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:border-amber-500/50 hover:bg-amber-500/5 transition-all"
+            >
+              {({ isDragActive }) => (
+                <>
+                  <UploadCloud className="w-3.5 h-3.5 text-amber-500" />
+                  <span>
+                    {isDragActive
+                      ? 'Drop PDF to upload…'
+                      : docFile
+                        ? 'Change PDF file…'
+                        : 'Choose a PDF file to upload…'}
+                  </span>
+                </>
+              )}
+            </FileDropZone>
+
+            {pdfUploadPercent !== null && (
+              <div className="space-y-1 pt-1">
+                <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-400 to-cyan-500 transition-all duration-200"
+                    style={{ width: `${pdfUploadPercent}%` }}
+                  />
+                </div>
+                <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Uploading PDF… {pdfUploadPercent}%</p>
+              </div>
+            )}
+          </div>
+
+          <ToggleSwitch
+            label="Active Status"
+            description="Visible to students"
+            checked={docFormik.values.isActive}
+            onChange={(checked) => docFormik.setFieldValue('isActive', checked)}
+            variant="emerald"
+          />
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDocDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="gold"
+              size="sm"
+              disabled={docFormik.isSubmitting}
+            >
+              {docFormik.isSubmitting ? 'Saving...' : editingDoc ? 'Save Changes' : 'Upload Document'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Delete Folder Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={!!deleteFolderTarget}
+        onCancel={() => setDeleteFolderTarget(null)}
+        onConfirm={handleDeleteFolder}
+        title="Delete PDF Folder?"
+        description={`Are you sure you want to delete "${deleteFolderTarget?.name}"? All nested subfolders and PDF documents inside this folder will also be removed.`}
+        confirmLabel="Delete Folder"
+        variant="danger"
+      />
+
+      {/* Delete Document Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={!!deleteDocTarget}
+        onCancel={() => setDeleteDocTarget(null)}
+        onConfirm={handleDeleteDoc}
+        title="Delete Document?"
+        description={`Are you sure you want to delete "${deleteDocTarget?.title}"?`}
+        confirmLabel="Delete Document"
+        variant="danger"
+      />
+    </div>
   );
 }

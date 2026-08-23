@@ -667,13 +667,13 @@ export async function generateQuizSolutionsPDF({
     doc.setPage(p);
     try {
       doc.saveGraphicsState();
-      const gState = new (doc as any).GState({ opacity: 0.12 });
+      const gState = new (doc as any).GState({ opacity: 0.18 });
       doc.setGState(gState);
 
       if (logoWatermarkUrl) {
-        const logoSize = 92; // mm
+        const logoSize = 112; // mm (~55% of A4 width)
         const logoX = (pageWidth - logoSize) / 2;
-        const logoY = (pageHeight - logoSize) / 2 - 10;
+        const logoY = (pageHeight - logoSize) / 2 - 12;
         doc.addImage(logoWatermarkUrl, 'PNG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
       }
 

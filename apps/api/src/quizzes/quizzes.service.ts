@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseQueueService } from '../queue/queue.service';
+import { StorageService } from '../storage/storage.service';
 import { Prisma } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
@@ -25,6 +26,7 @@ export class QuizzesService {
     private prisma: PrismaService,
     private queueService: SupabaseQueueService,
     private quizAccess: QuizAccessService,
+    private storageService: StorageService,
   ) {}
 
   /**
@@ -268,6 +270,47 @@ export class QuizzesService {
           : undefined,
       },
       include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+    });
+  }
+
+  async uploadImage(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file was uploaded');
+    const url = await this.storageService.upload(
+      'quiz-images',
+      `uploads/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+    return { url };
+  }
+
+  async uploadQuizImage(id: string, file: Express.Multer.File) {
+    const existing = await this.prisma.quiz.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Quiz not found');
+    if (!file) throw new BadRequestException('No file was uploaded');
+
+    const url = await this.storageService.upload(
+      'quiz-images',
+      `${id}/${Date.now()}-${file.originalname}`,
+      file.buffer,
+      file.mimetype,
+    );
+
+    const updated = await this.prisma.quiz.update({
+      where: { id },
+      data: { imageUrl: url },
+    });
+
+    return { url, quiz: updated };
+  }
+
+  async removeQuizImage(id: string) {
+    const existing = await this.prisma.quiz.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Quiz not found');
+
+    return this.prisma.quiz.update({
+      where: { id },
+      data: { imageUrl: null },
     });
   }
 

@@ -8,23 +8,8 @@ import { CreateVideoDto } from './dto/create-video.dto';
 import { UpdateVideoDto } from './dto/update-video.dto';
 import { parseYoutubeLink } from './youtube';
 
-/**
- * Write paths reuse the same lookups as reads, but must resolve rows the
- * student-facing filter hides — an admin has to be able to edit and delete the
- * content they just switched off. The controller has already established the
- * caller is an admin or permitted staff member by the time any of these run,
- * so this stands in for "visibility is not the question here".
- */
 const CURATOR: AccessActor = { id: '', role: UserRole.ADMIN };
 
-/**
- * The YouTube video library: Exam → Chapter → Video.
- *
- * Every read is authenticated but free — there is no paywall here, unlike the
- * book catalogue. The one distinction is staff visibility: an admin browsing
- * the same endpoints sees rows they have switched off, so they can find and
- * re-enable them, while students only ever see active content.
- */
 @Injectable()
 export class VideosService {
   constructor(
@@ -32,7 +17,6 @@ export class VideosService {
     private storageService: StorageService,
   ) {}
 
-  /** Admins and staff see unpublished rows; everyone else is limited to active ones. */
   private static isCurator(actor?: AccessActor | null): boolean {
     return actor?.role === UserRole.ADMIN || actor?.role === UserRole.STAFF;
   }
@@ -41,185 +25,345 @@ export class VideosService {
     return VideosService.isCurator(actor) ? {} : { isActive: true };
   }
 
-  // --- Exams ---
-
-  async listExams(actor?: AccessActor | null) {
-    const isCurator = VideosService.isCurator(actor);
-    const exams = await this.prisma.videoExam.findMany({
-      where: this.activeFilter(actor),
-      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-      include: {
-        chapters: {
-          where: this.activeFilter(actor),
-          orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            orderIndex: true,
-            isActive: true,
-            examId: true,
-            _count: { select: { videos: isCurator ? true : { where: { isActive: true } } } },
-          },
-        },
-      },
-    });
-
-    const mapped = exams.map(({ chapters, ...exam }) => {
-      const activeChapters = isCurator ? chapters : chapters.filter((c) => c._count.videos > 0);
-      const videoCount = activeChapters.reduce((total, chapter) => total + chapter._count.videos, 0);
-
-      return {
-        ...exam,
-        chapterCount: activeChapters.length,
-        videoCount,
-        chapters: activeChapters.map((c) => ({
-          id: c.id,
-          examId: c.examId,
-          title: c.title,
-          description: c.description,
-          orderIndex: c.orderIndex,
-          isActive: c.isActive,
-          videoCount: c._count.videos,
-        })),
-      };
-    });
-
-    return isCurator ? mapped : mapped.filter((exam) => exam.videoCount > 0);
-  }
-
-  async findExam(examId: string, actor?: AccessActor | null) {
-    const exam = await this.prisma.videoExam.findUnique({ where: { id: examId } });
-    if (!exam || (!exam.isActive && !VideosService.isCurator(actor))) {
-      throw new NotFoundException('Exam folder not found');
+  // --- Ensure Migration from Legacy VideoExam / VideoChapter ---
+  private async ensureMigration() {
+    try {
+      const exams = await this.prisma.videoExam.findMany({
+        include: { chapters: { include: { videos: true } } },
+      });
+      for (const exam of exams) {
+        let topFolder = await this.prisma.videoFolder.findFirst({
+          where: { name: exam.title, parentId: null },
+        });
+        if (!topFolder) {
+          topFolder = await this.prisma.videoFolder.create({
+            data: {
+              name: exam.title,
+              description: exam.description,
+              orderIndex: exam.orderIndex,
+              isActive: exam.isActive,
+            },
+          });
+        }
+        for (const ch of exam.chapters) {
+          let sub = await this.prisma.videoFolder.findFirst({
+            where: { name: ch.title, parentId: topFolder.id },
+          });
+          if (!sub) {
+            sub = await this.prisma.videoFolder.create({
+              data: {
+                name: ch.title,
+                description: ch.description,
+                parentId: topFolder.id,
+                orderIndex: ch.orderIndex,
+                isActive: ch.isActive,
+              },
+            });
+          }
+          for (const v of ch.videos) {
+            if (!v.folderId) {
+              await this.prisma.video.update({
+                where: { id: v.id },
+                data: { folderId: sub.id },
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore migration errors if tables are already in sync
     }
-    return exam;
   }
 
-  async createExam(dto: CreateLibraryFolderDto) {
-    return this.prisma.videoExam.create({ data: dto });
+  private computeRecursiveCounts(allFolders: { id: string; parentId: string | null }[], directCountMap: Record<string, number>): Record<string, number> {
+    const childrenMap = new Map<string, string[]>();
+    for (const f of allFolders) {
+      if (f.parentId) {
+        const existing = childrenMap.get(f.parentId) || [];
+        existing.push(f.id);
+        childrenMap.set(f.parentId, existing);
+      }
+    }
+
+    const memo = new Map<string, number>();
+
+    const getCount = (folderId: string): number => {
+      if (memo.has(folderId)) return memo.get(folderId)!;
+      let total = directCountMap[folderId] || 0;
+      const childIds = childrenMap.get(folderId) || [];
+      for (const cId of childIds) {
+        total += getCount(cId);
+      }
+      memo.set(folderId, total);
+      return total;
+    };
+
+    const result: Record<string, number> = {};
+    for (const f of allFolders) {
+      result[f.id] = getCount(f.id);
+    }
+    return result;
   }
 
-  async updateExam(examId: string, dto: UpdateLibraryFolderDto) {
-    await this.findExam(examId, CURATOR);
-    return this.prisma.videoExam.update({ where: { id: examId }, data: dto });
-  }
+  // --- Video Folders (Recursive Tree) ---
 
-  async removeExam(examId: string) {
-    await this.findExam(examId, CURATOR);
-    return this.prisma.videoExam.delete({ where: { id: examId } });
-  }
-
-  async reorderExams(dto: ReorderDto) {
-    await this.prisma.$transaction(
-      dto.items.map((item) =>
-        this.prisma.videoExam.update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } }),
-      ),
-    );
-    return this.listExams(CURATOR);
-  }
-
-  // --- Chapters ---
-
-  async listChapters(examId: string, actor?: AccessActor | null) {
+  async listFolders(actor?: AccessActor | null, parentId?: string | null) {
+    await this.ensureMigration();
     const isCurator = VideosService.isCurator(actor);
-    await this.findExam(examId, actor);
-    const chapters = await this.prisma.videoChapter.findMany({
-      where: { examId, ...this.activeFilter(actor) },
-      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-      include: {
-        _count: { select: { videos: isCurator ? true : { where: { isActive: true } } } },
-        videos: {
-          where: this.activeFilter(actor),
-          orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
-          select: {
-            id: true,
-            title: true,
-            youtubeUrl: true,
-            orderIndex: true,
-            isActive: true,
+    const where: any = this.activeFilter(actor);
+
+    if (parentId !== undefined && parentId !== null) {
+      if (parentId === 'root' || parentId === 'null' || parentId === '') {
+        where.parentId = null;
+      } else {
+        where.parentId = parentId;
+      }
+    }
+
+    const [folders, allFolders, videoGroupCounts] = await Promise.all([
+      this.prisma.videoFolder.findMany({
+        where,
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+        include: {
+          parent: true,
+          _count: {
+            select: {
+              children: isCurator ? true : { where: { isActive: true } },
+              videos: isCurator ? true : { where: { isActive: true } },
+            },
           },
         },
-      },
-    });
-    const mapped = chapters.map(({ _count, videos, ...chapter }) => ({
-      ...chapter,
-      videoCount: _count.videos,
-      videos,
+      }),
+      this.prisma.videoFolder.findMany({
+        where: isCurator ? {} : { isActive: true },
+        select: { id: true, parentId: true },
+      }),
+      this.prisma.video.groupBy({
+        by: ['folderId'],
+        where: isCurator ? { folderId: { not: null } } : { folderId: { not: null }, isActive: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    const directCountMap: Record<string, number> = {};
+    for (const g of videoGroupCounts) {
+      if (g.folderId) {
+        directCountMap[g.folderId] = g._count.id;
+      }
+    }
+    const recursiveCounts = this.computeRecursiveCounts(allFolders, directCountMap);
+
+    const mapped = folders.map((f) => ({
+      id: f.id,
+      name: f.name,
+      title: f.name,
+      parentId: f.parentId,
+      parentName: f.parent?.name || null,
+      description: f.description,
+      orderIndex: f.orderIndex,
+      isActive: f.isActive,
+      subFolderCount: f._count.children,
+      videoCount: recursiveCounts[f.id] !== undefined ? recursiveCounts[f.id] : f._count.videos,
+      directVideoCount: f._count.videos,
+      createdAt: f.createdAt.toISOString(),
+      updatedAt: f.updatedAt.toISOString(),
     }));
 
-    return isCurator ? mapped : mapped.filter((chapter) => chapter.videoCount > 0);
+    return isCurator ? mapped : mapped.filter((f) => (f.videoCount || 0) > 0);
   }
 
-  async findChapter(chapterId: string, actor?: AccessActor | null) {
-    const chapter = await this.prisma.videoChapter.findUnique({
-      where: { id: chapterId },
-      include: { exam: true },
-    });
-    if (!chapter) throw new NotFoundException('Chapter folder not found');
-    // A chapter inside a switched-off exam is unreachable too, otherwise
-    // hiding an exam would leave its chapters addressable by direct link.
-    if (!VideosService.isCurator(actor) && (!chapter.isActive || !chapter.exam.isActive)) {
-      throw new NotFoundException('Chapter folder not found');
+  async findFolder(folderId: string, actor?: AccessActor | null) {
+    const isCurator = VideosService.isCurator(actor);
+    const [folder, allFolders, videoGroupCounts] = await Promise.all([
+      this.prisma.videoFolder.findUnique({
+        where: { id: folderId },
+        include: {
+          parent: {
+            include: {
+              parent: true,
+            },
+          },
+          children: {
+            where: this.activeFilter(actor),
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+            include: {
+              _count: {
+                select: {
+                  children: true,
+                  videos: true,
+                },
+              },
+            },
+          },
+          videos: {
+            where: this.activeFilter(actor),
+            orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+      }),
+      this.prisma.videoFolder.findMany({
+        where: isCurator ? {} : { isActive: true },
+        select: { id: true, parentId: true },
+      }),
+      this.prisma.video.groupBy({
+        by: ['folderId'],
+        where: isCurator ? { folderId: { not: null } } : { folderId: { not: null }, isActive: true },
+        _count: { id: true },
+      }),
+    ]);
+
+    if (!folder) throw new NotFoundException('Video folder not found');
+
+    const directCountMap: Record<string, number> = {};
+    for (const g of videoGroupCounts) {
+      if (g.folderId) {
+        directCountMap[g.folderId] = g._count.id;
+      }
     }
-    return chapter;
+    const recursiveCounts = this.computeRecursiveCounts(allFolders, directCountMap);
+
+    if (!folder || (!folder.isActive && !VideosService.isCurator(actor))) {
+      throw new NotFoundException('Video folder not found');
+    }
+
+    // Build breadcrumbs array
+    const breadcrumbs: { id: string; name: string }[] = [];
+    let curr: any = folder;
+    while (curr) {
+      breadcrumbs.unshift({ id: curr.id, name: curr.name });
+      curr = curr.parent;
+    }
+
+    const mappedChildren = folder.children
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        title: c.name,
+        parentId: c.parentId,
+        description: c.description,
+        orderIndex: c.orderIndex,
+        isActive: c.isActive,
+        subFolderCount: c._count.children,
+        videoCount: recursiveCounts[c.id] !== undefined ? recursiveCounts[c.id] : c._count.videos,
+        directVideoCount: c._count.videos,
+        createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt.toISOString(),
+      }))
+      .filter((c) => (isCurator ? true : (c.videoCount || 0) > 0));
+
+    return {
+      ...folder,
+      breadcrumbs,
+      subFolderCount: mappedChildren.length,
+      videoCount: recursiveCounts[folder.id] !== undefined ? recursiveCounts[folder.id] : folder.videos.length,
+      directVideoCount: folder.videos.length,
+      children: mappedChildren,
+    };
   }
 
-  async createChapter(examId: string, dto: CreateLibraryFolderDto) {
-    await this.findExam(examId, CURATOR);
-    return this.prisma.videoChapter.create({ data: { ...dto, examId } });
+  async createFolder(dto: { name: string; parentId?: string | null; description?: string; isActive?: boolean }) {
+    if (dto.parentId) {
+      const parent = await this.prisma.videoFolder.findUnique({ where: { id: dto.parentId } });
+      if (!parent) throw new NotFoundException('Parent folder not found');
+    }
+
+    return this.prisma.videoFolder.create({
+      data: {
+        name: dto.name,
+        parentId: dto.parentId || null,
+        description: dto.description || null,
+        isActive: dto.isActive !== undefined ? dto.isActive : true,
+      },
+    });
   }
 
-  async updateChapter(chapterId: string, dto: UpdateLibraryFolderDto) {
-    await this.findChapter(chapterId, CURATOR);
-    return this.prisma.videoChapter.update({ where: { id: chapterId }, data: dto });
+  async updateFolder(folderId: string, dto: { name?: string; parentId?: string | null; description?: string; isActive?: boolean; orderIndex?: number }) {
+    await this.findFolder(folderId, CURATOR);
+    return this.prisma.videoFolder.update({
+      where: { id: folderId },
+      data: dto,
+    });
   }
 
-  async removeChapter(chapterId: string) {
-    await this.findChapter(chapterId, CURATOR);
-    return this.prisma.videoChapter.delete({ where: { id: chapterId } });
+  async removeFolder(folderId: string) {
+    await this.findFolder(folderId, CURATOR);
+    return this.prisma.videoFolder.delete({
+      where: { id: folderId },
+    });
   }
 
-  async reorderChapters(examId: string, dto: ReorderDto) {
-    await this.findExam(examId, CURATOR);
+  async reorderFolders(dto: ReorderDto) {
     await this.prisma.$transaction(
       dto.items.map((item) =>
-        this.prisma.videoChapter.update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } }),
+        this.prisma.videoFolder.update({
+          where: { id: item.id },
+          data: { orderIndex: item.orderIndex },
+        }),
       ),
     );
-    return this.listChapters(examId, CURATOR);
+    return this.listFolders(CURATOR);
   }
 
   // --- Videos ---
 
-  async listVideos(chapterId: string, actor?: AccessActor | null) {
-    await this.findChapter(chapterId, actor);
+  async listVideos(params: { folderId?: string; chapterId?: string; search?: string }, actor?: AccessActor | null) {
+    const where: any = { ...this.activeFilter(actor) };
+
+    if (params.folderId) {
+      where.folderId = params.folderId;
+    } else if (params.chapterId) {
+      where.chapterId = params.chapterId;
+    }
+
+    if (params.search) {
+      where.OR = [
+        { title: { contains: params.search, mode: 'insensitive' } },
+        { description: { contains: params.search, mode: 'insensitive' } },
+      ];
+    }
+
     return this.prisma.video.findMany({
-      where: { chapterId, ...this.activeFilter(actor) },
+      where,
       orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        folder: {
+          select: { id: true, name: true },
+        },
+      },
     });
   }
 
   async findVideo(videoId: string, actor?: AccessActor | null) {
     const video = await this.prisma.video.findUnique({
       where: { id: videoId },
-      include: { chapter: { include: { exam: true } } },
+      include: { folder: true, chapter: { include: { exam: true } } },
     });
     if (!video) throw new NotFoundException('Video not found');
-    if (
-      !VideosService.isCurator(actor) &&
-      (!video.isActive || !video.chapter.isActive || !video.chapter.exam.isActive)
-    ) {
+    if (!VideosService.isCurator(actor) && !video.isActive) {
       throw new NotFoundException('Video not found');
     }
     return video;
   }
 
-  async createVideo(chapterId: string, dto: CreateVideoDto) {
-    await this.findChapter(chapterId, CURATOR);
-    const { youtubeUrl, ...rest } = dto;
+  async createVideo(dto: CreateVideoDto) {
+    const { youtubeUrl, folderId, chapterId, ...rest } = dto;
+    if (!folderId && !chapterId) {
+      throw new BadRequestException('Either folderId or chapterId is required');
+    }
+
+    if (folderId) {
+      await this.findFolder(folderId, CURATOR);
+    } else if (chapterId) {
+      await this.findChapter(chapterId, CURATOR);
+    }
+
     return this.prisma.video.create({
-      data: { ...rest, chapterId, ...parseYoutubeLink(youtubeUrl) },
+      data: {
+        ...rest,
+        folderId: folderId || null,
+        chapterId: chapterId || null,
+        ...parseYoutubeLink(youtubeUrl),
+      },
     });
   }
 
@@ -228,9 +372,10 @@ export class VideosService {
     const { youtubeUrl, ...rest } = dto;
     return this.prisma.video.update({
       where: { id: videoId },
-      // Re-parsing on every link change keeps id/thumbnail in step with the
-      // URL; leaving the link alone leaves all three untouched.
-      data: { ...rest, ...(youtubeUrl ? parseYoutubeLink(youtubeUrl) : {}) },
+      data: {
+        ...rest,
+        ...(youtubeUrl ? parseYoutubeLink(youtubeUrl) : {}),
+      },
     });
   }
 
@@ -239,14 +384,13 @@ export class VideosService {
     return this.prisma.video.delete({ where: { id: videoId } });
   }
 
-  async reorderVideos(chapterId: string, dto: ReorderDto) {
-    await this.findChapter(chapterId, CURATOR);
+  async reorderVideos(dto: ReorderDto) {
     await this.prisma.$transaction(
       dto.items.map((item) =>
         this.prisma.video.update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } }),
       ),
     );
-    return this.listVideos(chapterId, CURATOR);
+    return { success: true };
   }
 
   async uploadVideoPdf(videoId: string, file: Express.Multer.File) {
@@ -258,7 +402,7 @@ export class VideosService {
 
     const url = await this.storageService.upload(
       'library-pdfs',
-      `video-pdfs/${video.chapterId}/${videoId}/${Date.now()}-${file.originalname}`,
+      `video-pdfs/${video.folderId || video.chapterId || 'general'}/${videoId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
@@ -283,5 +427,55 @@ export class VideosService {
         pdfSizeBytes: null,
       },
     });
+  }
+
+  // --- Legacy Backwards Compatibility (Exams & Chapters) ---
+
+  async listExams(actor?: AccessActor | null) {
+    return this.listFolders(actor, 'root');
+  }
+
+  async findExam(examId: string, actor?: AccessActor | null) {
+    return this.findFolder(examId, actor);
+  }
+
+  async createExam(dto: CreateLibraryFolderDto) {
+    return this.createFolder({ name: dto.title, description: dto.description, isActive: dto.isActive });
+  }
+
+  async updateExam(examId: string, dto: UpdateLibraryFolderDto) {
+    return this.updateFolder(examId, { name: dto.title, description: dto.description, isActive: dto.isActive, orderIndex: dto.orderIndex });
+  }
+
+  async removeExam(examId: string) {
+    return this.removeFolder(examId);
+  }
+
+  async reorderExams(dto: ReorderDto) {
+    return this.reorderFolders(dto);
+  }
+
+  async listChapters(examId: string, actor?: AccessActor | null) {
+    return this.listFolders(actor, examId);
+  }
+
+  async findChapter(chapterId: string, actor?: AccessActor | null) {
+    return this.findFolder(chapterId, actor);
+  }
+
+  async createChapter(examId: string, dto: CreateLibraryFolderDto) {
+    return this.createFolder({ name: dto.title, parentId: examId, description: dto.description, isActive: dto.isActive });
+  }
+
+  async updateChapter(chapterId: string, dto: UpdateLibraryFolderDto) {
+    return this.updateFolder(chapterId, { name: dto.title, description: dto.description, isActive: dto.isActive, orderIndex: dto.orderIndex });
+  }
+
+  async removeChapter(chapterId: string) {
+    return this.removeFolder(chapterId);
+  }
+
+  async reorderChapters(examId: string, dto: ReorderDto) {
+    return this.reorderFolders(dto);
   }
 }

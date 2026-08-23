@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -36,11 +37,11 @@ export class NotificationsController {
     return this.notificationsService.getUserNotifications(req.user.id);
   }
 
-  @ApiOperation({ summary: 'List announcement popups (Admin / Staff with manage_notifications)' })
+  @ApiOperation({ summary: 'List announcement popups (Admin / Staff with manage_announcements)' })
   @ApiBearerAuth()
   @UseGuards(...MANAGE_NOTIFICATIONS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageNotifications')
+  @RequirePermissions('manageAnnouncements')
   @Get('announcements')
   async listAnnouncements() {
     return this.notificationsService.listAnnouncements();
@@ -52,31 +53,52 @@ export class NotificationsController {
     return this.notificationsService.getActiveAnnouncements();
   }
 
-  @ApiOperation({ summary: 'Create an announcement popup (Admin / Staff with manage_notifications)' })
+  @ApiOperation({ summary: 'Create an announcement popup (Admin / Staff with manage_announcements)' })
   @ApiBearerAuth()
   @UseGuards(...MANAGE_NOTIFICATIONS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageNotifications')
+  @RequirePermissions('manageAnnouncements')
   @Post('announcements')
   async createAnnouncement(@Body() dto: CreateAnnouncementDto) {
     return this.notificationsService.createAnnouncement(dto);
   }
 
-  @ApiOperation({ summary: 'Update an announcement popup (Admin / Staff with manage_notifications)' })
+  @ApiOperation({ summary: 'Reorder announcement popups (Admin / Staff with manage_announcements)' })
   @ApiBearerAuth()
   @UseGuards(...MANAGE_NOTIFICATIONS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageNotifications')
+  @RequirePermissions('manageAnnouncements')
+  @Patch('announcements/reorder')
+  async reorderAnnouncements(@Body('ids') ids: string[]) {
+    return this.notificationsService.reorderAnnouncements(ids || []);
+  }
+
+  @ApiOperation({ summary: 'Update an announcement popup (Admin / Staff with manage_announcements)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_NOTIFICATIONS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageAnnouncements')
   @Patch('announcements/:id')
   async updateAnnouncement(@Param('id') id: string, @Body() dto: UpdateAnnouncementDto) {
     return this.notificationsService.updateAnnouncement(id, dto);
   }
 
-  @ApiOperation({ summary: 'Delete an announcement popup (Admin / Staff with manage_notifications)' })
+  @ApiOperation({ summary: 'Upload announcement banner image (Admin / Staff with manage_announcements)' })
   @ApiBearerAuth()
   @UseGuards(...MANAGE_NOTIFICATIONS_GUARDS)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageNotifications')
+  @RequirePermissions('manageAnnouncements')
+  @UseInterceptors(FileInterceptor('file'))
+  @Post('announcements/banner-image')
+  async uploadBannerImage(@UploadedFile() file: Express.Multer.File) {
+    return this.notificationsService.uploadBannerImage(file);
+  }
+
+  @ApiOperation({ summary: 'Delete an announcement popup (Admin / Staff with manage_announcements)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_NOTIFICATIONS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageAnnouncements')
   @Delete('announcements/:id')
   async removeAnnouncement(@Param('id') id: string) {
     return this.notificationsService.removeAnnouncement(id);

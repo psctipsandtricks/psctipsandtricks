@@ -50,6 +50,8 @@ import {
   Tag,
   Bell,
   Megaphone,
+  Star,
+  Share2,
   LayoutDashboard,
   Lock,
 } from 'lucide-react';
@@ -71,6 +73,8 @@ const PERMISSION_DEFINITIONS = [
   { key: 'manageCoupons', label: 'Coupon Codes', icon: Tag, category: 'Commerce' },
   { key: 'manageNotifications', label: 'Push Notifications', icon: Bell, category: 'Communications' },
   { key: 'manageAnnouncements', label: 'Announcements', icon: Megaphone, category: 'Communications' },
+  { key: 'manageReviews', label: 'Customer Reviews', icon: Star, category: 'Communications' },
+  { key: 'manageSocialLinks', label: 'Social Media Links', icon: Share2, category: 'Communications' },
   { key: 'manageStaff', label: 'Staff Management', icon: ShieldCheck, category: 'Administration' },
 ] as const;
 

@@ -42,6 +42,10 @@ export class CreateQuizDto {
   isPremium?: boolean;
 
   @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
   @IsBoolean()
   showCorrectAnswerAfterSelection?: boolean;
 

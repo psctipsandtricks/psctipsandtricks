@@ -18,6 +18,7 @@ import {
   Skeleton,
   ConfirmDialog,
   Select,
+  useFileDrop,
 } from '@psc/ui';
 import {
   Users,
@@ -162,6 +163,14 @@ export default function AdminCommunityPage() {
     setGroupImageFile(file);
     applyGroupImagePreview(URL.createObjectURL(file));
   };
+
+  // The whole picture row takes drops, not just the thumbnail — the row is
+  // what reads as the target at a glance.
+  const groupImageDrop = useFileDrop({
+    accept: 'image/png,image/jpeg,image/webp,image/gif',
+    onFiles: ([file]) => handleGroupImageSelect(file),
+    onReject: () => setGroupImageError('Please choose an image file (PNG, JPG, or WEBP).'),
+  });
 
   const handleRemoveStagedGroupImage = () => {
     setGroupImageFile(null);
@@ -776,7 +785,14 @@ export default function AdminCommunityPage() {
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                   Group Profile Picture
                 </label>
-                <div className="flex items-center gap-4 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50">
+                <div
+                  {...groupImageDrop.dropProps}
+                  className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${
+                    groupImageDrop.isDragActive
+                      ? 'border-cyan-500 ring-2 ring-cyan-500/30 bg-cyan-500/10'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50'
+                  }`}
+                >
                   <div className="relative shrink-0">
                     {groupImagePreview ? (
                       <img
@@ -822,7 +838,7 @@ export default function AdminCommunityPage() {
                       )}
                     </div>
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                      PNG, JPG or WEBP — up to 5MB.
+                      {groupImageDrop.isDragActive ? 'Drop image to upload…' : 'PNG, JPG or WEBP — up to 5MB. Drag and drop works too.'}
                     </p>
                     {groupImageFile && (
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono">
