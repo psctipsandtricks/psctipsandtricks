@@ -253,7 +253,7 @@ export function HomeReviewsCarousel({ heading }: { heading?: React.ReactNode }) 
           role="region"
           aria-label="Customer reviews"
           tabIndex={0}
-          className="flex items-stretch gap-4 sm:gap-5 overflow-x-auto scrollbar-none touch-scroll-x snap-x snap-mandatory scroll-smooth overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0 pt-3 pb-4 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
+          className="flex items-stretch gap-4 sm:gap-5 overflow-x-auto scrollbar-none touch-scroll-x snap-x snap-mandatory scroll-smooth overscroll-x-contain pt-3 pb-4 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
         >
           {loading
             ? Array.from({ length: 4 }).map((_, i) => <ReviewCardSkeleton key={i} />)

@@ -291,7 +291,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
 
   return (
     <div
-      className="space-y-6 w-full"
+      className="space-y-6 w-full overflow-hidden"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onTouchStart={() => setIsPaused(true)}
@@ -346,7 +346,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
           <div
             ref={railRef}
             onScroll={syncScrollState}
-            className="flex gap-4 sm:gap-6 overflow-x-auto scrollbar-none touch-scroll-x snap-x snap-mandatory scroll-smooth overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0 pt-2 pb-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
+            className="flex gap-4 sm:gap-6 overflow-x-auto scrollbar-none touch-scroll-x snap-x snap-mandatory scroll-smooth overscroll-x-contain pt-2 pb-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
             tabIndex={0}
             role="region"
             aria-label="Featured PSC E-Books"

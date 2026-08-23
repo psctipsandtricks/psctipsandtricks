@@ -130,7 +130,7 @@ export function HomeBookCarousel({ initialBooks }: { initialBooks?: Book[] }) {
     activeBook && palettes[activeBook.id] ? palettes[activeBook.id] : DEFAULT_GLOW;
 
   return (
-    <section className="relative w-full py-4 sm:py-8 lg:py-10">
+    <section className="relative w-full py-4 sm:py-8 lg:py-10 overflow-hidden">
       {/* ── Dynamic Ambient Cinematic Glow behind Hero ─────────────────── */}
       <div
         aria-hidden="true"
