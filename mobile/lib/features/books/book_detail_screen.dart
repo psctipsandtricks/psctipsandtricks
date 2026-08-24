@@ -12,6 +12,7 @@ import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/book.dart';
 import '../checkout/purchase_sheet.dart';
+import '../offline/widgets/download_button.dart';
 import 'books_providers.dart';
 
 class BookDetailScreen extends ConsumerWidget {
@@ -110,6 +111,13 @@ class BookDetailScreen extends ConsumerWidget {
                       book: book,
                       onBuy: () => _buy(context, ref, book),
                     ),
+
+                    // Offered only once the API says this student currently has
+                    // access; the download call re-checks server-side anyway.
+                    if (book.isUnlocked) ...[
+                      const SizedBox(height: 14),
+                      BookDownloadPanel(book: book),
+                    ],
                     const SizedBox(height: 24),
 
                     if (book.description.trim().isNotEmpty) ...[

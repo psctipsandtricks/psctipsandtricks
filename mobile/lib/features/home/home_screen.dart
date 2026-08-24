@@ -43,13 +43,23 @@ class HomeScreen extends ConsumerWidget {
             SliverAppBar(
               floating: true,
               titleSpacing: 16,
-              title: _Greeting(name: user?.name),
-              actions: const [_NotificationsButton(), SizedBox(width: 6)],
+              toolbarHeight: 60,
+              title: _BrandRow(name: user?.name),
+              actions: const [
+                _SearchButton(),
+                _NotificationsButton(),
+                _AvatarButton(),
+                SizedBox(width: 8),
+              ],
+              // The shortcut strip belongs to the header, so it scrolls away
+              // with it and gives the hero the full screen on the way down.
+              bottom: const PreferredSize(
+                preferredSize: Size.fromHeight(80),
+                child: _ShortcutStrip(),
+              ),
             ),
             const SliverToBoxAdapter(child: AnnouncementBanner()),
             const SliverToBoxAdapter(child: _HeroPanel()),
-            const SliverToBoxAdapter(child: SizedBox(height: 22)),
-            const SliverToBoxAdapter(child: _QuickAccessGrid()),
 
             if (user != null) ...[
               const SliverToBoxAdapter(child: SizedBox(height: 26)),
@@ -94,8 +104,9 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _Greeting extends StatelessWidget {
-  const _Greeting({this.name});
+/// Brand mark and greeting, in the slot the website gives its logo.
+class _BrandRow extends StatelessWidget {
+  const _BrandRow({this.name});
 
   final String? name;
 
@@ -108,27 +119,96 @@ class _Greeting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          name == null ? 'Welcome' : _partOfDay,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: context.palette.textMuted,
-                letterSpacing: 0.3,
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            gradient: AppColors.brandGradient,
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.cyan.withValues(alpha: 0.32),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
               ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: const Icon(Icons.school_rounded, color: Colors.white, size: 20),
         ),
-        Text(
-          name?.split(' ').first ?? 'PSC Tips And Tricks',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.4,
+        const SizedBox(width: 11),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                name == null ? 'Welcome to' : _partOfDay,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: context.palette.textMuted,
+                      letterSpacing: 0.3,
+                      fontSize: 10.5,
+                    ),
               ),
+              Text(
+                name?.split(' ').first ?? 'PSC Tips And Tricks',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
+                    ),
+              ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+}
+
+/// Compact circular action button, sized to sit comfortably in a row of three.
+class _HeaderAction extends StatelessWidget {
+  const _HeaderAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(9),
+          child: Icon(icon, size: 22, color: context.palette.textSecondary),
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchButton extends StatelessWidget {
+  const _SearchButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return _HeaderAction(
+      icon: Icons.search_rounded,
+      // The catalog is where the search field lives; this is a jump to it, not
+      // a separate global search the API does not offer.
+      tooltip: 'Search the catalog',
+      onTap: () => context.go(AppRoutes.books),
     );
   }
 }
@@ -140,13 +220,47 @@ class _NotificationsButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final signedIn = ref.watch(authControllerProvider).isAuthenticated;
 
-    return IconButton(
+    return _HeaderAction(
+      icon: Icons.notifications_none_rounded,
       tooltip: 'Notifications',
-      icon: const Icon(Icons.notifications_none_rounded),
-      onPressed: () => context.push(
+      onTap: () => context.push(
         signedIn
             ? AppRoutes.notifications
             : '${AppRoutes.login}?redirect=${Uri.encodeComponent(AppRoutes.notifications)}',
+      ),
+    );
+  }
+}
+
+class _AvatarButton extends ConsumerWidget {
+  const _AvatarButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(currentUserProvider);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: InkWell(
+        onTap: () => context.go(user == null ? AppRoutes.login : AppRoutes.account),
+        customBorder: const CircleBorder(),
+        child: user == null
+            ? Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: context.palette.elevated,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: context.palette.border),
+                ),
+                child: Icon(Icons.person_rounded,
+                    size: 19, color: context.palette.textMuted),
+              )
+            : AppAvatar(
+                imageUrl: user.avatarUrl,
+                name: user.name,
+                size: 34,
+              ),
       ),
     );
   }
@@ -230,87 +344,100 @@ class _HeroPanel extends StatelessWidget {
 }
 
 /// Tiles for the student surfaces that do not own a bottom-nav tab.
-class _QuickAccessGrid extends StatelessWidget {
-  const _QuickAccessGrid();
+/// Shortcuts to the student surfaces that do not own a bottom-nav tab.
+///
+/// Laid out as a scrolling icon-over-label strip so the row can grow past the
+/// four items a fixed grid allows without shrinking each target.
+class _ShortcutStrip extends StatelessWidget {
+  const _ShortcutStrip();
+
+  static const _items = <_Shortcut>[
+    _Shortcut(Icons.insights_rounded, 'Progress', AppColors.cyan, AppRoutes.dashboard),
+    _Shortcut(Icons.emoji_events_rounded, 'Mock tests', AppColors.amber, AppRoutes.mockTests),
+    _Shortcut(Icons.forum_rounded, 'Community', AppColors.indigo, AppRoutes.community),
+    _Shortcut(Icons.history_rounded, 'Attempts', AppColors.emerald, AppRoutes.quizHistory),
+    _Shortcut(Icons.smart_display_rounded, 'Videos', AppColors.red, AppRoutes.library),
+    _Shortcut(Icons.picture_as_pdf_rounded, 'PDFs', AppColors.rose, AppRoutes.library),
+    _Shortcut(Icons.receipt_long_rounded, 'Orders', AppColors.sky, AppRoutes.orders),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    const items = <(IconData, String, Color, String)>[
-      (Icons.insights_rounded, 'Progress', AppColors.cyan, AppRoutes.dashboard),
-      (Icons.emoji_events_rounded, 'Mock tests', AppColors.amber, AppRoutes.mockTests),
-      (Icons.forum_rounded, 'Community', AppColors.indigo, AppRoutes.community),
-      (Icons.history_rounded, 'My attempts', AppColors.emerald, AppRoutes.quizHistory),
-    ];
+    final palette = context.palette;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
-            Expanded(
-              child: _QuickTile(
-                icon: items[i].$1,
-                label: items[i].$2,
-                color: items[i].$3,
-                route: items[i].$4,
-              ),
-            ),
-          ],
-        ],
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 76,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: _items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 4),
+            itemBuilder: (context, index) => _ShortcutButton(item: _items[index]),
+          ),
+        ),
+        Divider(height: 1, thickness: 1, color: palette.border),
+      ],
     );
   }
 }
 
-class _QuickTile extends ConsumerWidget {
-  const _QuickTile({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.route,
-  });
+class _Shortcut {
+  const _Shortcut(this.icon, this.label, this.color, this.route);
 
   final IconData icon;
   final String label;
   final Color color;
   final String route;
+}
+
+class _ShortcutButton extends ConsumerWidget {
+  const _ShortcutButton({required this.item});
+
+  final _Shortcut item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return GlassCard(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+    return InkWell(
       onTap: () {
-        // These four all need a session; bounce through login with a redirect
+        // These all need a session; bounce through login with a redirect
         // rather than letting the router reject the push silently.
         final signedIn = ref.read(authControllerProvider).isAuthenticated;
+        final needsAuth = item.route != AppRoutes.library;
         context.push(
-          signedIn
-              ? route
-              : '${AppRoutes.login}?redirect=${Uri.encodeComponent(route)}',
+          signedIn || !needsAuth
+              ? item.route
+              : '${AppRoutes.login}?redirect=${Uri.encodeComponent(item.route)}',
         );
       },
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+      child: SizedBox(
+        width: 72,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: item.color.withValues(alpha: 0.13),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(item.icon, color: item.color, size: 20),
             ),
-            child: Icon(icon, color: color, size: 19),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10.5,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }

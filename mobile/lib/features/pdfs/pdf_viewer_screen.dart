@@ -13,10 +13,18 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/state_views.dart';
 
 class PdfViewerArgs {
-  const PdfViewerArgs({required this.url, required this.title});
+  const PdfViewerArgs({
+    required this.url,
+    required this.title,
+    this.localPath,
+  });
 
   final String url;
   final String title;
+
+  /// Set when the document is already on disk — a decrypted copy from the
+  /// offline vault. When present the network is not touched at all.
+  final String? localPath;
 }
 
 /// Renders a remote PDF with the platform viewer.
@@ -52,6 +60,13 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
       _error = null;
       _downloadProgress = 0;
     });
+
+    // An offline copy is already decrypted on disk; render it directly.
+    final local = widget.args.localPath;
+    if (local != null && File(local).existsSync()) {
+      setState(() => _localPath = local);
+      return;
+    }
 
     try {
       final dir = await getApplicationCacheDirectory();
@@ -177,10 +192,13 @@ Future<void> openPdf(
   BuildContext context, {
   required String url,
   required String title,
+  String? localPath,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => PdfViewerScreen(args: PdfViewerArgs(url: url, title: title)),
+      builder: (_) => PdfViewerScreen(
+        args: PdfViewerArgs(url: url, title: title, localPath: localPath),
+      ),
     ),
   );
 }

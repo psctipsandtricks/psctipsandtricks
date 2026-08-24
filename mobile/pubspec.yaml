@@ -47,6 +47,9 @@ dependencies:
   package_info_plus: ^8.0.2
   connectivity_plus: ^6.0.5
   crypto: ^3.0.3
+  # AES-CTR for the offline vault: a stream cipher, so a download can be
+  # encrypted as it arrives and resumed mid-file at the right counter offset.
+  pointycastle: ^3.9.1
 
 dev_dependencies:
   flutter_test:

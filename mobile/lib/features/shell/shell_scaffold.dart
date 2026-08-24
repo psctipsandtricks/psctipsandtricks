@@ -6,6 +6,11 @@ import '../../core/theme/app_theme.dart';
 
 /// The five-tab frame every primary screen lives inside.
 ///
+/// The bar is a floating capsule rather than a full-width strip: it reads as an
+/// overlay on top of the page instead of a slab bolted to the bottom edge, and
+/// the active tab carries a lighter lozenge so the current section is legible
+/// at a glance without relying on colour alone.
+///
 /// Each branch keeps its own navigator, so switching tabs preserves scroll
 /// position and any pushed detail screen — tapping away from a book mid-scroll
 /// and back returns exactly where the student was.
@@ -37,15 +42,26 @@ class ShellScaffold extends StatelessWidget {
 
     return Scaffold(
       body: navigationShell,
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-          color: palette.card,
-          border: Border(top: BorderSide(color: palette.border)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: 62,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+          child: Container(
+            height: 66,
+            decoration: BoxDecoration(
+              color: palette.card,
+              borderRadius: BorderRadius.circular(33),
+              border: Border.all(color: palette.border),
+              boxShadow: [
+                BoxShadow(
+                  color: palette.isDark
+                      ? Colors.black.withValues(alpha: 0.55)
+                      : const Color(0xFF0F172A).withValues(alpha: 0.13),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
             child: Row(
               children: [
                 for (var i = 0; i < _destinations.length; i++)
@@ -88,35 +104,68 @@ class _TabButton extends StatelessWidget {
     final palette = context.palette;
     final color = selected ? AppColors.cyan : palette.textMuted;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // A short accent bar rather than a pill: it reads at a glance without
-          // crowding five labels into a narrow bar.
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            height: 3,
-            width: selected ? 22 : 0,
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: spec.label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
-              gradient: AppColors.brandGradient,
-              borderRadius: BorderRadius.circular(3),
+              // The lozenge is a lifted surface with a cyan wash rather than a
+              // saturated fill — at five tabs a solid block would shout.
+              gradient: selected
+                  ? LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        AppColors.cyan.withValues(alpha: palette.isDark ? 0.22 : 0.16),
+                        AppColors.indigo.withValues(alpha: palette.isDark ? 0.16 : 0.10),
+                      ],
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: selected
+                    ? AppColors.cyan.withValues(alpha: 0.34)
+                    : Colors.transparent,
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedScale(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutBack,
+                  scale: selected ? 1.06 : 1,
+                  child: Icon(
+                    selected ? spec.activeIcon : spec.icon,
+                    size: 21,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  spec.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: color,
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w500,
+                        fontSize: 10.5,
+                        height: 1.1,
+                      ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 6),
-          Icon(selected ? spec.activeIcon : spec.icon, size: 23, color: color),
-          const SizedBox(height: 3),
-          Text(
-            spec.label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  fontSize: 11,
-                ),
-          ),
-        ],
+        ),
       ),
     );
   }

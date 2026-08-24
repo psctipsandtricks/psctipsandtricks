@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
 import '../../data/models/book.dart';
+import '../../data/models/offline.dart';
+import '../offline/offline_providers.dart';
 
 /// Active catalog filters. Held as one object so a change to either field
 /// produces a single refetch rather than two.
@@ -54,10 +56,40 @@ final bookDetailProvider =
   return ref.watch(booksRepositoryProvider).fetchBook(id);
 });
 
-final bookReaderProvider = FutureProvider.autoDispose
-    .family<BookReaderContent, String>((ref, bookId) async {
+/// What the reader is reading from, and the local copy behind it if there is one.
+class ReaderSource {
+  const ReaderSource({required this.content, this.offline});
+
+  final BookReaderContent content;
+
+  /// Non-null only when the content came out of the vault.
+  final OfflineBook? offline;
+
+  bool get isOffline => offline != null;
+}
+
+/// Resolves the reader's content, preferring a valid local copy.
+///
+/// Offline-first rather than network-first: a downloaded book must open with
+/// no connection at all, and going to the network when a good copy is already
+/// on disk would make the common case slower for no benefit. A copy whose lease
+/// has lapsed or gone stale is skipped, so the network path — and with it the
+/// server's access check — is what decides.
+final readerSourceProvider =
+    FutureProvider.autoDispose.family<ReaderSource, String>((ref, bookId) async {
   ref.keepAlive();
-  return ref.watch(booksRepositoryProvider).fetchReaderContent(bookId);
+
+  final offline = ref.watch(offlineBookProvider(bookId));
+  if (offline != null && offline.isReadable) {
+    return ReaderSource(
+      content: BookReaderContent.fromJson(offline.readerJson),
+      offline: offline,
+    );
+  }
+
+  final content =
+      await ref.watch(booksRepositoryProvider).fetchReaderContent(bookId);
+  return ReaderSource(content: content);
 });
 
 /// The saved resume point for a book, if the student has one.

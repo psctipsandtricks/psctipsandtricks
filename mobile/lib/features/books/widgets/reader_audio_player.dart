@@ -20,6 +20,8 @@ class ReaderAudioPlayer extends StatefulWidget {
     this.autoPlay = false,
   });
 
+  /// Either an http(s) URL or an absolute path to a decrypted local file, so
+  /// the same widget serves the streaming and offline cases.
   final String url;
   final String title;
   final bool autoPlay;
@@ -54,7 +56,11 @@ class _ReaderAudioPlayerState extends State<ReaderAudioPlayer> {
       _failed = false;
     });
     try {
-      await _player.setUrl(widget.url);
+      if (widget.url.startsWith('http')) {
+        await _player.setUrl(widget.url);
+      } else {
+        await _player.setFilePath(widget.url);
+      }
       if (!mounted) return;
       setState(() => _loading = false);
       if (widget.autoPlay) unawaited(_player.play());

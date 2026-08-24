@@ -42,6 +42,7 @@ import {
   Check,
   RefreshCw,
   Info,
+  Loader2,
 } from 'lucide-react';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
 import { ApiClient } from '@/lib/api-client';
@@ -87,7 +88,7 @@ function formatLocalDate(d: Date): string {
 }
 
 function StudentSearchCombobox({
-  users,
+  users: initialUsers,
   selectedUserId,
   onSelectUser,
   error,
@@ -99,23 +100,106 @@ function StudentSearchCombobox({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedUserObj, setSelectedUserObj] = useState<User | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  const selectedUser = useMemo(
-    () => users.find((u) => u.id === selectedUserId),
-    [users, selectedUserId]
-  );
+  // Maintain local pool of known students
+  const [userPool, setUserPool] = useState<User[]>(initialUsers || []);
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return users.slice(0, 40);
-    return users.filter(
-      (u) =>
-        u.name?.toLowerCase().includes(q) ||
-        u.email?.toLowerCase().includes(q) ||
-        (u.phoneNumber && u.phoneNumber.includes(q))
-    ).slice(0, 50);
-  }, [users, search]);
+  useEffect(() => {
+    if (initialUsers && initialUsers.length > 0) {
+      setUserPool((prev) => {
+        const map = new Map<string, User>();
+        initialUsers.forEach((u) => map.set(u.id, u));
+        prev.forEach((u) => map.set(u.id, u));
+        return Array.from(map.values());
+      });
+    }
+  }, [initialUsers]);
+
+  // If userPool is empty on mount/open, fetch initial students list
+  useEffect(() => {
+    if (isOpen && userPool.length === 0) {
+      ApiClient.getUsers({ limit: 100 })
+        .then((res) => {
+          const list: User[] = Array.isArray(res) ? res : res?.data || [];
+          setUserPool((prev) => {
+            const map = new Map<string, User>();
+            list.forEach((u) => map.set(u.id, u));
+            prev.forEach((u) => map.set(u.id, u));
+            return Array.from(map.values());
+          });
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, userPool.length]);
+
+  // Keep selected user object up to date
+  useEffect(() => {
+    if (!selectedUserId) {
+      setSelectedUserObj(null);
+      return;
+    }
+    const found = userPool.find((u) => u.id === selectedUserId);
+    if (found) {
+      setSelectedUserObj(found);
+    } else {
+      ApiClient.getUserProfile(selectedUserId)
+        .then((profile) => {
+          if (profile) {
+            const cast = profile as unknown as User;
+            setSelectedUserObj(cast);
+            setUserPool((prev) => [cast, ...prev]);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [selectedUserId, userPool]);
+
+  // Live Server Search with debounce across full database
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await ApiClient.getUsers({ search: q, limit: 100 });
+        const list: User[] = Array.isArray(res) ? res : res?.data || [];
+        setSearchResults(list);
+        setUserPool((prev) => {
+          const map = new Map<string, User>();
+          list.forEach((u) => map.set(u.id, u));
+          prev.forEach((u) => map.set(u.id, u));
+          return Array.from(map.values());
+        });
+      } catch {
+        // Fallback to filtering local pool
+        const local = userPool.filter(
+          (u) =>
+            u.name?.toLowerCase().includes(q.toLowerCase()) ||
+            u.email?.toLowerCase().includes(q.toLowerCase()) ||
+            (u.phoneNumber && u.phoneNumber.includes(q))
+        );
+        setSearchResults(local);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 200);
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [search]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -127,13 +211,28 @@ function StudentSearchCombobox({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const displayedList = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return userPool.slice(0, 50);
+    if (searchResults.length > 0) return searchResults;
+    if (isSearching) return [];
+    return userPool
+      .filter(
+        (u) =>
+          u.name?.toLowerCase().includes(q) ||
+          u.email?.toLowerCase().includes(q) ||
+          (u.phoneNumber && u.phoneNumber.includes(q))
+      )
+      .slice(0, 50);
+  }, [search, searchResults, isSearching, userPool]);
+
   return (
     <div className="space-y-1.5 relative" ref={containerRef}>
       <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
         <span>
           Select Student <span className="text-rose-500">*</span>
         </span>
-        {selectedUser && (
+        {selectedUserObj && (
           <button
             type="button"
             onClick={() => {
@@ -148,21 +247,26 @@ function StudentSearchCombobox({
         )}
       </label>
 
-      {selectedUser ? (
+      {selectedUserObj ? (
         <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3 animate-in fade-in duration-200 shadow-2xs">
           <div className="flex items-center space-x-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-black text-sm flex items-center justify-center shrink-0 border border-emerald-500/30">
-              {selectedUser.name ? selectedUser.name.charAt(0).toUpperCase() : 'U'}
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-black text-sm flex items-center justify-center shrink-0 border border-emerald-500/30 overflow-hidden">
+              {selectedUserObj.avatarUrl ? (
+                <img src={selectedUserObj.avatarUrl} alt={selectedUserObj.name || 'Student'} className="w-full h-full object-cover" />
+              ) : (
+                <span>{selectedUserObj.name ? selectedUserObj.name.charAt(0).toUpperCase() : 'U'}</span>
+              )}
             </div>
             <div className="min-w-0">
               <p className="font-bold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5">
-                <span>{selectedUser.name}</span>
+                <span>{selectedUserObj.name}</span>
                 <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
                   Selected
                 </span>
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
-                {selectedUser.email}
+                {selectedUserObj.email}
+                {selectedUserObj.phoneNumber ? ` • ${selectedUserObj.phoneNumber}` : ''}
               </p>
             </div>
           </div>
@@ -182,7 +286,11 @@ function StudentSearchCombobox({
       ) : (
         <div className="relative">
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400 pointer-events-none" />
+            {isSearching ? (
+              <Loader2 className="w-4 h-4 absolute left-3 top-3.5 text-cyan-500 animate-spin pointer-events-none" />
+            ) : (
+              <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400 pointer-events-none" />
+            )}
             <Input
               placeholder="Type student name, email or phone to search…"
               value={search}
@@ -198,30 +306,40 @@ function StudentSearchCombobox({
           {isOpen && (
             <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
               <div className="p-2.5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/50 flex justify-between items-center text-[11px] font-semibold text-slate-500">
-                <span>
-                  {search ? `Matching Students (${filtered.length})` : `All Students (${users.length})`}
+                <span className="flex items-center gap-1.5">
+                  <span>
+                    {search ? `Matching Students (${displayedList.length})` : `All Students (${userPool.length})`}
+                  </span>
+                  {isSearching && (
+                    <span className="text-[10px] text-cyan-500 animate-pulse font-medium">Searching database…</span>
+                  )}
                 </span>
                 <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">Click student to pick</span>
               </div>
               <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/40">
-                {filtered.length === 0 ? (
+                {displayedList.length === 0 ? (
                   <div className="p-4 text-center text-xs text-slate-400">
-                    No students found matching "{search}"
+                    {isSearching ? 'Searching...' : `No students found matching "${search}"`}
                   </div>
                 ) : (
-                  filtered.map((u) => (
+                  displayedList.map((u) => (
                     <button
                       key={u.id}
                       type="button"
                       onClick={() => {
                         onSelectUser(u.id);
+                        setSelectedUserObj(u);
                         setIsOpen(false);
                       }}
                       className="w-full text-left p-2.5 hover:bg-cyan-500/10 dark:hover:bg-cyan-500/20 transition-colors flex items-center justify-between gap-2.5 cursor-pointer group"
                     >
                       <div className="flex items-center space-x-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-black text-xs flex items-center justify-center shrink-0 border border-cyan-500/20 group-hover:border-cyan-500/40">
-                          {u.name ? u.name.charAt(0).toUpperCase() : 'U'}
+                        <div className="w-8 h-8 rounded-full bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-black text-xs flex items-center justify-center shrink-0 border border-cyan-500/20 group-hover:border-cyan-500/40 overflow-hidden">
+                          {u.avatarUrl ? (
+                            <img src={u.avatarUrl} alt={u.name || 'Student'} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{u.name ? u.name.charAt(0).toUpperCase() : 'U'}</span>
+                          )}
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-slate-900 dark:text-white truncate group-hover:text-cyan-600 dark:group-hover:text-cyan-400">
@@ -229,6 +347,7 @@ function StudentSearchCombobox({
                           </p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
                             {u.email}
+                            {u.phoneNumber ? ` • ${u.phoneNumber}` : ''}
                           </p>
                         </div>
                       </div>
@@ -440,12 +559,14 @@ export default function AdminOrdersPage() {
     validationSchema: manualOrderSchema,
     onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
       try {
+        const rawAmount = String(values.amount ?? '').trim();
+        const rawNote = String(values.note ?? '').trim();
         await ApiClient.createManualOrder({
           userId: values.userId,
           bookId: values.itemType === 'book' ? values.itemId : undefined,
           quizId: values.itemType === 'quiz' ? values.itemId : undefined,
-          amount: values.amount.trim() ? Number(values.amount) : undefined,
-          note: values.note.trim() || undefined,
+          amount: rawAmount !== '' ? Number(rawAmount) : undefined,
+          note: rawNote !== '' ? rawNote : undefined,
         });
         resetForm();
         setUserSearch('');
@@ -544,10 +665,12 @@ export default function AdminOrdersPage() {
     if (!editingOrder) return;
     setIsUpdatingOrder(true);
     try {
+      const rawEditAmount = String(editAmount ?? '').trim();
+      const rawEditNote = String(editNote ?? '').trim();
       await ApiClient.updateOrder(editingOrder.id, {
         status: editStatus,
-        amount: editAmount.trim() ? Number(editAmount) : undefined,
-        description: editNote.trim() || undefined,
+        amount: rawEditAmount !== '' ? Number(rawEditAmount) : undefined,
+        description: rawEditNote !== '' ? rawEditNote : undefined,
       });
 
       // Update local state
@@ -557,8 +680,8 @@ export default function AdminOrdersPage() {
             ? {
                 ...o,
                 status: editStatus,
-                amount: editAmount.trim() ? Number(editAmount) : o.amount,
-                description: editNote.trim(),
+                amount: rawEditAmount !== '' ? Number(rawEditAmount) : o.amount,
+                description: rawEditNote,
               }
             : o
         )

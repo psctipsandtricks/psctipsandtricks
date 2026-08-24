@@ -120,6 +120,12 @@ class AccountScreen extends ConsumerWidget {
             title: 'Account',
             items: [
               _Item(
+                icon: Icons.download_for_offline_rounded,
+                label: 'Downloaded books',
+                color: AppColors.cyan,
+                route: AppRoutes.downloads,
+              ),
+              _Item(
                 icon: Icons.receipt_long_rounded,
                 label: 'My orders',
                 color: AppColors.emerald,

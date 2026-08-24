@@ -87,7 +87,7 @@ export class UsersService {
 
     if (query?.page || query?.limit) {
       const page = Math.max(1, Number(query.page) || 1);
-      const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
+      const limit = Math.max(1, Math.min(500, Number(query.limit) || 10));
       const skip = (page - 1) * limit;
 
       const [total, users] = await Promise.all([
@@ -114,7 +114,7 @@ export class UsersService {
       where,
       select: SAFE_SELECT,
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 500,
     });
     return users.map(withCounts);
   }

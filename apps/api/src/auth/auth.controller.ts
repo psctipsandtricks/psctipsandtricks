@@ -61,7 +61,13 @@ export class AuthController {
   @UseGuards(GoogleConfiguredGuard, GoogleAuthGuard)
   @Get('google/callback')
   async googleCallback(@Req() req: any, @Res() res: Response) {
-    this.redirectWithSession(req, res);
+    try {
+      this.redirectWithSession(req, res);
+    } catch (err: any) {
+      this.logger.error('Google callback redirect failed', err);
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
+    }
   }
 
   @ApiOperation({ summary: 'Start Apple Sign-In (redirects to Apple)' })
@@ -80,7 +86,7 @@ export class AuthController {
     } catch (err: any) {
       this.logger.error('Apple callback redirect failed', err);
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-      return res.redirect(`${frontendUrl}/login?error=apple_callback_failed&message=${encodeURIComponent(err?.message || 'Unknown error')}`);
+      return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
     }
   }
 

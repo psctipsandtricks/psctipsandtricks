@@ -8,6 +8,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
+import '../../data/models/offline.dart';
+import '../offline/offline_providers.dart';
 import '../pdfs/pdf_viewer_screen.dart';
 import '../videos/video_player_screen.dart';
 import 'books_providers.dart';
@@ -54,10 +56,19 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   bool _hydrated = false;
   bool _autoResumed = false;
 
+  /// Set when the content came out of the offline vault.
+  OfflineBook? _offline;
+
+  /// Remote media URL to the decrypted working copy on disk. Populated lazily,
+  /// one unit at a time — decrypting a whole book's audio up front would cost
+  /// hundreds of megabytes of cache for files the student may never open.
+  final Map<String, String> _localPaths = {};
+
   Timer? _saveTimer;
 
   @override
   void dispose() {
+    _releaseWorkingCopies();
     _saveTimer?.cancel();
     // Flush whatever the debounce is still holding, so closing the reader right
     // after a jump does not lose that position.
@@ -91,6 +102,45 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
         }
       }
     }
+
+    // The unit the reader opens on needs its media decrypted too — navigating
+    // is not the only way to arrive at one.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _units.isNotEmpty) {
+        unawaited(_resolveLocalAssets(_units[_activeIndex]));
+      }
+    });
+  }
+
+  /// Drops the decrypted copies this screen made, so plaintext does not outlive
+  /// the reading session.
+  void _releaseWorkingCopies() {
+    final offline = _offline;
+    if (offline == null || _localPaths.isEmpty) return;
+    final repo = ref.read(offlineRepositoryProvider);
+    for (final url in _localPaths.keys) {
+      final asset = offline.assetForUrl(url);
+      if (asset != null) unawaited(repo.closeAsset(asset));
+    }
+    _localPaths.clear();
+  }
+
+  /// Decrypts the media the active unit needs into the private cache.
+  Future<void> _resolveLocalAssets(ReadingUnit unit) async {
+    final offline = _offline;
+    if (offline == null) return;
+
+    for (final url in [unit.audioUrl, unit.pdfUrl]) {
+      if (url == null || url.isEmpty || _localPaths.containsKey(url)) continue;
+      final asset = offline.assetForUrl(url);
+      if (asset == null) continue;
+      final file = await ref
+          .read(offlineRepositoryProvider)
+          .openAsset(offline.bookId, asset);
+      if (file != null && mounted) {
+        setState(() => _localPaths[url] = file.path);
+      }
+    }
   }
 
   void _goTo(int index, {bool scrollToTop = true}) {
@@ -100,6 +150,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
       if (index > _maxReached) _maxReached = index;
       _showResumeBanner = false;
     });
+    unawaited(_resolveLocalAssets(_units[index]));
     if (scrollToTop && _scrollController.hasClients) {
       _scrollController.animateTo(
         0,
@@ -154,19 +205,23 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final contentAsync = ref.watch(bookReaderProvider(widget.bookId));
+    final sourceAsync = ref.watch(readerSourceProvider(widget.bookId));
     final progressAsync = ref.watch(bookProgressProvider(widget.bookId));
 
     return Scaffold(
       body: AsyncView(
-        value: contentAsync,
-        onRetry: () => ref.invalidate(bookReaderProvider(widget.bookId)),
+        value: sourceAsync,
+        onRetry: () => ref.invalidate(readerSourceProvider(widget.bookId)),
         loading: const _ReaderSkeleton(),
-        data: (content) {
+        data: (source) {
+          final content = source.content;
+          _offline = source.offline;
           final units = flattenChapters(content.chapters);
 
           // Wait for the progress row before settling on a starting unit, so
-          // the reader never opens at chapter 1 and then jumps.
+          // the reader never opens at chapter 1 and then jumps. Offline that
+          // request will fail rather than hang, and hydration proceeds without
+          // a resume point.
           if (!_hydrated && progressAsync.isLoading) {
             return const _ReaderSkeleton();
           }
@@ -194,6 +249,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                 unit: unit,
                 progress: percent,
                 position: '${_activeIndex + 1} / ${_units.length}',
+                isOffline: source.isOffline,
                 onContents: _openContents,
               ),
               if (_showResumeBanner && _savedIndex != null)
@@ -255,7 +311,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                         // Keying by unit id gives each topic a fresh player
                         // rather than inheriting the previous clip's position.
                         key: ValueKey('audio-${unit.id}'),
-                        url: unit.audioUrl!,
+                        url: _localPaths[unit.audioUrl] ?? unit.audioUrl!,
                         title: unit.title,
                         autoPlay: _autoResumed && _activeIndex == _savedIndex,
                       ),
@@ -273,6 +329,14 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                           ),
                         ),
                       ),
+                      if (source.isOffline) ...[
+                        const SizedBox(height: 8),
+                        const _OfflineNotice(
+                          message:
+                              'Video classes stream from YouTube, so this one '
+                              'needs a connection.',
+                        ),
+                      ],
                       const SizedBox(height: 16),
                     ],
 
@@ -302,11 +366,14 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                       const SizedBox(height: 20),
                       PdfAttachmentTile(
                         title: 'Notes — ${unit.title}',
-                        subtitle: 'Tap to read the PDF',
+                        subtitle: _localPaths.containsKey(unit.pdfUrl)
+                            ? 'Saved on this device'
+                            : 'Tap to read the PDF',
                         onTap: () => openPdf(
                           context,
                           url: unit.pdfUrl!,
                           title: unit.title,
+                          localPath: _localPaths[unit.pdfUrl],
                         ),
                       ),
                     ],
@@ -334,6 +401,7 @@ class _ReaderAppBar extends StatelessWidget {
     required this.unit,
     required this.progress,
     required this.position,
+    required this.isOffline,
     required this.onContents,
   });
 
@@ -341,6 +409,7 @@ class _ReaderAppBar extends StatelessWidget {
   final ReadingUnit unit;
   final double progress;
   final String position;
+  final bool isOffline;
   final VoidCallback onContents;
 
   @override
@@ -384,6 +453,23 @@ class _ReaderAppBar extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (isOffline)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Tooltip(
+                        message: 'Reading the copy saved on this device',
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppColors.emerald.withValues(alpha: 0.13),
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusSm),
+                          ),
+                          child: const Icon(Icons.offline_pin_rounded,
+                              size: 16, color: AppColors.emerald),
+                        ),
+                      ),
+                    ),
                   IconButton(
                     tooltip: 'Contents',
                     icon: const Icon(Icons.menu_book_rounded),
@@ -402,6 +488,41 @@ class _ReaderAppBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Explains something the offline copy cannot provide, in place of failing
+/// silently when the student taps it.
+class _OfflineNotice extends StatelessWidget {
+  const _OfflineNotice({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.26)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 14, color: AppColors.amber),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: context.palette.textSecondary,
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }

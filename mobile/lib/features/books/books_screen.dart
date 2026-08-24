@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
+import '../offline/offline_providers.dart';
 import 'books_providers.dart';
 import 'widgets/book_card.dart';
 
@@ -57,6 +59,9 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('E-Books'),
+        actions: [
+          _DownloadsAction(),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(104),
           child: Column(
@@ -131,6 +136,25 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+/// Shortcut to the offline library, badged with how many books are saved.
+class _DownloadsAction extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(offlineLibraryProvider).length;
+
+    return IconButton(
+      tooltip: 'Downloaded books',
+      onPressed: () => context.push(AppRoutes.downloads),
+      icon: Badge(
+        isLabelVisible: count > 0,
+        label: Text('$count'),
+        backgroundColor: AppColors.cyan,
+        child: const Icon(Icons.download_for_offline_outlined),
       ),
     );
   }

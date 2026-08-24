@@ -88,6 +88,13 @@ export class AuthService {
     };
   }
 
+  async findUserByOAuthIdentity(provider: OAuthProvider, providerAccountId: string) {
+    return this.prisma.oAuthIdentity.findUnique({
+      where: { provider_providerAccountId: { provider, providerAccountId } },
+      include: { user: { include: { staffPermission: true } } },
+    });
+  }
+
   // Finds the user linked to this OAuth identity, links this provider to an
   // existing account with a matching verified email, or creates a brand-new
   // account — then issues our own JWT pair exactly like email/password login.

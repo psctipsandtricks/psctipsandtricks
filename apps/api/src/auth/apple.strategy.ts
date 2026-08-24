@@ -12,25 +12,36 @@ function normalizePrivateKey(rawKey?: string): string {
   if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
     key = key.slice(1, -1);
   }
-  return key.replace(/\\n/g, '\n').trim();
+  key = key.replace(/\\n/g, '\n').replace(/\\r/g, '').trim();
+  if (key && !key.includes('-----BEGIN PRIVATE KEY-----')) {
+    key = `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
+  }
+  return key;
 }
 
 function parseIdToken(idToken: any): { sub?: string; email?: string } {
   if (!idToken) return {};
-  if (typeof idToken === 'object' && idToken.sub) return idToken;
-  try {
-    const decoded = jwt.decode(idToken);
-    if (decoded && typeof decoded === 'object') {
-      return decoded as { sub?: string; email?: string };
+  if (typeof idToken === 'object') {
+    if (idToken.sub || idToken.email) return idToken;
+    if (typeof idToken.id_token === 'string') {
+      return parseIdToken(idToken.id_token);
     }
-  } catch (err) {
-    Logger.error('Failed to decode Apple idToken', err, 'AppleStrategy');
+  }
+  if (typeof idToken === 'string') {
+    try {
+      const decoded = jwt.decode(idToken);
+      if (decoded && typeof decoded === 'object') {
+        return decoded as { sub?: string; email?: string };
+      }
+    } catch (err) {
+      Logger.error('Failed to decode Apple idToken', err, 'AppleStrategy');
+    }
   }
   return {};
 }
 
 @Injectable()
-export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
+export class AppleStrategy extends PassportStrategy(Strategy, 'apple', 6) {
   private readonly logger = new Logger(AppleStrategy.name);
 
   constructor(
@@ -58,17 +69,43 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
     idToken: any,
     profile: Record<string, any>,
   ) {
-    const decoded = parseIdToken(idToken);
-    const email = decoded.email || profile?.email || req.appleProfile?.email;
-    if (!email) {
-      this.logger.error('Apple account has no email associated');
-      throw new Error('Apple account has no email associated');
-    }
+    const rawIdToken =
+      (typeof idToken === 'string' ? idToken : null) ||
+      req?.body?.id_token ||
+      req?.query?.id_token ||
+      idToken;
 
-    const sub = decoded.sub || profile?.id || req.appleProfile?.id;
+    const decoded = parseIdToken(rawIdToken);
+
+    const sub =
+      decoded.sub ||
+      profile?.id ||
+      req?.appleProfile?.id ||
+      (typeof idToken === 'object' ? idToken?.sub : undefined) ||
+      req?.body?.user?.id;
+
     if (!sub) {
       this.logger.error('Apple account has no sub identifier');
       throw new Error('Apple account has no sub identifier');
+    }
+
+    let email =
+      decoded.email ||
+      profile?.email ||
+      req?.appleProfile?.email ||
+      req?.body?.email;
+
+    // Fallback: If returning user and Apple omitted email, look up existing identity in database
+    if (!email) {
+      const existingIdentity = await this.authService.findUserByOAuthIdentity(OAuthProvider.APPLE, sub);
+      if (existingIdentity?.user?.email) {
+        email = existingIdentity.user.email;
+      }
+    }
+
+    if (!email) {
+      this.logger.error(`Apple account (${sub}) has no email associated and is not found in database`);
+      throw new Error('Apple account has no email associated');
     }
 
     // Apple sends name only on first authorization in req.body.user or req.appleProfile

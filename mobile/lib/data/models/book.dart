@@ -18,6 +18,35 @@ AccessReason _reasonFrom(dynamic v) {
   }
 }
 
+/// When a paid book is sold as a subscription rather than outright, this is
+/// when the entitlement lapses. Mirrors `BookSubscriptionAccessInfo` on the API.
+class SubscriptionAccess {
+  const SubscriptionAccess({
+    required this.isSubscription,
+    required this.isExpired,
+    this.validTill,
+    this.expiresInDays,
+  });
+
+  final bool isSubscription;
+  final bool isExpired;
+  final DateTime? validTill;
+  final int? expiresInDays;
+
+  /// True while the subscription is live but close enough to lapsing that the
+  /// student should be warned before they rely on an offline copy.
+  bool get isExpiringSoon =>
+      !isExpired && expiresInDays != null && expiresInDays! <= 7;
+
+  factory SubscriptionAccess.fromJson(Map<String, dynamic> json) =>
+      SubscriptionAccess(
+        isSubscription: J.boolVal(json['isSubscription'], true),
+        isExpired: J.boolVal(json['isExpired']),
+        validTill: J.dateOrNull(json['validTill']),
+        expiresInDays: J.intOrNull(json['expiresInDays']),
+      );
+}
+
 /// The caller's purchase state, attached by the API to books and quizzes.
 class AccessState {
   const AccessState({
@@ -25,6 +54,7 @@ class AccessState {
     required this.hasAccess,
     required this.price,
     required this.reason,
+    this.subscription,
   });
 
   final bool isPaid;
@@ -32,14 +62,24 @@ class AccessState {
   final double price;
   final AccessReason reason;
 
+  /// Present only for subscription-style purchases; null means the entitlement
+  /// does not lapse.
+  final SubscriptionAccess? subscription;
+
   bool get needsLogin => reason == AccessReason.loginRequired;
   bool get needsPayment => reason == AccessReason.paymentRequired;
+
+  /// When this entitlement runs out, or null when it never does.
+  DateTime? get validTill => subscription?.validTill;
 
   factory AccessState.fromJson(Map<String, dynamic> json) => AccessState(
         isPaid: J.boolVal(json['isPaid']),
         hasAccess: J.boolVal(json['hasAccess'], true),
         price: J.dbl(json['price']),
         reason: _reasonFrom(json['reason']),
+        subscription: json['subscription'] is Map
+            ? SubscriptionAccess.fromJson(J.map(json['subscription']))
+            : null,
       );
 }
 

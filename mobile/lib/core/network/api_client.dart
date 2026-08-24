@@ -227,6 +227,14 @@ class ApiClient {
         : {'Authorization': 'Bearer $token'};
   }
 
+  /// The bearer header for a request made outside this client — the offline
+  /// downloader uses its own transport but still needs the session on any URL
+  /// served by our own API.
+  Future<Map<String, String>> authHeader() async {
+    await _tokenStore.hydrate();
+    return _authHeader();
+  }
+
   Future<T> _send<T>(Future<Response<T>> Function() request) async {
     try {
       final res = await request();

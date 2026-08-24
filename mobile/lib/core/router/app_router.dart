@@ -16,6 +16,7 @@ import '../../features/home/home_screen.dart';
 import '../../features/mock_tests/mock_test_detail_screen.dart';
 import '../../features/mock_tests/mock_tests_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
+import '../../features/offline/downloads_screen.dart';
 import '../../features/orders/orders_screen.dart';
 import '../../features/pdfs/pdf_documents_screen.dart';
 import '../../features/profile/account_screen.dart';
@@ -45,6 +46,7 @@ class AppRoutes {
   static const notifications = '/notifications';
   static const community = '/community';
   static const mockTests = '/mock-tests';
+  static const downloads = '/books/downloads';
 
   static String bookDetail(String id) => '/books/$id';
   static String bookReader(String id, {bool resume = false}) =>
@@ -58,6 +60,7 @@ class AppRoutes {
 /// quiz listings, the video and PDF libraries — is browsable as a guest, the
 /// same as on the website.
 const _protectedPrefixes = <String>[
+  '/books/downloads',
   '/dashboard',
   '/profile',
   '/orders',
@@ -192,6 +195,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: AppRoutes.books,
                 builder: (context, state) => const BooksScreen(),
                 routes: [
+                  // Declared ahead of ':id' so the literal segment wins.
+                  GoRoute(
+                    path: 'downloads',
+                    builder: (context, state) => const DownloadsScreen(),
+                  ),
                   GoRoute(
                     path: ':id',
                     builder: (context, state) =>

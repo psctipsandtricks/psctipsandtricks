@@ -84,6 +84,74 @@ Everything on the student side of the website:
 - **Checkout** — Razorpay, with coupon validation, mirroring the server's
   pricing rule so the total shown is the amount charged.
 
+## Navigation shell
+
+The bottom bar is a floating capsule rather than a full-width strip, with the
+active tab carrying a lighter lozenge so the current section reads at a glance
+without relying on colour alone. The home header follows the same language:
+brand mark on the left, circular actions on the right, and a scrolling
+icon-over-label shortcut strip beneath it for the surfaces that do not own a
+tab (progress, mock tests, community, attempts, library, orders).
+
+The strip lives in the app bar's `bottom` slot, so it scrolls away with the
+header and gives the hero panel the full screen on the way down.
+
+## Offline books
+
+A book the student currently has access to can be saved to the device and read
+with no connection.
+
+**What gets stored.** The chapter tree from `/books/:id/reader`, plus every
+audio narration and PDF it references, plus the cover. YouTube class videos are
+deliberately not stored — they stream from YouTube and cannot be cached — so a
+topic whose only media is a video says so rather than offering a dead thumbnail.
+
+**Where, and how safely.** Files live under `getApplicationSupportDirectory()`,
+inside `/data/data/<package>` — unreadable by other apps and invisible to
+MediaStore. Every file is AES-256-CTR encrypted under a key minted on first use
+and held in the platform keystore, so a pulled data directory yields ciphertext.
+Names are SHA-256 digests with a neutral `.bin` extension, so the directory
+listing reveals neither which book nor what kind of file. `allowBackup` is off
+and `data_extraction_rules.xml` excludes the vault, so the ciphertext cannot
+leave the device in a cloud or device-to-device transfer either.
+
+CTR rather than GCM is the deliberate choice: it is a stream cipher, so bytes
+are encrypted as they arrive and an interrupted transfer resumes by seeking the
+keystream to the byte offset already on disk. `offline_test.dart` pins that
+down — a file encrypted in one pass and the same file encrypted across seven
+interruptions produce identical ciphertext.
+
+**Resuming.** Each asset streams into a `.part` file and is promoted only when
+whole, so the manifest never claims a half-written file is usable. A resumed
+transfer sends `Range: bytes=N-`; a server that answers 200 instead of 206 is
+detected and the file restarts cleanly rather than being spliced. The manifest
+is checkpointed after every completed file, so a process death re-fetches
+nothing already finished, and a resumed download reconciles against a freshly
+fetched asset list so a book that gained a chapter picks the new media up.
+
+**Staying honest about access.** A download is a cached copy of something the
+server still owns the decision about. `POST /books/:id/download` — the same gate
+the website uses — is what authorises the download, so the app cannot widen
+entitlement by getting a local check wrong. The copy then carries a lease with
+two independent locks:
+
+- the purchase's own `validTill`, taken from `access.subscription`, and
+- a check-in deadline: seven days without hearing from the server and the book
+  locks itself pending verification.
+
+Either one lapsing makes the local copy unreadable, and the reader falls back to
+the network — where the server's access check applies as normal. A network
+failure never expires a lease: being offline is not evidence that a purchase
+lapsed. Leases refresh whenever the app comes to the foreground, so the lock
+screen stays rare in normal use.
+
+Deleting a download frees the space and can be re-downloaded at any time while
+access is valid.
+
+**States.** The book detail panel and the Downloads screen both show Download,
+Downloading (with progress), Paused, Downloaded, Verify access, Access expired,
+and Failed.
+
 ## Notes on behaviour that mirrors the website
 
 - **Quiz scoring is computed locally on submit** for an instant result, then
