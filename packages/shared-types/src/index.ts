@@ -695,7 +695,29 @@ export interface Notification {
   sentById?: string | null;
   isRead: boolean;
   type?: string;
+  status?: 'SENT' | 'SCHEDULED' | string;
+  scheduledFor?: string | null;
+  /** Where a tap lands: an in-app route like `/books/<id>`, or an https link. */
+  route?: string | null;
+  /** Optional 16:9 banner image (YouTube thumbnail format). */
+  imageUrl?: string | null;
   createdAt: string;
+}
+
+/** A row in the composer's "recently sent" list. */
+export interface SentNotification extends Notification {
+  user?: { id: string; name: string; email: string } | null;
+  sentBy?: { id: string; name: string } | null;
+}
+
+/** Whether a push sent right now would actually reach a device. */
+export interface PushStatus {
+  /** False when the API has no Firebase service-account credentials. */
+  configured: boolean;
+  /** Registered device tokens, signed-in or not. */
+  devices: number;
+  /** Distinct students with at least one registered device. */
+  students: number;
 }
 
 export interface AnnouncementPopup {

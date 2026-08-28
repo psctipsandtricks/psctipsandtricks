@@ -4,7 +4,7 @@ import { SupabaseQueueService } from '../queue/queue.service';
 import { MockTestStatus, Prisma } from '@prisma/client';
 import { CreateMockTestDto } from './dto/create-mock-test.dto';
 import { SubmitQuizDto } from '../quizzes/dto/submit-quiz.dto';
-import { AccessActor, QuizAccessService } from '../common/access/quiz-access.service';
+import { AccessActor, QuizAccessService, QuizAccessState } from '../common/access/quiz-access.service';
 import { computeFinalScore } from '../common/scoring';
 
 @Injectable()
@@ -86,9 +86,22 @@ export class MockTestsService {
     const purchased = await this.quizAccess.getPurchasedQuizIds(actor?.id);
 
     return mockTests.map((mt) => {
-      const isPaid = this.quizAccess.isPaidQuiz(mt.quiz);
-      const hasAccess = !isPaid || purchased.has(mt.quizId);
-      return { ...mt, access: { isPaid, hasAccess, price: mt.quiz?.price ?? 0 } };
+      const price = mt.quiz?.price ?? 0;
+      let access: QuizAccessState;
+
+      // Same verdict shape as `getAccessState`, `reason` included: without it
+      // a signed-out student is told to pay for a test they may already own,
+      // instead of being sent to log in first.
+      if (!this.quizAccess.isPaidQuiz(mt.quiz)) {
+        access = { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
+      } else if (!actor?.id) {
+        access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
+      } else {
+        const bought = purchased.has(mt.quizId);
+        access = { isPaid: true, hasAccess: bought, price, reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED' };
+      }
+
+      return { ...mt, access };
     });
   }
 

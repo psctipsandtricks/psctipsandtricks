@@ -139,7 +139,7 @@ export function AnnouncementBanner() {
   };
 
   const redirectConfig = resolveBannerLink(currentBanner.redirectUrl);
-  const hasButton = Boolean(currentBanner.buttonText?.trim() && redirectConfig);
+  const hasButton = Boolean(redirectConfig);
 
   const handleButtonClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -261,17 +261,18 @@ export function AnnouncementBanner() {
             <button
               type="button"
               onClick={handleButtonClick}
-              className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl active:scale-95 text-xs font-extrabold shadow-sm transition-all cursor-pointer shrink-0 ${
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 text-xs font-extrabold shadow-sm transition-all cursor-pointer shrink-0 ${
                 isDark
                   ? 'bg-white hover:bg-slate-100 text-slate-950 border border-white'
                   : 'bg-slate-950 hover:bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-900'
               }`}
+              title={currentBanner.redirectUrl || 'Open link'}
             >
-              <span>{currentBanner.buttonText}</span>
+              {currentBanner.buttonText?.trim() && <span>{currentBanner.buttonText.trim()}</span>}
               {redirectConfig.isExternal ? (
-                <ExternalLink className="w-3 h-3" />
+                <ExternalLink className="w-3.5 h-3.5" />
               ) : (
-                <ArrowRight className="w-3 h-3" />
+                <ArrowRight className="w-3.5 h-3.5" />
               )}
             </button>
           )}

@@ -44,7 +44,7 @@ import {
   Info,
   Loader2,
 } from 'lucide-react';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { OrdersPageSkeleton } from '../admin-skeleton';
 import { ApiClient } from '@/lib/api-client';
 import { User, Book, Quiz } from '@psc/shared-types';
 import type { OrderPDFItem } from '@/lib/orders-pdf-exporter';
@@ -847,17 +847,12 @@ export default function AdminOrdersPage() {
     }
   };
 
-  if (!mounted) {
-    return (
-      <div className="space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={5} colsCount={8} />
-      </div>
-    );
+  if (!mounted || (loading && orders.length === 0)) {
+    return <OrdersPageSkeleton />;
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Top Header & Actions */}
       <div className="shrink-0 space-y-3">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
@@ -1013,7 +1008,7 @@ export default function AdminOrdersPage() {
       </div>
 
       {/* Scrollable Table */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <Table>
             <TableHeader>

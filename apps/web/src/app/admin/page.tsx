@@ -6,7 +6,7 @@ import { StatsCard, Card, CardTitle, Table, TableHeader, TableBody, TableRow, Ta
 import { Users, Zap, IndianRupee, ShoppingCart, TrendingUp } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 
-import { AdminSkeletonHeader, AdminSkeletonKpiGrid, AdminSkeletonTable } from './admin-skeleton';
+import { AdminDashboardSkeleton } from './admin-skeleton';
 
 // recharts is a heavy dependency — load it on demand instead of shipping it
 // in the initial JS of the first page every admin lands on.
@@ -60,14 +60,8 @@ export default function AdminDashboardPage() {
     };
   }, []);
 
-  if (!mounted || loading) {
-    return (
-      <div className="space-y-8">
-        <AdminSkeletonHeader />
-        <AdminSkeletonKpiGrid cardsCount={4} />
-        <AdminSkeletonTable rowsCount={4} colsCount={6} />
-      </div>
-    );
+  if (!mounted || loading || !data) {
+    return <AdminDashboardSkeleton />;
   }
 
   const totalRevenue = data?.totalRevenue ?? 0;

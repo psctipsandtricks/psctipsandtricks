@@ -84,6 +84,7 @@ model User {
   chatGroupPins      ChatGroupPin[]
   chatGroupReads     ChatGroupRead[]
   oauthIdentities    OAuthIdentity[]
+  deviceTokens       DeviceToken[]
   // --- Legacy migration fields (PHP/MySQL app) ---
   /// Primary key this user had in the legacy `users` table. Kept as a
   /// reference only — the new app still issues its own uuid — so the migration
@@ -578,11 +579,47 @@ model Notification {
   target    String   @default("all")
   sentById  String?
   sentBy    User?    @relation("NotificationSender", fields: [sentById], references: [id])
-  isRead    Boolean  @default(false)
-  type      String?  @default("ANNOUNCEMENT")
-  createdAt DateTime @default(now())
+  isRead       Boolean   @default(false)
+  type         String?   @default("ANNOUNCEMENT")
+  status       String    @default("SENT")
+  scheduledFor DateTime?
+  /// Where tapping the notification should land — an in-app route like
+  /// `/books/<id>`, or an external https link. Null opens the notifications
+  /// screen. Persisted rather than only pushed, so a notification opened from
+  /// the in-app list can go to the same place as one opened from the tray.
+  route        String?
+  /// Optional 16:9 banner image (e.g. YouTube thumbnail style) shown expanded
+  /// in the device notification tray and in the in-app notification list.
+  imageUrl     String?
+  createdAt    DateTime  @default(now())
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([status, scheduledFor])
+}
+
+/// A device registered to receive push notifications.
+///
+/// Rows exist for signed-out devices too (userId null): the token is issued by
+/// FCM on first launch, and binding it to a student only becomes possible once
+/// they sign in. Broadcasts do not read this table at all — every device
+/// subscribes to the `all-students` topic and FCM fans those out — so it is
+/// consulted only when a notification names a single user.
+model DeviceToken {
+  id         String   @id @default(uuid())
+  /// The FCM registration token. Unique because FCM can hand the same token to
+  /// a device that has since been handed to another student, in which case the
+  /// row is re-pointed rather than duplicated.
+  token      String   @unique
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform   String   @default("android")
+  appVersion String?
+  createdAt  DateTime @default(now())
+  /// Touched on every registration call, so tokens that stop checking in can be
+  /// pruned without waiting for FCM to declare them unregistered.
+  lastSeenAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model AnnouncementPopup {

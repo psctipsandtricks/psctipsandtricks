@@ -86,11 +86,20 @@ class QuizCard extends StatelessWidget {
           const SizedBox(height: 13),
           Row(
             children: [
+              if (quiz.isNew) ...[
+                const AppBadge(
+                  'NEW',
+                  color: AppColors.emerald,
+                  icon: Icons.auto_awesome_rounded,
+                  filled: true,
+                ),
+                const SizedBox(width: 6),
+              ],
               if (quiz.isLiveMock)
                 const AppBadge('LIVE MOCK',
                     color: AppColors.amber, icon: Icons.bolt_rounded)
               else if ((quiz.folderName ?? '').isNotEmpty)
-                AppBadge(quiz.folderName!.toUpperCase()),
+                Flexible(child: AppBadge(quiz.folderName!.toUpperCase())),
               const Spacer(),
               if (locked)
                 Text(

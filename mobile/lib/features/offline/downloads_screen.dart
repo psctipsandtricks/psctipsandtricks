@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/providers/connectivity_provider.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
@@ -20,9 +21,6 @@ class DownloadsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final books = ref.watch(offlineLibraryProvider);
-    final totalSize = ref.watch(offlineLibrarySizeProvider).valueOrNull ?? 0;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Downloaded books'),
@@ -40,37 +38,98 @@ class DownloadsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: books.isEmpty
-          ? ListView(
-              children: [
-                const SizedBox(height: 60),
-                EmptyView(
-                  icon: Icons.download_for_offline_outlined,
-                  title: 'No downloads yet',
-                  message:
-                      'Open a book you own and tap Download to keep it on this '
-                      'device for reading without a connection.',
-                  action: FilledButton(
-                    onPressed: () => context.go(AppRoutes.books),
-                    child: const Text('Browse your books'),
-                  ),
-                ),
-              ],
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-              itemCount: books.length + 1,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return _StorageSummary(
-                    count: books.length,
-                    totalBytes: totalSize,
-                  );
-                }
-                return _DownloadRow(book: books[index - 1]);
-              },
+      body: const DownloadsList(),
+    );
+  }
+}
+
+/// The downloaded books themselves, without a scaffold of their own.
+///
+/// Shared with the Library tab, which leads with what is already on the device
+/// — those are the only books that open with no network at all.
+class DownloadsList extends ConsumerWidget {
+  const DownloadsList({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final books = ref.watch(offlineLibraryProvider);
+    final totalSize = ref.watch(offlineLibrarySizeProvider).valueOrNull ?? 0;
+    final isOffline = ref.watch(connectivityProvider).valueOrNull == false;
+
+    if (books.isEmpty) {
+      return ListView(
+        children: [
+          const SizedBox(height: 60),
+          EmptyView(
+            icon: isOffline
+                ? Icons.cloud_off_rounded
+                : Icons.download_for_offline_outlined,
+            title: isOffline ? "You're offline" : 'No downloads yet',
+            message: isOffline
+                ? 'Nothing is saved to this device yet. Reconnect to '
+                    'browse and download books for offline reading.'
+                : 'Open a book you own and tap Download to keep it on '
+                    'this device for reading without a connection.',
+            action: FilledButton(
+              onPressed: () => context.go(AppRoutes.books),
+              child: const Text('Browse your books'),
             ),
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      itemCount: books.length + 1,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Column(
+            children: [
+              if (isOffline) ...[
+                const _OfflineBanner(),
+                const SizedBox(height: 12),
+              ],
+              _StorageSummary(count: books.length, totalBytes: totalSize),
+            ],
+          );
+        }
+        return _DownloadRow(book: books[index - 1]);
+      },
+    );
+  }
+}
+
+/// Standing notice while the device has no network, so a locked or missing
+/// book reads as "no connection" rather than "something is broken".
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.30)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 18, color: AppColors.amber),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              "You're offline. Books saved here are ready to read.",
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.palette.textSecondary,
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -190,7 +249,7 @@ class _DownloadRow extends ConsumerWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _detail(status),
+                      _detail(status, progress.receivedBytes),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: palette.textMuted,
                           ),
@@ -253,7 +312,7 @@ class _DownloadRow extends ConsumerWidget {
     );
   }
 
-  String _detail(OfflineStatus status) {
+  String _detail(OfflineStatus status, int savedBytes) {
     switch (status) {
       case OfflineStatus.expired:
         final validTill = book.lease.validTill;
@@ -263,7 +322,7 @@ class _DownloadRow extends ConsumerWidget {
       case OfflineStatus.needsRevalidation:
         return 'Go online once to confirm your access';
       case OfflineStatus.paused:
-        return 'Paused · ${formatBytes(book.totalBytes)} saved so far';
+        return 'Paused · ${formatBytes(savedBytes)} saved so far';
       case OfflineStatus.downloading:
         return 'Downloading…';
       default:

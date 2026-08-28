@@ -13,6 +13,7 @@ import '../offline/offline_providers.dart';
 import '../pdfs/pdf_viewer_screen.dart';
 import '../videos/video_player_screen.dart';
 import 'books_providers.dart';
+import 'reader_audio_controller.dart';
 import 'reader_types.dart';
 import 'widgets/reader_audio_player.dart';
 
@@ -64,10 +65,34 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   /// hundreds of megabytes of cache for files the student may never open.
   final Map<String, String> _localPaths = {};
 
+  // ── Auto-scroll ───────────────────────────────────────────────────────
+  Timer? _scrollTicker;
+
+  /// While the student is dragging, auto-scroll stands down. Nothing is more
+  /// irritating than a page that scrolls itself back while you are reading.
+  DateTime _lastManualScroll = DateTime.fromMillisecondsSinceEpoch(0);
+
   Timer? _saveTimer;
 
   @override
+  void initState() {
+    super.initState();
+    // Drive the scroll off the shared player, so it keeps working no matter
+    // which screen started playback.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(readerAudioProvider).playing.addListener(_onPlayingChanged);
+      _startScrollTicker();
+    });
+  }
+
+  @override
   void dispose() {
+    _scrollTicker?.cancel();
+    final audio = ref.read(readerAudioProvider);
+    audio.playing.removeListener(_onPlayingChanged);
+    // Narration should not follow the student out of the book.
+    unawaited(audio.stop());
     _releaseWorkingCopies();
     _saveTimer?.cancel();
     // Flush whatever the debounce is still holding, so closing the reader right
@@ -143,6 +168,53 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     }
   }
 
+  void _onPlayingChanged() {
+    if (!mounted) return;
+    if (ref.read(readerAudioProvider).playing.value) {
+      _startScrollTicker();
+    } else {
+      _scrollTicker?.cancel();
+      _scrollTicker = null;
+    }
+  }
+
+  /// Walks the page towards the point in the topic the narration has reached.
+  ///
+  /// Driven by a slow ticker animating to a target rather than by jumping on
+  /// every position event: the position stream fires several times a second,
+  /// and jumping on each one reads as a stutter instead of a scroll.
+  void _startScrollTicker() {
+    _scrollTicker?.cancel();
+    final audio = ref.read(readerAudioProvider);
+    if (!ref.read(autoScrollProvider) || !audio.playing.value) return;
+
+    const interval = Duration(milliseconds: 400);
+    _scrollTicker = Timer.periodic(interval, (_) {
+      if (!mounted) return;
+      if (!ref.read(autoScrollProvider) || !audio.playing.value) return;
+      if (!_scrollController.hasClients) return;
+
+      // Yield to a student who is scrolling by hand.
+      if (DateTime.now().difference(_lastManualScroll) <
+          const Duration(seconds: 4)) {
+        return;
+      }
+
+      final max = _scrollController.position.maxScrollExtent;
+      if (max <= 0) return;
+
+      final target = max * audio.fraction.value;
+      // Only ever move forward, and only when the gap is worth animating.
+      if (target - _scrollController.offset < 1) return;
+
+      _scrollController.animateTo(
+        target,
+        duration: interval,
+        curve: Curves.linear,
+      );
+    });
+  }
+
   void _goTo(int index, {bool scrollToTop = true}) {
     if (index < 0 || index >= _units.length) return;
     setState(() {
@@ -150,6 +222,8 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
       if (index > _maxReached) _maxReached = index;
       _showResumeBanner = false;
     });
+    _scrollTicker?.cancel();
+    _scrollTicker = null;
     unawaited(_resolveLocalAssets(_units[index]));
     if (scrollToTop && _scrollController.hasClients) {
       _scrollController.animateTo(
@@ -250,6 +324,13 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                 progress: percent,
                 position: '${_activeIndex + 1} / ${_units.length}',
                 isOffline: source.isOffline,
+                // Only meaningful where there is narration to follow.
+                showAutoScroll: unit.hasAudio,
+                autoScroll: ref.watch(autoScrollProvider),
+                onToggleAutoScroll: () {
+                  ref.read(autoScrollProvider.notifier).toggle();
+                  _startScrollTicker();
+                },
                 onContents: _openContents,
               ),
               if (_showResumeBanner && _savedIndex != null)
@@ -259,7 +340,21 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                   onDismiss: () => setState(() => _showResumeBanner = false),
                 ),
               Expanded(
-                child: ListView(
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    // Only a real drag counts — the ticker's own animateTo
+                    // also emits scroll notifications, and treating those as
+                    // manual input would switch auto-scroll off instantly.
+                    if (notification is ScrollStartNotification &&
+                        notification.dragDetails != null) {
+                      _lastManualScroll = DateTime.now();
+                    } else if (notification is ScrollUpdateNotification &&
+                        notification.dragDetails != null) {
+                      _lastManualScroll = DateTime.now();
+                    }
+                    return false;
+                  },
+                  child: ListView(
                   controller: _scrollController,
                   padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
                   children: [
@@ -364,20 +459,34 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
 
                     if (unit.hasPdf) ...[
                       const SizedBox(height: 20),
-                      PdfAttachmentTile(
-                        title: 'Notes — ${unit.title}',
-                        subtitle: _localPaths.containsKey(unit.pdfUrl)
-                            ? 'Saved on this device'
-                            : 'Tap to read the PDF',
-                        onTap: () => openPdf(
-                          context,
-                          url: unit.pdfUrl!,
-                          title: unit.title,
-                          localPath: _localPaths[unit.pdfUrl],
-                        ),
+                      Builder(
+                        builder: (context) {
+                          final resumePage = rememberedPdfPage(
+                            ref.read(sharedPrefsProvider),
+                            unit.pdfUrl!,
+                          );
+                          final offlineNote =
+                              _localPaths.containsKey(unit.pdfUrl)
+                                  ? 'Saved on this device'
+                                  : 'Tap to read the PDF';
+                          return PdfAttachmentTile(
+                            title: 'Notes — ${unit.title}',
+                            subtitle: resumePage > 0
+                                ? 'Continue on page ${resumePage + 1}'
+                                : offlineNote,
+                            onTap: () => openPdf(
+                              context,
+                              url: unit.pdfUrl!,
+                              title: unit.title,
+                              localPath: _localPaths[unit.pdfUrl],
+                              syncCues: unit.syncCues,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ],
+                  ),
                 ),
               ),
               _ReaderFooter(
@@ -402,6 +511,9 @@ class _ReaderAppBar extends StatelessWidget {
     required this.progress,
     required this.position,
     required this.isOffline,
+    required this.showAutoScroll,
+    required this.autoScroll,
+    required this.onToggleAutoScroll,
     required this.onContents,
   });
 
@@ -410,6 +522,9 @@ class _ReaderAppBar extends StatelessWidget {
   final double progress;
   final String position;
   final bool isOffline;
+  final bool showAutoScroll;
+  final bool autoScroll;
+  final VoidCallback onToggleAutoScroll;
   final VoidCallback onContents;
 
   @override
@@ -467,6 +582,61 @@ class _ReaderAppBar extends StatelessWidget {
                           ),
                           child: const Icon(Icons.offline_pin_rounded,
                               size: 16, color: AppColors.emerald),
+                        ),
+                      ),
+                    ),
+                  if (showAutoScroll)
+                    Tooltip(
+                      message: autoScroll
+                          ? 'Auto-scroll on — follows the audio'
+                          : 'Auto-scroll off',
+                      child: InkWell(
+                        onTap: onToggleAutoScroll,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: autoScroll
+                                ? AppColors.cyan.withValues(alpha: 0.14)
+                                : palette.elevated,
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusSm),
+                            border: Border.all(
+                              color: autoScroll
+                                  ? AppColors.cyan.withValues(alpha: 0.4)
+                                  : palette.border,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                autoScroll
+                                    ? Icons.swipe_vertical_rounded
+                                    : Icons.do_not_touch_outlined,
+                                size: 15,
+                                color: autoScroll
+                                    ? AppColors.cyan
+                                    : palette.textMuted,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                autoScroll ? 'AUTO' : 'OFF',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      color: autoScroll
+                                          ? AppColors.cyan
+                                          : palette.textMuted,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 9.5,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -686,7 +856,9 @@ class _ReaderFooter extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: canGoBack ? onPrev : null,
                   icon: const Icon(Icons.chevron_left_rounded, size: 20),
-                  label: const Text('Previous'),
+                  // "Previous" wraps in the third of the bar this button gets;
+                  // the arrow already carries the direction.
+                  label: const Text('Back'),
                 ),
               ),
               const SizedBox(width: 12),

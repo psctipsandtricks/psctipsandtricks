@@ -10,7 +10,8 @@ import '../../../core/widgets/glass_card.dart';
 import '../../../data/models/book.dart' show AccessState;
 import '../../checkout/purchase_sheet.dart';
 
-/// Shown in place of a premium quiz until the student has paid for it.
+/// Shown in place of a premium quiz — or of a premium live mock test, which is
+/// sold as the quiz behind it — until the student has paid for it.
 ///
 /// The server withholds the questions entirely in this state, so there is
 /// nothing to leak here — this screen only explains the price and takes payment.
@@ -21,12 +22,44 @@ class QuizPaywall extends ConsumerWidget {
     required this.title,
     required this.access,
     required this.onUnlocked,
+    this.appBarTitle,
+    this.subtitle,
+    this.loginRedirect,
+    this.perks,
   });
 
+  /// The quiz that carries the entitlement. For a mock test this is the paper
+  /// behind it, not the mock test id — orders are placed against the quiz.
   final String quizId;
   final String title;
   final AccessState access;
   final Future<void> Function() onUnlocked;
+
+  /// Overrides for the mock-test framing; the quiz wording is the default.
+  final String? appBarTitle;
+  final String? subtitle;
+
+  /// Where to return after signing in. Defaults to the quiz attempt screen.
+  final String? loginRedirect;
+
+  /// What the purchase includes. Defaults to [quizPerks].
+  final List<(IconData, String)>? perks;
+
+  static const quizPerks = <(IconData, String)>[
+    (Icons.all_inclusive_rounded, 'Unlimited re-attempts, forever'),
+    (Icons.insights_rounded, 'Detailed accuracy and rank analytics'),
+    (Icons.lightbulb_outline_rounded, 'Explanations for every question'),
+    (Icons.leaderboard_rounded, 'Compete on the live rank list'),
+  ];
+
+  /// What buying a live mock test actually gets you, which is not the same
+  /// list — the draw is the timed sitting and the rank against everyone else.
+  static const mockTestPerks = <(IconData, String)>[
+    (Icons.bolt_rounded, 'Take the paper live, at the scheduled hour'),
+    (Icons.leaderboard_rounded, 'Your rank against every other aspirant'),
+    (Icons.insights_rounded, 'Full score and accuracy breakdown'),
+    (Icons.replay_rounded, 'Keep the paper afterwards for practice'),
+  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -34,7 +67,7 @@ class QuizPaywall extends ConsumerWidget {
     final needsLogin = access.needsLogin;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Premium question bank')),
+      appBar: AppBar(title: Text(appBarTitle ?? 'Premium question bank')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [
@@ -57,7 +90,7 @@ class QuizPaywall extends ConsumerWidget {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  title.isEmpty ? 'Premium question bank' : title,
+                  title.isEmpty ? (appBarTitle ?? 'Premium question bank') : title,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w900,
@@ -66,9 +99,11 @@ class QuizPaywall extends ConsumerWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  needsLogin
-                      ? 'Sign in to check whether you already own this question bank.'
-                      : 'This question bank is premium. Complete the payment to unlock the questions and attempt it.',
+                  subtitle ??
+                      (needsLogin
+                          ? 'Sign in to check whether you already own this question bank.'
+                          : 'This question bank is premium. Complete the payment to '
+                              'unlock the questions and attempt it.'),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: palette.textSecondary,
@@ -103,8 +138,10 @@ class QuizPaywall extends ConsumerWidget {
                   gradient: AppColors.goldGradient,
                   onPressed: () async {
                     if (needsLogin) {
+                      final redirect =
+                          loginRedirect ?? AppRoutes.quizAttempt(quizId);
                       context.push(
-                        '${AppRoutes.login}?redirect=${Uri.encodeComponent(AppRoutes.quizAttempt(quizId))}',
+                        '${AppRoutes.login}?redirect=${Uri.encodeComponent(redirect)}',
                       );
                       return;
                     }
@@ -123,7 +160,7 @@ class QuizPaywall extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 20),
-          const _Perks(),
+          _Perks(items: perks ?? quizPerks),
         ],
       ),
     );
@@ -131,14 +168,9 @@ class QuizPaywall extends ConsumerWidget {
 }
 
 class _Perks extends StatelessWidget {
-  const _Perks();
+  const _Perks({required this.items});
 
-  static const _items = <(IconData, String)>[
-    (Icons.all_inclusive_rounded, 'Unlimited re-attempts, forever'),
-    (Icons.insights_rounded, 'Detailed accuracy and rank analytics'),
-    (Icons.lightbulb_outline_rounded, 'Explanations for every question'),
-    (Icons.leaderboard_rounded, 'Compete on the live rank list'),
-  ];
+  final List<(IconData, String)> items;
 
   @override
   Widget build(BuildContext context) {
@@ -153,7 +185,7 @@ class _Perks extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 14),
-          for (final item in _items)
+          for (final item in items)
             Padding(
               padding: const EdgeInsets.only(bottom: 11),
               child: Row(

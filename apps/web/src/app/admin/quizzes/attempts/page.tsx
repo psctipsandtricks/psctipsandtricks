@@ -153,7 +153,7 @@ export default function AdminQuizAttemptsPage() {
       </div>
 
       {/* Table Container */}
-      <Card className="p-0 overflow-hidden bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 shadow-sm">
+      <Card className="p-0 overflow-hidden bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 admin-table-card">
         {filteredAttempts.length === 0 ? (
           <div className="p-8 text-center space-y-3">
             <History className="w-10 h-10 text-slate-400 dark:text-slate-500 mx-auto" />

@@ -8,6 +8,7 @@ import 'package:psc_tips_tricks_mobile/data/models/quiz.dart';
 import 'package:psc_tips_tricks_mobile/features/books/reader_types.dart';
 import 'package:psc_tips_tricks_mobile/data/models/book.dart';
 import 'package:psc_tips_tricks_mobile/data/models/order.dart';
+import 'package:psc_tips_tricks_mobile/core/router/app_router.dart';
 
 void main() {
   group('negative marking', () {
@@ -104,6 +105,45 @@ void main() {
     test('marks drop a trailing .0', () {
       expect(Fmt.marks(4), '4');
       expect(Fmt.marks(4.25), '4.25');
+    });
+  });
+
+  group('routes', () {
+    test('an attempt never collides with the literal history route', () {
+      // Regression: the attempt used to live at /quizzes/:id, which matched
+      // /quizzes/history — so "Attempts" opened an attempt screen for a quiz
+      // called "history" instead of the history list.
+      final attempt = AppRoutes.quizAttempt('abc123');
+      expect(attempt.startsWith('/quizzes/'), isFalse);
+      expect(attempt, '/attempt/abc123');
+      expect(AppRoutes.quizHistory, '/quizzes/history');
+    });
+
+    test('downloads is a literal segment under books', () {
+      // Same hazard as above: /books/downloads must not be read as a book id,
+      // which is why it is declared ahead of /books/:id.
+      expect(AppRoutes.downloads, '/books/downloads');
+      expect(AppRoutes.bookDetail('downloads'), '/books/downloads');
+    });
+
+    test('the reader carries a resume flag only when asked', () {
+      expect(AppRoutes.bookReader('b1'), '/books/b1/read');
+      expect(AppRoutes.bookReader('b1', resume: true), '/books/b1/read?resume=1');
+    });
+  });
+
+  group('new content window', () {
+    test('flags something published within the last fortnight', () {
+      expect(isRecent(DateTime.now().subtract(const Duration(days: 3))), isTrue);
+      expect(isRecent(DateTime.now().subtract(const Duration(days: 13))), isTrue);
+    });
+
+    test('stops flagging once the window passes', () {
+      expect(isRecent(DateTime.now().subtract(const Duration(days: 15))), isFalse);
+    });
+
+    test('undated content is never new', () {
+      expect(isRecent(null), isFalse);
     });
   });
 

@@ -7,6 +7,8 @@ class AppNotification {
     required this.body,
     required this.isRead,
     this.type,
+    this.route,
+    this.imageUrl,
     this.createdAt,
   });
 
@@ -15,6 +17,8 @@ class AppNotification {
   final String body;
   final bool isRead;
   final String? type;
+  final String? route;
+  final String? imageUrl;
   final DateTime? createdAt;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
@@ -24,6 +28,8 @@ class AppNotification {
         body: J.str(json['body']),
         isRead: J.boolVal(json['isRead']),
         type: J.strOrNull(json['type']),
+        route: J.strOrNull(json['route']),
+        imageUrl: J.strOrNull(json['imageUrl']),
         createdAt: J.dateOrNull(json['createdAt']),
       );
 }

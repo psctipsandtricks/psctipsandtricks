@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagg
 import { UserRole } from '@prisma/client';
 import { PdfsService } from './pdfs.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -30,7 +31,7 @@ const PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 };
 @ApiTags('PDFs')
 @ApiBearerAuth()
 @Controller('pdfs')
-@UseGuards(JwtAuthGuard)
+@UseGuards(OptionalJwtAuthGuard)
 export class PdfsController {
   constructor(private readonly pdfsService: PdfsService) {}
 
@@ -85,72 +86,6 @@ export class PdfsController {
   @Patch('folders/reorder')
   async reorderFolders(@Body() dto: ReorderDto) {
     return this.pdfsService.reorderFolders(dto);
-  }
-
-  // --- PDF Documents ---
-
-  @ApiOperation({ summary: 'List PDF documents (optionally by folderId, chapterId, or search query)' })
-  @Get()
-  async listDocuments(
-    @Request() req: any,
-    @Query('folderId') folderId?: string,
-    @Query('chapterId') chapterId?: string,
-    @Query('search') search?: string,
-  ) {
-    return this.pdfsService.listDocuments({ folderId, chapterId, search }, req.user);
-  }
-
-  @ApiOperation({ summary: 'Get a single PDF document' })
-  @Get(':id')
-  async getDocument(@Request() req: any, @Param('id') id: string) {
-    return this.pdfsService.findDocument(id, req.user);
-  }
-
-  @ApiOperation({ summary: 'Create a PDF document inside any folder (Admin / Staff)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Post()
-  async createDocument(@Body() dto: CreatePdfDocumentDto) {
-    return this.pdfsService.createDocument(dto);
-  }
-
-  @ApiOperation({ summary: 'Update a PDF document (Admin / Staff)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Patch(':id')
-  async updateDocument(@Param('id') id: string, @Body() dto: UpdatePdfDocumentDto) {
-    return this.pdfsService.updateDocument(id, dto);
-  }
-
-  @ApiOperation({ summary: 'Delete a PDF document (Admin / Staff)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Delete(':id')
-  async removeDocument(@Param('id') id: string) {
-    return this.pdfsService.removeDocument(id);
-  }
-
-  @ApiOperation({ summary: 'Upload file to a PDF document (Admin / Staff)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file', { limits: PDF_UPLOAD_LIMITS }))
-  @Post(':id/file')
-  async uploadPdfFile(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
-    return this.pdfsService.uploadPdfFile(id, file);
-  }
-
-  @ApiOperation({ summary: 'Remove file from a PDF document (Admin / Staff)' })
-  @UseGuards(...MANAGE_PDFS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('managePdfs')
-  @Delete(':id/file')
-  async removePdfFile(@Param('id') id: string) {
-    return this.pdfsService.removePdfFile(id);
   }
 
   // --- Legacy Compatibility Routes ---
@@ -250,5 +185,71 @@ export class PdfsController {
   @Post('chapters/:chapterId/documents')
   async createChapterDocument(@Param('chapterId') chapterId: string, @Body() dto: CreatePdfDocumentDto) {
     return this.pdfsService.createDocument({ ...dto, chapterId });
+  }
+
+  // --- PDF Documents ---
+
+  @ApiOperation({ summary: 'List PDF documents (optionally by folderId, chapterId, or search query)' })
+  @Get()
+  async listDocuments(
+    @Request() req: any,
+    @Query('folderId') folderId?: string,
+    @Query('chapterId') chapterId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.pdfsService.listDocuments({ folderId, chapterId, search }, req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a PDF document inside any folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Post()
+  async createDocument(@Body() dto: CreatePdfDocumentDto) {
+    return this.pdfsService.createDocument(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Patch(':id')
+  async updateDocument(@Param('id') id: string, @Body() dto: UpdatePdfDocumentDto) {
+    return this.pdfsService.updateDocument(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Delete(':id')
+  async removeDocument(@Param('id') id: string) {
+    return this.pdfsService.removeDocument(id);
+  }
+
+  @ApiOperation({ summary: 'Upload file to a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: PDF_UPLOAD_LIMITS }))
+  @Post(':id/file')
+  async uploadPdfFile(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.pdfsService.uploadPdfFile(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove file from a PDF document (Admin / Staff)' })
+  @UseGuards(...MANAGE_PDFS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('managePdfs')
+  @Delete(':id/file')
+  async removePdfFile(@Param('id') id: string) {
+    return this.pdfsService.removePdfFile(id);
+  }
+
+  @ApiOperation({ summary: 'Get a single PDF document' })
+  @Get(':id')
+  async getDocument(@Request() req: any, @Param('id') id: string) {
+    return this.pdfsService.findDocument(id, req.user);
   }
 }

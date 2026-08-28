@@ -1,5 +1,5 @@
 import '../../core/utils/json.dart';
-import 'book.dart' show AccessState;
+import 'book.dart' show AccessState, isRecent;
 
 class QuestionOption {
   const QuestionOption({required this.id, required this.text, this.explanation});
@@ -135,7 +135,11 @@ class Quiz {
   final DateTime? createdAt;
 
   bool get isLocked => access != null && !access!.hasAccess;
+
+  /// Mirrors the server's own predicate in `quiz-access.service.ts`.
   bool get isPaid => isPremium || price > 0;
+
+  bool get isNew => isRecent(createdAt);
   Duration get duration => Duration(minutes: durationMinutes);
 
   factory Quiz.fromJson(Map<String, dynamic> json) => Quiz(

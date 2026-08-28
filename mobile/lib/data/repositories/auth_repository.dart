@@ -29,6 +29,25 @@ class AuthRepository {
     return _persist(AuthResponse.fromJson(res));
   }
 
+  /// Trades an ID token from the device's native Google Sign-In for a session.
+  ///
+  /// Unlike [completeOAuth] this is an ordinary login round trip: the API
+  /// verifies the token with Google and answers with the same shape as
+  /// email/password login, so no follow-up profile fetch is needed.
+  Future<User> loginWithGoogleNativeTokens({String? idToken, String? accessToken}) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/google/native',
+      body: {
+        if (idToken != null && idToken.isNotEmpty) 'idToken': idToken,
+        if (accessToken != null && accessToken.isNotEmpty) 'accessToken': accessToken,
+      },
+    );
+    return _persist(AuthResponse.fromJson(res));
+  }
+
+  Future<User> loginWithGoogleIdToken(String idToken) =>
+      loginWithGoogleNativeTokens(idToken: idToken);
+
   /// Completes an OAuth sign-in: the backend redirect already handed us a token
   /// pair, so all that's left is to fetch the profile that goes with it.
   Future<User> completeOAuth({

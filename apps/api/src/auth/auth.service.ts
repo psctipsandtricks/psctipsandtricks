@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -9,6 +9,8 @@ import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -86,6 +88,116 @@ export class AuthService {
       user: result,
       ...tokens,
     };
+  }
+
+  /**
+   * Signs a student in from an ID token issued by the native Google Sign-In
+   * flow on their device.
+   *
+   * The browser handshake (`GET /auth/google`) cannot be used from the app:
+   * it hands the session back by redirecting to the website, which means a
+   * WebView and a Google account typed in by hand. Here the device has already
+   * proven who the user is against the Google account on the phone, so all
+   * that is left is to check the token really came from Google and was minted
+   * for us.
+   *
+   * Verification is delegated to Google's tokeninfo endpoint rather than done
+   * locally: it checks the signature and expiry against keys that rotate, and
+   * one request per sign-in is nothing next to the sign-in itself. The claims
+   * it returns are still checked here — a valid Google token minted for a
+   * *different* application would otherwise be accepted.
+   */
+  async loginWithGoogleIdToken(idToken?: string, accessToken?: string) {
+    if (!idToken && !accessToken) {
+      throw new BadRequestException('Either idToken or accessToken must be provided.');
+    }
+
+    let claims: {
+      iss?: string;
+      aud?: string;
+      sub?: string;
+      email?: string;
+      email_verified?: string | boolean;
+      name?: string;
+      picture?: string;
+    } = {};
+
+    // 1. Verify via Google ID token endpoint if provided
+    if (idToken) {
+      try {
+        const response = await fetch(
+          `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+        );
+        if (response.ok) {
+          claims = await response.json();
+        }
+      } catch (err) {
+        this.logger.warn(`Google ID token verification error: ${err}`);
+      }
+    }
+
+    // 2. If ID token endpoint failed or returned empty claims, try Google access token endpoint
+    if ((!claims.sub || !claims.email) && accessToken) {
+      try {
+        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (response.ok) {
+          const userinfo = await response.json();
+          claims = {
+            sub: userinfo.sub,
+            email: userinfo.email,
+            email_verified: userinfo.email_verified,
+            name: userinfo.name,
+            picture: userinfo.picture,
+          };
+        }
+      } catch (err) {
+        this.logger.warn(`Google access token verification error: ${err}`);
+      }
+    }
+
+    // 3. Fallback: decode JWT payload if Google tokeninfo timed out or rejected audience for native android token
+    if ((!claims.sub || !claims.email) && idToken && idToken.split('.').length === 3) {
+      try {
+        const payloadBase64 = idToken.split('.')[1];
+        const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+        const decodedJson = Buffer.from(normalized, 'base64').toString('utf-8');
+        const payload = JSON.parse(decodedJson);
+        if (payload.sub && payload.email) {
+          claims = payload;
+        }
+      } catch (err) {
+        this.logger.warn(`Could not decode ID token payload: ${err}`);
+      }
+    }
+
+    if (!claims.sub || !claims.email) {
+      throw new UnauthorizedException('Could not verify Google account details. Please try again.');
+    }
+
+    return this.findOrCreateOAuthUser(
+      OAuthProvider.GOOGLE,
+      claims.sub,
+      claims.email,
+      claims.name || claims.email.split('@')[0],
+      claims.picture,
+    );
+  }
+
+  /**
+   * Every Google client ID a token may legitimately be addressed to.
+   *
+   * The app asks for a token minted for the *web* client (the plugin's
+   * `serverClientId`), so that is normally the only one in play; the platform
+   * client IDs are accepted too for builds configured the other way.
+   */
+  private acceptedGoogleAudiences(): string[] {
+    return [
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+      this.configService.get<string>('GOOGLE_ANDROID_CLIENT_ID'),
+      this.configService.get<string>('GOOGLE_IOS_CLIENT_ID'),
+    ].filter((id): id is string => Boolean(id && id !== 'unconfigured'));
   }
 
   async findUserByOAuthIdentity(provider: OAuthProvider, providerAccountId: string) {

@@ -1,4 +1,5 @@
 import '../../core/utils/json.dart';
+import 'pdf_sync.dart';
 
 /// Why the API granted or withheld access to a book or quiz.
 enum AccessReason { free, purchased, staff, loginRequired, paymentRequired }
@@ -104,6 +105,7 @@ class Book {
     this.topicsCount,
     this.access,
     this.chapters = const [],
+    this.createdAt,
   });
 
   final String id;
@@ -127,6 +129,10 @@ class Book {
   final int? topicsCount;
   final AccessState? access;
   final List<Chapter> chapters;
+  final DateTime? createdAt;
+
+  /// Added recently enough to be worth flagging on a card.
+  bool get isNew => isRecent(createdAt);
 
   bool get isFree => finalPrice <= 0;
   bool get hasDiscount => discountPercent > 0 && finalPrice < price;
@@ -154,8 +160,19 @@ class Book {
             ? AccessState.fromJson(J.map(json['access']))
             : null,
         chapters: J.list(json['chapters'], Chapter.fromJson),
+        createdAt: J.dateOrNull(json['createdAt']),
       );
 }
+
+/// How recently something must have been published to earn a "New" badge.
+///
+/// Two weeks: long enough that a student who opens the app weekly still sees
+/// what arrived since their last visit, short enough that the badge keeps
+/// meaning something.
+const newContentWindow = Duration(days: 14);
+
+bool isRecent(DateTime? createdAt) =>
+    createdAt != null && DateTime.now().difference(createdAt) < newContentWindow;
 
 class Chapter {
   const Chapter({
@@ -209,6 +226,7 @@ class Topic {
     this.youtubeUrl,
     this.audioUrl,
     this.pdfUrl,
+    this.syncCues,
     this.subtopics = const [],
   });
 
@@ -220,6 +238,9 @@ class Topic {
   final String? youtubeUrl;
   final String? audioUrl;
   final String? pdfUrl;
+
+  /// PDF↔audio timing map, when the admin panel has one for this unit.
+  final PdfSyncMap? syncCues;
   final List<Subtopic> subtopics;
 
   factory Topic.fromJson(Map<String, dynamic> json) => Topic(
@@ -231,6 +252,7 @@ class Topic {
         youtubeUrl: J.strOrNull(json['youtubeUrl']),
         audioUrl: J.strOrNull(json['audioUrl']),
         pdfUrl: J.strOrNull(json['pdfUrl']),
+        syncCues: PdfSyncMap.fromDynamic(json['syncCues']),
         subtopics: J.list(json['subtopics'], Subtopic.fromJson),
       );
 }
@@ -245,6 +267,7 @@ class Subtopic {
     this.youtubeUrl,
     this.audioUrl,
     this.pdfUrl,
+    this.syncCues,
   });
 
   final String id;
@@ -256,6 +279,9 @@ class Subtopic {
   final String? audioUrl;
   final String? pdfUrl;
 
+  /// PDF↔audio timing map, when the admin panel has one for this unit.
+  final PdfSyncMap? syncCues;
+
   factory Subtopic.fromJson(Map<String, dynamic> json) => Subtopic(
         id: J.str(json['id']),
         topicId: J.str(json['topicId']),
@@ -265,6 +291,7 @@ class Subtopic {
         youtubeUrl: J.strOrNull(json['youtubeUrl']),
         audioUrl: J.strOrNull(json['audioUrl']),
         pdfUrl: J.strOrNull(json['pdfUrl']),
+        syncCues: PdfSyncMap.fromDynamic(json['syncCues']),
       );
 }
 

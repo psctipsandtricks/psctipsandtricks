@@ -153,19 +153,28 @@ class AppAvatar extends StatelessWidget {
   }
 }
 
-/// Book cover with 16:9 YouTube thumbnail aspect ratio and rounded corners.
+/// Book cover with custom or adaptive aspect ratio and rounded corners.
 class BookCover extends StatelessWidget {
-  const BookCover({super.key, required this.url, this.width = 112});
+  const BookCover({
+    super.key,
+    required this.url,
+    this.width = 112,
+    this.aspectRatio,
+    this.isPortrait = false,
+  });
 
   final String? url;
   final double width;
+  final double? aspectRatio;
+  final bool isPortrait;
 
   @override
   Widget build(BuildContext context) {
+    final heightRatio = aspectRatio ?? (isPortrait ? (4 / 3) : (9 / 16));
     return AppImage(
       url: url,
       width: width,
-      height: width * (9 / 16),
+      height: width * heightRatio,
       radius: AppTheme.radiusMd,
       fallbackIcon: Icons.menu_book_rounded,
     );

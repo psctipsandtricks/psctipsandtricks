@@ -26,7 +26,11 @@ class BookCard extends StatelessWidget {
         children: [
           Stack(
             children: [
-              BookCover(url: book.coverUrl, width: 96),
+              BookCover(
+                url: book.heroCoverUrl ?? book.coverUrl,
+                width: 86,
+                aspectRatio: book.heroCoverUrl != null ? (4 / 3) : (9 / 16),
+              ),
               if (book.isPremium && !book.isUnlocked)
                 Positioned(
                   top: 6,
@@ -48,8 +52,23 @@ class BookCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (book.category.isNotEmpty)
-                  AppBadge(book.category.toUpperCase()),
+                Row(
+                  children: [
+                    if (book.isNew) ...[
+                      const AppBadge(
+                        'NEW',
+                        color: AppColors.emerald,
+                        icon: Icons.auto_awesome_rounded,
+                        filled: true,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    if (book.category.isNotEmpty)
+                      Flexible(
+                        child: AppBadge(book.category.toUpperCase()),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 7),
                 Text(
                   book.title,
@@ -179,7 +198,21 @@ class BookTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            BookCover(url: book.coverUrl, width: width),
+            Stack(
+              children: [
+                BookCover(url: book.coverUrl, width: width),
+                if (book.isNew)
+                  const Positioned(
+                    top: 6,
+                    left: 6,
+                    child: AppBadge(
+                      'NEW',
+                      color: AppColors.emerald,
+                      filled: true,
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 9),
             Flexible(
               child: Text(

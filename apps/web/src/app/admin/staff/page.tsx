@@ -58,7 +58,7 @@ import {
 import { ApiClient } from '@/lib/api-client';
 import { StaffMember, StaffPermission } from '@psc/shared-types';
 import { useAdminAuth } from '../admin-auth-provider';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { StaffPageSkeleton } from '../admin-skeleton';
 
 const PERMISSION_DEFINITIONS = [
   { key: 'viewAnalytics', label: 'Analytics Dashboard', icon: LayoutDashboard, category: 'Analytics & Reports' },
@@ -393,20 +393,15 @@ export default function StaffManagementPage() {
   };
 
   if (!mounted || loading) {
-    return (
-      <div className="space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={6} />
-      </div>
-    );
+    return <StaffPageSkeleton />;
   }
 
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
   return (
-    <div className="space-y-6 w-full max-w-7xl mx-auto">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl w-full px-1 sm:px-0">
       {/* ── Page Header ────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400 mb-1">
             <ShieldCheck className="w-4 h-4" />
@@ -442,7 +437,7 @@ export default function StaffManagementPage() {
 
       {/* ── Notification Banners ───────────────────────────────────── */}
       {errorBanner && (
-        <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between">
+        <div className="shrink-0 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between">
           <span>{errorBanner}</span>
           <button onClick={() => setErrorBanner('')} className="p-1 hover:bg-rose-500/20 rounded-md">
             <XCircle className="w-4 h-4" />
@@ -451,7 +446,7 @@ export default function StaffManagementPage() {
       )}
 
       {successBanner && (
-        <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-between">
+        <div className="shrink-0 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-between">
           <span>{successBanner}</span>
           <button onClick={() => setSuccessBanner('')} className="p-1 hover:bg-emerald-500/20 rounded-md">
             <CheckCircle2 className="w-4 h-4" />
@@ -460,23 +455,23 @@ export default function StaffManagementPage() {
       )}
 
       {/* ── Filter Bar ─────────────────────────────────────────────── */}
-      <Card className="p-4 glass-card space-y-3">
+      <Card className="shrink-0 p-3 sm:p-4 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] shadow-xs">
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
           <div className="sm:col-span-6 relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <Input
               placeholder="Search staff by name, email, or phone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 text-xs"
+              className="w-full pl-9 h-10 text-xs"
             />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           </div>
 
           <div className="sm:col-span-3">
             <Select
-              label="Role Filter"
               value={roleFilter}
               onChange={(val) => setRoleFilter(val as any)}
+              icon={<ShieldCheck className="w-4 h-4 text-cyan-500" />}
               options={[
                 { value: 'ALL', label: 'All Roles (Admin & Staff)' },
                 { value: 'ADMIN', label: 'Administrators Only' },
@@ -487,11 +482,11 @@ export default function StaffManagementPage() {
 
           <div className="sm:col-span-3">
             <Select
-              label="Status Filter"
               value={statusFilter}
               onChange={(val) => setStatusFilter(val as any)}
+              icon={<CheckCircle2 className="w-4 h-4 text-cyan-500" />}
               options={[
-                { value: 'ALL', label: 'All Statuses' },
+                { value: 'ALL', label: 'All Statuses (Active & Suspended)' },
                 { value: 'ACTIVE', label: 'Active Only' },
                 { value: 'SUSPENDED', label: 'Suspended Only' },
               ]}
@@ -501,11 +496,11 @@ export default function StaffManagementPage() {
       </Card>
 
       {/* ── Staff Table ────────────────────────────────────────────── */}
-      <Card className="overflow-hidden glass-panel border-slate-200/80 dark:border-[#1e2e56]">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#0c152e]/70">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
+        <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+          <Table className="w-full">
+            <TableHeader className="sticky top-0 z-10 bg-slate-50/95 dark:bg-[#0c152e]/95 backdrop-blur-sm shadow-xs">
+              <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56]">
                 <TableHead className="font-extrabold text-xs">Staff Member</TableHead>
                 <TableHead className="font-extrabold text-xs">Role</TableHead>
                 <TableHead className="font-extrabold text-xs">Assigned Permissions</TableHead>
@@ -713,22 +708,22 @@ export default function StaffManagementPage() {
           </Table>
         </div>
 
-        {totalPages > 1 && (
-          <div className="p-4 border-t border-slate-200/80 dark:border-[#1e2e56]">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalItems={totalItems}
-              pageSize={pageSize}
-              pageSizeOptions={[5, 10, 20, 50]}
-              onPageChange={setCurrentPage}
-              onPageSizeChange={(newSize) => {
-                setPageSize(newSize);
-                setCurrentPage(1);
-              }}
-            />
-          </div>
-        )}
+        {/* Footer Pagination */}
+        <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/40 dark:bg-[#091124]/40">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[5, 10, 20, 50]}
+            className="border-t-0 pt-0"
+          />
+        </div>
       </Card>
 
       {/* ── 1. Add / Edit Staff Modal ───────────────────────────────── */}

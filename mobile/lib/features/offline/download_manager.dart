@@ -54,19 +54,22 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
     await _repo.purgeWorkingCopies();
     try {
       final books = await _repo.library();
+      final restored = <String, DownloadProgress>{};
       for (final book in books) {
         _library[book.bookId] = book;
+        // Measure the vault rather than trusting the manifest: totalBytes only
+        // advances when a whole asset lands, so a transfer interrupted mid-file
+        // would otherwise report zero despite megabytes being on disk.
+        final onDisk = await _repo.sizeOnDisk(book.bookId);
+        restored[book.bookId] = DownloadProgress(
+          bookId: book.bookId,
+          status: book.complete ? book.status : OfflineStatus.paused,
+          completedAssets: book.assets.where((a) => a.complete).length,
+          totalAssets: book.assets.length,
+          receivedBytes: onDisk,
+        );
       }
-      state = {
-        for (final book in books)
-          book.bookId: DownloadProgress(
-            bookId: book.bookId,
-            status: book.complete ? book.status : OfflineStatus.paused,
-            completedAssets: book.assets.where((a) => a.complete).length,
-            totalAssets: book.assets.length,
-            receivedBytes: book.totalBytes,
-          ),
-      };
+      state = restored;
     } catch (e) {
       if (kDebugMode) debugPrint('Could not restore offline library: $e');
     }

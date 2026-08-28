@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import type { VideoFolder, Video } from '@psc/shared-types';
 import { extractYoutubeVideoId, youtubeFallbackThumbnail } from '@/lib/youtube';
-import { AdminSkeletonTable } from '../admin-skeleton';
+import { MediaLibrarySkeleton, AdminSkeletonTable } from '../admin-skeleton';
 
 const folderSchema = Yup.object({
   name: Yup.string().trim().required('Folder name is required'),
@@ -383,8 +383,12 @@ export default function AdminVideoFoldersPage() {
     currentPage * pageSize,
   );
 
+  if (loading && folders.length === 0) {
+    return <MediaLibrarySkeleton isPdf={false} />;
+  }
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Toast Notification */}
       {toastMsg && (
         <div
@@ -466,7 +470,7 @@ export default function AdminVideoFoldersPage() {
       )}
 
       {/* Table Card */}
-      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden p-0">
+      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card overflow-hidden p-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {loading ? (
             <AdminSkeletonTable rowsCount={5} />
@@ -1014,18 +1018,19 @@ export default function AdminVideoFoldersPage() {
 
         {/* Pagination Footer */}
         {filteredFolders.length > 0 && (
-          <div className="p-4 border-t border-slate-200/80 dark:border-[#1e2e56]/40 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#0c152e]/30">
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-              Showing <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredFolders.length, (currentPage - 1) * pageSize + 1)}</span> to{' '}
-              <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredFolders.length, currentPage * pageSize)}</span> of{' '}
-              <span className="font-bold text-slate-700 dark:text-slate-200">{filteredFolders.length}</span> folders
-            </span>
+          <div className="px-4 sm:px-6 py-3 border-t border-slate-200/80 dark:border-[#1e2e56]/40 bg-slate-50/50 dark:bg-[#0c152e]/30">
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
               totalItems={filteredFolders.length}
               pageSize={pageSize}
               onPageChange={setCurrentPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setCurrentPage(1);
+              }}
+              pageSizeOptions={[5, 10, 20, 50]}
+              className="border-t-0 pt-0"
             />
           </div>
         )}

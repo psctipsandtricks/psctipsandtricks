@@ -48,7 +48,7 @@ final quizzesProvider = FutureProvider.autoDispose<List<Quiz>>((ref) async {
   final path = ref.watch(folderPathProvider);
   return ref.watch(quizzesRepositoryProvider).fetchQuizzes(
         search: search.isEmpty ? null : search,
-        folderId: search.isEmpty ? path.currentId : null,
+        folderName: search.isEmpty ? path.current?.name : null,
       );
 });
 

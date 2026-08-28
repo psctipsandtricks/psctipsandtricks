@@ -39,7 +39,7 @@ import {
   ListChecks,
 } from 'lucide-react';
 import type { QuizFolder } from '@psc/shared-types';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { AdminSkeletonHeader, AdminSkeletonTable, MediaLibrarySkeleton } from '../admin-skeleton';
 
 const folderSchema = Yup.object({
   name: Yup.string().trim().required('Folder name is required'),
@@ -276,8 +276,12 @@ export default function AdminQuizFoldersPage() {
 
   const totalQuizzes = folders.reduce((sum, f) => sum + (f.quizCount || 0), 0);
 
+  if (loading && folders.length === 0) {
+    return <MediaLibrarySkeleton isPdf={false} />;
+  }
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Toast Notification */}
       {toastMsg && (
         <div
@@ -357,7 +361,7 @@ export default function AdminQuizFoldersPage() {
       )}
 
       {/* Folders Tree Table Card */}
-      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden p-0">
+      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card overflow-hidden p-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {loading ? (
             <AdminSkeletonTable rowsCount={5} colsCount={5} />

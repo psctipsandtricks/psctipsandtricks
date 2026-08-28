@@ -563,7 +563,11 @@ class _BookProgressCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
-          BookCover(url: book.coverUrl, width: 50),
+          BookCover(
+            url: book.heroCoverUrl ?? book.coverUrl,
+            width: 48,
+            aspectRatio: book.heroCoverUrl != null ? (4 / 3) : (9 / 16),
+          ),
           const SizedBox(width: 13),
           Expanded(
             child: Column(

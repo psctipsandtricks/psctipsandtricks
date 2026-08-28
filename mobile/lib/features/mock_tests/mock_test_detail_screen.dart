@@ -15,6 +15,8 @@ import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/mock_test.dart';
 import '../../data/models/quiz.dart';
+import '../checkout/purchase_sheet.dart';
+import '../home/home_providers.dart';
 import 'mock_tests_providers.dart';
 
 /// One scheduled mock test: the details, the join action while it is live, and
@@ -31,6 +33,7 @@ class MockTestDetailScreen extends ConsumerStatefulWidget {
 
 class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
   bool _joining = false;
+  bool _buying = false;
 
   Future<void> _join(MockTest mock) async {
     setState(() => _joining = true);
@@ -38,6 +41,7 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
       await ref.read(mockTestsRepositoryProvider).join(mock.id);
       ref.invalidate(mockTestProvider(mock.id));
       ref.invalidate(mockTestsProvider);
+      ref.invalidate(liveMockTestProvider);
       if (!mounted) return;
 
       // Joining only reserves a seat; the paper itself is the underlying quiz.
@@ -50,6 +54,48 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
       }
     } finally {
       if (mounted) setState(() => _joining = false);
+    }
+  }
+
+  Future<void> _buy(MockTest mock) async {
+    final signedIn = ref.read(authControllerProvider).isAuthenticated;
+    if (!signedIn) {
+      final target = AppRoutes.mockTest(mock.id);
+      context.push(
+        '${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}',
+      );
+      return;
+    }
+
+    setState(() => _buying = true);
+    try {
+      final success = await showPurchaseSheet(
+        context,
+        target: PurchaseTarget.quiz(
+          id: mock.quizId,
+          title: mock.title,
+          price: mock.price,
+        ),
+      );
+
+      if (success && mounted) {
+        // Refetch mock test state so it updates to unlocked
+        ref.invalidate(mockTestProvider(mock.id));
+        ref.invalidate(mockTestsProvider);
+        ref.invalidate(liveMockTestProvider);
+        await ref.read(mockTestProvider(mock.id).future);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment successful! You can now join the test.'),
+              backgroundColor: AppColors.emerald,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _buying = false);
     }
   }
 
@@ -80,7 +126,9 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
                 child: _Action(
                   mock: mock,
                   busy: _joining,
+                  buying: _buying,
                   onJoin: () => _join(mock),
+                  onBuy: () => _buy(mock),
                 ),
               ),
               if (mock.status == MockTestStatus.completed) ...[
@@ -122,6 +170,21 @@ class _Header extends StatelessWidget {
           Row(
             children: [
               AppBadge(label, color: accent, filled: mock.isLive),
+              if (mock.isPaid) ...[
+                const SizedBox(width: 8),
+                if (mock.isLocked)
+                  AppBadge(
+                    Fmt.price(mock.price),
+                    color: AppColors.amber,
+                    icon: Icons.lock_rounded,
+                  )
+                else
+                  const AppBadge(
+                    'UNLOCKED',
+                    color: AppColors.emerald,
+                    icon: Icons.lock_open_rounded,
+                  ),
+              ],
               const Spacer(),
               Icon(Icons.groups_rounded, size: 14, color: palette.textMuted),
               const SizedBox(width: 5),
@@ -250,11 +313,19 @@ class _Fact extends StatelessWidget {
 }
 
 class _Action extends ConsumerWidget {
-  const _Action({required this.mock, required this.busy, required this.onJoin});
+  const _Action({
+    required this.mock,
+    required this.busy,
+    required this.buying,
+    required this.onJoin,
+    required this.onBuy,
+  });
 
   final MockTest mock;
   final bool busy;
+  final bool buying;
   final VoidCallback onJoin;
+  final VoidCallback onBuy;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -265,10 +336,39 @@ class _Action extends ConsumerWidget {
       );
     }
 
+    final isLocked = mock.isLocked;
+
+    // If the student has not purchased the Mock Test, show a Buy Now button.
+    if (isLocked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GradientButton(
+            label: 'Buy Now • ${Fmt.price(mock.price)}',
+            icon: Icons.shopping_bag_rounded,
+            gradient: AppColors.brandGradient,
+            isLoading: buying,
+            onPressed: buying ? null : onBuy,
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: Text(
+              'Unlock this premium mock test to participate and get ranked.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: context.palette.textMuted,
+                  ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Once payment is completed (or free/unlocked), show Join Now / Continue.
     switch (mock.status) {
       case MockTestStatus.live:
         return GradientButton(
-          label: mock.joined ? 'Continue the test' : 'Join and start',
+          label: mock.joined ? 'Continue the test' : 'Join Now',
           icon: Icons.play_arrow_rounded,
           gradient: AppColors.goldGradient,
           isLoading: busy,
@@ -286,11 +386,23 @@ class _Action extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Starts ${Fmt.untilStart(mock.startsIn)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
+                    Row(
+                      children: [
+                        Text(
+                          'Starts ${Fmt.untilStart(mock.startsIn)}',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        if (mock.isPaid) ...[
+                          const SizedBox(width: 8),
+                          const AppBadge(
+                            'PURCHASED',
+                            color: AppColors.emerald,
+                            icon: Icons.check_circle_rounded,
                           ),
+                        ],
+                      ],
                     ),
                     Text(
                       'Come back at ${Fmt.timeOfDay(mock.scheduledAt)} to take the test.',

@@ -25,7 +25,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { UsersPageSkeleton } from '../admin-skeleton';
 
 function formatOrderDateTime(isoString?: string) {
   if (!isoString) return { date: '-', time: '-' };
@@ -281,17 +281,12 @@ export default function AdminUsersPage() {
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
-  if (!mounted) {
-    return (
-      <div className="space-y-8">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={5} colsCount={7} />
-      </div>
-    );
+  if (!mounted || (loading && students.length === 0)) {
+    return <UsersPageSkeleton />;
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Fixed Header & Filter Bar */}
       <div className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -339,7 +334,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Scrollable Table Container */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <Table>
           <TableHeader>

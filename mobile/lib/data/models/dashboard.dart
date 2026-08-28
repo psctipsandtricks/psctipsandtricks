@@ -238,6 +238,7 @@ class BookProgress {
     required this.title,
     required this.author,
     required this.coverUrl,
+    this.heroCoverUrl,
     required this.category,
     required this.progressPercent,
     required this.isCompleted,
@@ -250,6 +251,7 @@ class BookProgress {
   final String title;
   final String author;
   final String coverUrl;
+  final String? heroCoverUrl;
   final String category;
   final int progressPercent;
   final bool isCompleted;
@@ -265,6 +267,7 @@ class BookProgress {
         title: J.str(json['title']),
         author: J.str(json['author']),
         coverUrl: J.str(json['coverUrl']),
+        heroCoverUrl: J.strOrNull(json['heroCoverUrl']),
         category: J.str(json['category']),
         progressPercent: J.intVal(json['progressPercent']),
         isCompleted: J.boolVal(json['isCompleted']),

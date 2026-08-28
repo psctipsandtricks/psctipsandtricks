@@ -430,7 +430,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
   const paginatedVideos = paginatedItems.filter((i) => i.type === 'VIDEO').map((i) => i.item);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Toast Notification */}
       {toastMsg && (
         <div
@@ -535,7 +535,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
       </div>
 
       {/* Table Card */}
-      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden p-0">
+      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card overflow-hidden p-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {filteredSubFolders.length === 0 && filteredVideos.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">

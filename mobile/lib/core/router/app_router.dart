@@ -51,7 +51,7 @@ class AppRoutes {
   static String bookDetail(String id) => '/books/$id';
   static String bookReader(String id, {bool resume = false}) =>
       '/books/$id/read${resume ? '?resume=1' : ''}';
-  static String quizAttempt(String id) => '/quizzes/$id';
+  static String quizAttempt(String id) => '/attempt/$id';
   static String mockTest(String id) => '/mock-tests/$id';
   static String groupChat(String id) => '/community/$id';
 }
@@ -73,10 +73,7 @@ bool _isProtected(String location) {
   if (_protectedPrefixes.any(location.startsWith)) return true;
   // Reading a book and attempting a quiz both require a session.
   if (RegExp(r'^/books/[^/]+/read').hasMatch(location)) return true;
-  if (RegExp(r'^/quizzes/[^/]+$').hasMatch(location) &&
-      location != AppRoutes.quizzes) {
-    return true;
-  }
+  if (location.startsWith('/attempt/')) return true;
   if (RegExp(r'^/mock-tests/[^/]+$').hasMatch(location)) return true;
   return false;
 }
@@ -142,7 +139,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
-        path: '/quizzes/:id',
+        path: '/attempt/:id',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) =>
             QuizAttemptScreen(quizId: state.pathParameters['id']!),

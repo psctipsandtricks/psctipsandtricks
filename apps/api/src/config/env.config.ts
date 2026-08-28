@@ -12,6 +12,11 @@ export const configValidationSchema = Joi.object({
   GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),
   GOOGLE_CLIENT_SECRET: Joi.string().allow('').optional(),
   GOOGLE_CALLBACK_URL: Joi.string().default('http://localhost:4000/auth/google/callback'),
+  // Platform OAuth client IDs, accepted as audiences on /auth/google/native in
+  // addition to GOOGLE_CLIENT_ID. Only needed for a mobile build configured to
+  // request a token for its own client rather than the web one.
+  GOOGLE_ANDROID_CLIENT_ID: Joi.string().allow('').optional(),
+  GOOGLE_IOS_CLIENT_ID: Joi.string().allow('').optional(),
   APPLE_CLIENT_ID: Joi.string().allow('').optional(),
   APPLE_TEAM_ID: Joi.string().allow('').optional(),
   APPLE_KEY_ID: Joi.string().allow('').optional(),
@@ -21,4 +26,11 @@ export const configValidationSchema = Joi.object({
   RAZORPAY_KEY_SECRET: Joi.string().allow('').optional(),
   RAZORPAY_WEBHOOK_SECRET: Joi.string().allow('').optional(),
   RAZORPAY_MODE: Joi.string().valid('test', 'live', 'demo').default('test'),
+  // Firebase Cloud Messaging service account — from Firebase console >
+  // Project settings > Service accounts > Generate new private key. All three
+  // are optional: without them notifications are still saved and readable in
+  // the app, they just are not pushed.
+  FIREBASE_PROJECT_ID: Joi.string().allow('').optional(),
+  FIREBASE_CLIENT_EMAIL: Joi.string().allow('').optional(),
+  FIREBASE_PRIVATE_KEY: Joi.string().allow('').optional(),
 });

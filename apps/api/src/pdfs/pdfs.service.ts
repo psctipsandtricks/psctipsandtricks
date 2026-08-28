@@ -308,17 +308,25 @@ export class PdfsService {
   async listDocuments(params: { folderId?: string; chapterId?: string; search?: string }, actor?: AccessActor | null) {
     const where: any = { ...this.activeFilter(actor) };
 
-    if (params.folderId) {
-      where.folderId = params.folderId;
+    if (params.folderId && params.chapterId) {
+      where.OR = [{ folderId: params.folderId }, { chapterId: params.chapterId }];
+    } else if (params.folderId) {
+      where.OR = [{ folderId: params.folderId }, { chapterId: params.folderId }];
     } else if (params.chapterId) {
-      where.chapterId = params.chapterId;
+      where.OR = [{ folderId: params.chapterId }, { chapterId: params.chapterId }];
     }
 
     if (params.search) {
-      where.OR = [
+      const searchFilter = [
         { title: { contains: params.search, mode: 'insensitive' } },
         { description: { contains: params.search, mode: 'insensitive' } },
       ];
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchFilter }];
+        delete where.OR;
+      } else {
+        where.OR = searchFilter;
+      }
     }
 
     return this.prisma.pdfDocument.findMany({

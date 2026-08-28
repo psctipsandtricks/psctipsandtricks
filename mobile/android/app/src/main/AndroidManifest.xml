@@ -3,6 +3,9 @@
          websocket open, and the reader streams audio and PDFs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Android 13+ asks the student before any notification can be posted;
+         firebase_messaging requests it at runtime on first launch. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
         android:label="PSC Tips And Tricks"
@@ -33,6 +36,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Where FCM files a notification that arrives with the app closed.
+             Must match the channel PushService creates and the channel_id the
+             API sends, or Android 8+ uses an unconfigurable fallback. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="psc_default" />
     </application>
 
     <queries>

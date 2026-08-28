@@ -50,6 +50,7 @@ import {
   History,
   Radio,
   Clock,
+  Send,
   ChevronRight,
   Loader2,
   X,
@@ -158,15 +159,30 @@ function resolveReleaseIso(releaseDate?: string, releaseTime?: string): string {
   return iso || '';
 }
 
-function formatReleaseDateTime(releaseDate?: string) {
-  if (!releaseDate) {
-    return { formattedDate: 'Immediate', formattedTime: '', fullFormatted: 'Immediate Release', isUpcoming: false, isImmediate: true };
+function formatReleaseDateTime(releaseDate?: string, createdAt?: string) {
+  const targetDateStr = releaseDate || createdAt;
+  if (!targetDateStr) {
+    return {
+      formattedDate: '—',
+      formattedTime: '',
+      fullFormatted: '—',
+      isUpcoming: false,
+      isImmediate: true,
+      label: 'Published',
+    };
   }
-  const d = new Date(releaseDate);
+  const d = new Date(targetDateStr);
   if (isNaN(d.getTime())) {
-    return { formattedDate: 'Immediate', formattedTime: '', fullFormatted: 'Immediate Release', isUpcoming: false, isImmediate: true };
+    return {
+      formattedDate: '—',
+      formattedTime: '',
+      fullFormatted: '—',
+      isUpcoming: false,
+      isImmediate: true,
+      label: 'Published',
+    };
   }
-  const isUpcoming = d.getTime() > Date.now();
+  const isUpcoming = Boolean(releaseDate && d.getTime() > Date.now());
   const formattedDate = d.toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
@@ -182,7 +198,8 @@ function formatReleaseDateTime(releaseDate?: string) {
     formattedTime,
     fullFormatted: `${formattedDate}, ${formattedTime}`,
     isUpcoming,
-    isImmediate: false,
+    isImmediate: !isUpcoming,
+    label: isUpcoming ? 'Scheduled' : 'Published',
   };
 }
 
@@ -298,13 +315,13 @@ export default function AdminFolderQuizzesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccessFilter, setSelectedAccessFilter] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
-
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Dialog State
+  // Modals & Forms
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isReleaseScheduled, setIsReleaseScheduled] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
   const [originalReleaseIso, setOriginalReleaseIso] = useState<string | undefined>(undefined);
   const [formSubmitError, setFormSubmitError] = useState('');
@@ -637,7 +654,7 @@ export default function AdminFolderQuizzesPage() {
       const numericPrice = values.accessType === 'PAID' ? Number(values.price) || 0 : 0;
       const fullReleaseIso = isAlreadyReleased
         ? (currentEditingQuiz?.releaseDate || undefined)
-        : (values.releaseDate ? resolveReleaseIso(values.releaseDate, values.releaseTime) : null);
+        : (isReleaseScheduled && values.releaseDate ? resolveReleaseIso(values.releaseDate, values.releaseTime) : null);
 
       const apiPayload = {
         title: values.title.trim(),
@@ -753,6 +770,7 @@ export default function AdminFolderQuizzesPage() {
   const handleOpenCreateModal = () => {
     setEditingQuizId(null);
     setOriginalReleaseIso(undefined);
+    setIsReleaseScheduled(false);
     setFormSubmitError('');
     setImageUploadError('');
     setQuizImageDimensions(null);
@@ -772,6 +790,8 @@ export default function AdminFolderQuizzesPage() {
     setQuizImageDimensions(null);
     const { date: relDate, time: relTime } = splitIsoToDateAndTime(quiz.releaseDate);
     setOriginalReleaseIso(combineDateAndTime(relDate, relTime) || undefined);
+    const hasScheduled = Boolean(relDate || (quiz.releaseDate && new Date(quiz.releaseDate).getTime() > Date.now()));
+    setIsReleaseScheduled(hasScheduled);
 
     const existingMockTest = mockTestByQuizId[quiz.id];
     const { date: mockDate, time: mockTime } = splitIsoToDateAndTime(existingMockTest?.scheduledAt);
@@ -883,7 +903,7 @@ export default function AdminFolderQuizzesPage() {
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Toast Notification */}
       {toastMsg && (
         <div
@@ -1011,7 +1031,7 @@ export default function AdminFolderQuizzesPage() {
       </div>
 
       {/* Folders & Quizzes Table Card */}
-      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden p-0">
+      <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card overflow-hidden p-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {loading ? (
             <AdminSkeletonTable rowsCount={5} colsCount={6} />
@@ -1036,7 +1056,7 @@ export default function AdminFolderQuizzesPage() {
                   <TableHead className="font-bold text-xs">Item Details</TableHead>
                   <TableHead className="font-bold text-xs">Type / Access</TableHead>
                   <TableHead className="font-bold text-xs">Config / Contents</TableHead>
-                  <TableHead className="font-bold text-xs">Schedule</TableHead>
+                  <TableHead className="font-bold text-xs">Published / Schedule</TableHead>
                   <TableHead className="font-bold text-xs">Status</TableHead>
                   <TableHead className="font-bold text-xs text-right">Actions</TableHead>
                 </TableRow>
@@ -1290,7 +1310,7 @@ export default function AdminFolderQuizzesPage() {
 
                             {/* Inner Nested Quizzes */}
                             {subFolderContents[sf.id]?.quizzes?.map((innerQuiz) => {
-                              const innerRel = formatReleaseDateTime(innerQuiz.releaseDate);
+                              const innerRel = formatReleaseDateTime(innerQuiz.releaseDate, innerQuiz.createdAt);
                               const innerPaid = innerQuiz.accessType === 'PAID';
                               return (
                                 <TableRow
@@ -1324,8 +1344,28 @@ export default function AdminFolderQuizzesPage() {
                                   <TableCell className="py-2.5 text-xs font-mono text-slate-600 dark:text-slate-400">
                                     {innerQuiz.questionsCount} Qs · {innerQuiz.durationMinutes}m
                                   </TableCell>
-                                  <TableCell className="py-2.5 text-xs text-slate-400">
-                                    {formatReleaseDateTime(innerQuiz.releaseDate).fullFormatted}
+                                  <TableCell className="py-2.5 text-xs font-mono">
+                                    <div className="space-y-0.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                          {innerRel.formattedDate}
+                                        </span>
+                                        {innerRel.isUpcoming ? (
+                                          <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10">
+                                            Scheduled
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="text-[9px] px-1 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10">
+                                            Published
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {innerRel.formattedTime && (
+                                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                          {innerRel.formattedTime}
+                                        </p>
+                                      )}
+                                    </div>
                                   </TableCell>
                                   <TableCell className="py-2.5">
                                     <button
@@ -1376,7 +1416,7 @@ export default function AdminFolderQuizzesPage() {
 
                 {/* Quizzes Rows */}
                 {quizzes.map((quiz) => {
-                  const rel = formatReleaseDateTime(quiz.releaseDate);
+                  const rel = formatReleaseDateTime(quiz.releaseDate, quiz.createdAt);
                   const isPaid = quiz.accessType === 'PAID';
 
                   return (
@@ -1442,21 +1482,27 @@ export default function AdminFolderQuizzesPage() {
                         </div>
                       </TableCell>
 
-                      {/* Schedule */}
+                      {/* Published / Schedule Date & Time */}
                       <TableCell className="py-3">
                         <div className="space-y-0.5 text-xs font-mono">
-                          <p className="font-bold text-slate-800 dark:text-slate-200">
-                            {rel.formattedDate}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {rel.formattedDate}
+                            </span>
+                            {rel.isUpcoming ? (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10">
+                                Scheduled
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-500/10">
+                                Published
+                              </Badge>
+                            )}
+                          </div>
                           {rel.formattedTime && (
                             <p className="text-[11px] text-slate-500 dark:text-slate-400">
                               {rel.formattedTime}
                             </p>
-                          )}
-                          {rel.isUpcoming && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-600 dark:text-amber-400">
-                              Scheduled
-                            </Badge>
                           )}
                         </div>
                       </TableCell>
@@ -1814,27 +1860,80 @@ export default function AdminFolderQuizzesPage() {
             )}
           </div>
 
-          {/* Release Schedule */}
-          <div className="space-y-2 p-3 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+          {/* Release Timing / Schedule */}
+          <div className="space-y-2.5 p-3 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <Calendar className="w-4 h-4 text-cyan-500" />
-              <span>Release Schedule (Optional)</span>
+              <span>Release Timing</span>
             </label>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Leave blank to publish immediately once active.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <DatePicker
-                label="Release Date"
-                value={formik.values.releaseDate}
-                onChange={(val) => formik.setFieldValue('releaseDate', val)}
-              />
-              <TimePicker
-                label="Release Time"
-                value={formik.values.releaseTime}
-                onChange={(val) => formik.setFieldValue('releaseTime', val)}
-              />
+
+            {/* Timing Mode Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReleaseScheduled(false);
+                  formik.setFieldValue('releaseDate', '');
+                  formik.setFieldValue('releaseTime', '');
+                }}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                  !isReleaseScheduled
+                    ? 'border-cyan-500/80 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 shadow-xs ring-1 ring-cyan-500/30'
+                    : 'border-slate-200 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <Send className="w-4 h-4 shrink-0 text-cyan-500" />
+                <div>
+                  <span className="block text-xs font-extrabold">Immediate</span>
+                  <span className="block text-[10px] text-slate-400">Publish right away</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReleaseScheduled(true);
+                  if (!formik.values.releaseDate) {
+                    const now = new Date();
+                    now.setHours(now.getHours() + 1);
+                    const yr = now.getFullYear();
+                    const mo = String(now.getMonth() + 1).padStart(2, '0');
+                    const da = String(now.getDate()).padStart(2, '0');
+                    const hr = String(now.getHours()).padStart(2, '0');
+                    const mi = String(now.getMinutes()).padStart(2, '0');
+                    formik.setFieldValue('releaseDate', `${yr}-${mo}-${da}`);
+                    formik.setFieldValue('releaseTime', `${hr}:${mi}`);
+                  }
+                }}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                  isReleaseScheduled
+                    ? 'border-cyan-500/80 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 shadow-xs ring-1 ring-cyan-500/30'
+                    : 'border-slate-200 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <Clock className="w-4 h-4 shrink-0 text-cyan-500" />
+                <div>
+                  <span className="block text-xs font-extrabold">Schedule Later</span>
+                  <span className="block text-[10px] text-slate-400">Pick date & time</span>
+                </div>
+              </button>
             </div>
+
+            {/* Date & Time Pickers only shown when Schedule Later is chosen */}
+            {isReleaseScheduled && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                <DatePicker
+                  label="Release Date"
+                  value={formik.values.releaseDate}
+                  onChange={(val) => formik.setFieldValue('releaseDate', val)}
+                />
+                <TimePicker
+                  label="Release Time"
+                  value={formik.values.releaseTime}
+                  onChange={(val) => formik.setFieldValue('releaseTime', val)}
+                />
+              </div>
+            )}
           </div>
 
           {/* Live Mock Test */}
@@ -1876,6 +1975,16 @@ export default function AdminFolderQuizzesPage() {
               </div>
             )}
           </div>
+
+          {/* Instant Correct Answer Feedback */}
+          <ToggleSwitch
+            icon={CheckCircle2}
+            variant="cyan"
+            label="Show Correct Answer on Selection"
+            description="When ON, students immediately see the correct answer & explanation when they select an option. When OFF, answers stay hidden until submission."
+            checked={formik.values.showCorrectAnswerAfterSelection}
+            onChange={(checked) => formik.setFieldValue('showCorrectAnswerAfterSelection', checked)}
+          />
 
           <ToggleSwitch
             icon={Eye}

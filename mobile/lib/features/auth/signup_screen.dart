@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/auth/google_native_sign_in.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
@@ -75,6 +77,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       _error = null;
     });
     try {
+      if (provider == 'google') {
+        await _googleNative();
+        return;
+      }
+      if (!mounted) return;
+
       final tokens = await Navigator.of(context).push<OAuthTokens>(
         MaterialPageRoute(
           builder: (_) => OAuthWebViewScreen(provider: provider),
@@ -91,6 +99,36 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busyProvider = null);
+    }
+  }
+
+  /// Runs the native Google account picker flow exclusively.
+  Future<void> _googleNative() async {
+    final GoogleNativeTokens? tokens;
+    try {
+      tokens = await GoogleNativeSignIn.tokens();
+    } on GoogleNativeUnavailable catch (e) {
+      if (kDebugMode) debugPrint('Native Google sign-in error: $e');
+      if (mounted) setState(() => _error = e.reason);
+      return;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Native Google sign-in exception: $e');
+      if (mounted) setState(() => _error = 'Google sign-in failed. Please try again.');
+      return;
+    }
+
+    if (tokens == null || !tokens.isValid) {
+      // Student dismissed the picker dialog
+      return;
+    }
+
+    try {
+      await ref.read(authControllerProvider.notifier).completeGoogleNative(
+            idToken: tokens.idToken,
+          );
+      _goOnwards();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
     }
   }
 

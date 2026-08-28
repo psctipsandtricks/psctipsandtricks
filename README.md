@@ -93,6 +93,89 @@ flutter run
 
 ---
 
+## 🔑 Google Sign-In on mobile
+
+The app uses the **native** Google account picker, not a WebView: tapping *Google* asks Android
+for an ID token for one of the accounts already on the phone, and posts it to
+`POST /auth/google/native`. The API verifies the token with Google's `tokeninfo` endpoint,
+checks that its `aud` is one of this deployment's client IDs, and issues the usual session.
+
+The browser handshake (`GET /auth/google`) is still there and still used by the website — and the
+app falls back to it automatically if the native flow cannot run, so a device without Play
+Services or a build whose signing certificate is not registered still signs in.
+
+**The one thing that must be kept in sync:** the OAuth *Android* client in Google Cloud is tied to
+the app's package name **and signing certificate fingerprint**. Every signing key that ships the
+app needs its SHA-1 registered — the debug key for local builds, the upload key for release, and
+the one Google Play generates if Play App Signing is on.
+
+Without it the account picker still appears (it is drawn by the platform before the client is
+checked), but picking an account fails with `UNREGISTERED_ON_API_CONSOLE` in logcat under the
+`Auth.Api.Credentials` tag, and the app falls back to the browser flow. Play Services reports that
+failure as a *cancellation*, same as a dismissed picker — `GoogleNativeSignIn` tells them apart by
+the message ("Cancelled by user" vs anything else) so a misconfigured build degrades to the
+WebView instead of silently doing nothing.
+
+Package name: `com.psctipsandtricks.student`. Debug keystore SHA-1 on this machine:
+`F4:1E:81:6A:F3:36:E0:F7:72:05:95:81:A9:39:2D:DC:4F:27:44:63` (re-check yours with
+`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android`).
+
+Add fingerprints under Firebase console → Project settings → *Your apps* → Android → *Add
+fingerprint*, or in Google Cloud Console → Credentials. The ID token is requested for the **web**
+client (`GOOGLE_CLIENT_ID`), which is what the API verifies; `GOOGLE_ANDROID_CLIENT_ID` /
+`GOOGLE_IOS_CLIENT_ID` only need setting for a build configured to request its own client's token.
+
+---
+
+## 🔔 Push Notifications (Firebase Cloud Messaging)
+
+Notifications sent from **Admin → Notifications** are saved to the database, queued on `pgmq`,
+and delivered to devices by the API's `NotificationProcessor`. Delivery is off until Firebase
+credentials are present — until then the notification is still saved and shows up in the app's
+notifications screen, it just does not arrive on its own. Nothing crashes and no build breaks
+in the meantime.
+
+**Targeting.** A notification with no `userId` is a broadcast: the API publishes it once to the
+`all-students` FCM topic, which every installation subscribes to on launch. A notification aimed
+at one student is sent per registered device, and tokens FCM reports as dead are deleted.
+
+### 1. Create the Firebase project
+Firebase console → add a project → add an **Android app** with package name
+`com.psctipsandtricks.student`.
+
+### 2. Configure the Flutter app
+```bash
+cd mobile
+dart pub global activate flutterfire_cli
+flutterfire configure
+```
+This overwrites `mobile/lib/firebase_options.dart`, which currently holds placeholders. The app
+detects the placeholders and keeps push switched off, so this step is what turns the feature on.
+
+### 3. Configure the API
+Firebase console → Project settings → **Service accounts** → *Generate new private key*. From
+the downloaded JSON, set in `apps/api/.env` (and in Railway's variables):
+
+```bash
+FIREBASE_PROJECT_ID="..."          # project_id
+FIREBASE_CLIENT_EMAIL="..."        # client_email
+FIREBASE_PRIVATE_KEY="..."         # private_key, one line, keeping the \n escapes
+```
+
+### 4. Apply the schema change
+Push notifications add a `DeviceToken` table:
+```bash
+cd apps/api && npx prisma db push
+```
+
+### 5. Check it end to end
+Send a notification from the admin panel and watch the API log for
+`Broadcast notification <id> to topic all-students`. On the device, notifications arriving while
+the app is open are drawn on the `psc_default` channel; tapping any of them opens the
+notifications screen, or the `route` named in the message's data payload.
+
+---
+
 ## 📜 Scripts Reference
 - `npm run dev`: Runs all apps (`api`, `web`) in parallel via Turborepo.
 - `npm run build`: Builds all packages and apps.

@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Button, Dialog, ConfirmDialog, Input, ToggleSwitch, Badge, Pagination, Skeleton, Select, FileDropZone } from '@psc/ui';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { BooksPageSkeleton } from '../admin-skeleton';
 import { Edit3, Trash2, BookOpen, Library, ImagePlus, Eye, Gift, CheckCircle2, UploadCloud, X, ExternalLink, FileText, Clock, Music, Volume2, AlertCircle } from 'lucide-react';
 import { Book, BOOK_SUBSCRIPTION_DURATIONS_LIST, formatSubscriptionDuration } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
@@ -393,13 +393,8 @@ export default function AdminBooksPage() {
     }
   };
 
-  if (!mounted) {
-    return (
-      <div className="space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={4} colsCount={7} />
-      </div>
-    );
+  if (!mounted || (loading && books.length === 0)) {
+    return <BooksPageSkeleton />;
   }
 
   const totalItems = totalCount;
@@ -407,7 +402,7 @@ export default function AdminBooksPage() {
   const paginatedBooks = Array.isArray(books) ? books : [];
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Fixed Header */}
       <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -432,7 +427,7 @@ export default function AdminBooksPage() {
       </div>
 
       {/* Scrollable Table */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <Table>
           <TableHeader>
@@ -449,24 +444,24 @@ export default function AdminBooksPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              Array.from({ length: pageSize || 8 }).map((_, idx) => (
+              Array.from({ length: 4 }).map((_, idx) => (
                 <TableRow key={`skeleton-${idx}`} className="border-b border-slate-200/80 dark:border-slate-800/60">
-                  <TableCell className="py-3 w-28"><Skeleton className="w-24 h-16 rounded-xl" /></TableCell>
-                  <TableCell className="py-4">
-                    <div className="space-y-1.5">
-                      <Skeleton className="h-5 w-48 rounded-lg" />
+                  <TableCell className="py-2.5 w-20"><Skeleton className="w-16 h-10 rounded-lg" /></TableCell>
+                  <TableCell className="py-2.5">
+                    <div className="space-y-1">
+                      <Skeleton className="h-4 w-44 rounded-md" />
                       <div className="flex gap-1.5">
-                        <Skeleton className="h-4 w-20 rounded-md" />
-                        <Skeleton className="h-4 w-16 rounded-md" />
+                        <Skeleton className="h-3 w-16 rounded-md" />
+                        <Skeleton className="h-3 w-12 rounded-md" />
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell className="py-4"><Skeleton className="h-5 w-32 rounded-lg" /></TableCell>
-                  <TableCell className="py-4"><Skeleton className="h-5 w-24 rounded-lg" /></TableCell>
-                  <TableCell className="py-4"><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
-                  <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
-                  <TableCell className="py-4"><Skeleton className="h-5 w-20 rounded-lg" /></TableCell>
-                  <TableCell className="py-4 text-right"><Skeleton className="h-8 w-20 rounded-xl ml-auto" /></TableCell>
+                  <TableCell className="py-2.5"><Skeleton className="h-4 w-28 rounded-md" /></TableCell>
+                  <TableCell className="py-2.5"><Skeleton className="h-4 w-20 rounded-md" /></TableCell>
+                  <TableCell className="py-2.5"><Skeleton className="h-5 w-14 rounded-full" /></TableCell>
+                  <TableCell className="py-2.5"><Skeleton className="h-4 w-12 rounded-md" /></TableCell>
+                  <TableCell className="py-2.5"><Skeleton className="h-4 w-16 rounded-md" /></TableCell>
+                  <TableCell className="py-2.5 text-right"><Skeleton className="h-7 w-16 rounded-lg ml-auto" /></TableCell>
                 </TableRow>
               ))
             ) : paginatedBooks.length === 0 ? (

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/user.dart';
+import '../auth/google_native_sign_in.dart';
 import '../network/api_exception.dart';
 import 'app_providers.dart';
 
@@ -95,6 +96,14 @@ class AuthController extends StateNotifier<AuthState> {
     state = AuthState(status: AuthStatus.authenticated, user: user);
   }
 
+  /// Signs in from Google tokens returned by the native account picker.
+  Future<void> completeGoogleNative({String? idToken, String? accessToken}) async {
+    final user = await _ref
+        .read(authRepositoryProvider)
+        .loginWithGoogleNativeTokens(idToken: idToken, accessToken: accessToken);
+    state = AuthState(status: AuthStatus.authenticated, user: user);
+  }
+
   /// Applies a profile edit locally so every screen bound to the user rebuilds
   /// without another round trip.
   Future<void> applyUser(User user) async {
@@ -103,6 +112,10 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    // Drop the platform's cached Google account too, or the next tap on
+    // "Continue with Google" signs straight back in without ever showing the
+    // picker — which is not what signing out means to anyone.
+    await GoogleNativeSignIn.signOut();
     await _ref.read(authRepositoryProvider).logout();
     state = AuthState.signedOut;
   }

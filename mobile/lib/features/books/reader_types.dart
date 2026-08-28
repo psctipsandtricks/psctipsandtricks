@@ -1,4 +1,5 @@
 import '../../data/models/book.dart';
+import '../../data/models/pdf_sync.dart';
 
 /// One readable block in the reader — a Topic, or one of its Subtopics.
 ///
@@ -20,6 +21,7 @@ class ReadingUnit {
     this.youtubeUrl,
     this.audioUrl,
     this.pdfUrl,
+    this.syncCues,
   });
 
   final int unitIndex;
@@ -46,6 +48,9 @@ class ReadingUnit {
   final String? youtubeUrl;
   final String? audioUrl;
   final String? pdfUrl;
+
+  /// The unit's PDF↔audio timing map, when one has been authored.
+  final PdfSyncMap? syncCues;
 
   bool get hasAudio => (audioUrl ?? '').isNotEmpty;
   bool get hasVideo => (youtubeUrl ?? '').isNotEmpty;
@@ -84,6 +89,7 @@ List<ReadingUnit> flattenChapters(List<Chapter> chapters) {
           youtubeUrl: topic.youtubeUrl,
           audioUrl: topic.audioUrl,
           pdfUrl: topic.pdfUrl,
+          syncCues: topic.syncCues,
         ),
       );
       isChapterStart = false;
@@ -105,6 +111,7 @@ List<ReadingUnit> flattenChapters(List<Chapter> chapters) {
             youtubeUrl: subtopic.youtubeUrl,
             audioUrl: subtopic.audioUrl,
             pdfUrl: subtopic.pdfUrl,
+            syncCues: subtopic.syncCues,
           ),
         );
       }

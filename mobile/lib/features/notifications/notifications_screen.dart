@@ -1,7 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -63,7 +65,7 @@ class NotificationsScreen extends ConsumerWidget {
   }
 }
 
-class _NotificationCard extends StatelessWidget {
+class _NotificationCard extends ConsumerWidget {
   const _NotificationCard({required this.notification});
 
   final AppNotification notification;
@@ -86,16 +88,29 @@ class _NotificationCard extends StatelessWidget {
     }
   }
 
+  void _handleTap(BuildContext context, WidgetRef ref) {
+    final route = (notification.route ?? '').trim();
+    if (route.isEmpty) return;
+
+    final target = route.startsWith('/') ? route : '/$route';
+    try {
+      ref.read(routerProvider).push(target);
+    } catch (_) {}
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final palette = context.palette;
     final look = _look;
+    final hasRoute = (notification.route ?? '').trim().isNotEmpty;
+    final hasImage = (notification.imageUrl ?? '').trim().isNotEmpty;
 
     return GlassCard(
       borderColor: notification.isRead
           ? null
           : AppColors.cyan.withValues(alpha: 0.35),
       padding: const EdgeInsets.all(14),
+      onTap: hasRoute ? () => _handleTap(context, ref) : null,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -147,12 +162,63 @@ class _NotificationCard extends StatelessWidget {
                         ),
                   ),
                 ],
-                const SizedBox(height: 7),
-                Text(
-                  Fmt.relative(notification.createdAt),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: palette.textMuted,
+                if (hasImage) ...[
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: CachedNetworkImage(
+                        imageUrl: notification.imageUrl!,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(
+                          color: palette.card,
+                          child: const Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ),
+                        errorWidget: (_, __, ___) => const SizedBox.shrink(),
                       ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 7),
+                Row(
+                  children: [
+                    Text(
+                      Fmt.relative(notification.createdAt),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: palette.textMuted,
+                          ),
+                    ),
+                    if (hasRoute) ...[
+                      const Spacer(),
+                      Row(
+                        children: [
+                          Text(
+                            'Open',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: AppColors.cyan,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 10,
+                            color: AppColors.cyan,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),

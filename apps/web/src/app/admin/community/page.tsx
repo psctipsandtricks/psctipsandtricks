@@ -442,7 +442,7 @@ export default function AdminCommunityPage() {
   const paginatedGroups = filteredGroups.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Fixed Header & Filter Bar */}
       <div className="shrink-0 space-y-3">
         {/* Top Header */}
@@ -530,7 +530,7 @@ export default function AdminCommunityPage() {
       </div>
 
       {/* Scrollable Groups Table Container */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <Table>
             <TableHeader>

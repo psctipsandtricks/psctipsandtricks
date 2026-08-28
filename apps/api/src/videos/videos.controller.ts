@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagg
 import { UserRole } from '@prisma/client';
 import { VideosService } from './videos.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -31,7 +32,7 @@ const VIDEO_PDF_UPLOAD_LIMITS = { fileSize: 50 * 1024 * 1024 };
 @ApiTags('Videos')
 @ApiBearerAuth()
 @Controller('videos')
-@UseGuards(JwtAuthGuard)
+@UseGuards(OptionalJwtAuthGuard)
 export class VideosController {
   constructor(private readonly videosService: VideosService) {}
 
@@ -86,72 +87,6 @@ export class VideosController {
   @Patch('folders/reorder')
   async reorderFolders(@Body() dto: ReorderDto) {
     return this.videosService.reorderFolders(dto);
-  }
-
-  // --- Videos ---
-
-  @ApiOperation({ summary: 'List videos (optionally by folderId, chapterId, or search query)' })
-  @Get()
-  async listVideos(
-    @Request() req: any,
-    @Query('folderId') folderId?: string,
-    @Query('chapterId') chapterId?: string,
-    @Query('search') search?: string,
-  ) {
-    return this.videosService.listVideos({ folderId, chapterId, search }, req.user);
-  }
-
-  @ApiOperation({ summary: 'Get a single video' })
-  @Get(':id')
-  async getVideo(@Request() req: any, @Param('id') id: string) {
-    return this.videosService.findVideo(id, req.user);
-  }
-
-  @ApiOperation({ summary: 'Create a video inside any folder (Admin / Staff)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Post()
-  async createVideo(@Body() dto: CreateVideoDto) {
-    return this.videosService.createVideo(dto);
-  }
-
-  @ApiOperation({ summary: 'Update a video (Admin / Staff)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Patch(':id')
-  async updateVideo(@Param('id') id: string, @Body() dto: UpdateVideoDto) {
-    return this.videosService.updateVideo(id, dto);
-  }
-
-  @ApiOperation({ summary: 'Delete a video (Admin / Staff)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Delete(':id')
-  async removeVideo(@Param('id') id: string) {
-    return this.videosService.removeVideo(id);
-  }
-
-  @ApiOperation({ summary: 'Attach a PDF document to a video (Admin / Staff)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file', { limits: VIDEO_PDF_UPLOAD_LIMITS }))
-  @Post(':id/pdf')
-  async uploadVideoPdf(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
-    return this.videosService.uploadVideoPdf(id, file);
-  }
-
-  @ApiOperation({ summary: 'Remove the attached PDF from a video (Admin / Staff)' })
-  @UseGuards(...MANAGE_VIDEOS_GUARDS)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
-  @RequirePermissions('manageVideos')
-  @Delete(':id/pdf')
-  async removeVideoPdf(@Param('id') id: string) {
-    return this.videosService.removeVideoPdf(id);
   }
 
   // --- Legacy Compatibility Routes ---
@@ -251,5 +186,71 @@ export class VideosController {
   @Post('chapters/:chapterId/videos')
   async createChapterVideo(@Param('chapterId') chapterId: string, @Body() dto: CreateVideoDto) {
     return this.videosService.createVideo({ ...dto, chapterId });
+  }
+
+  // --- Videos ---
+
+  @ApiOperation({ summary: 'List videos (optionally by folderId, chapterId, or search query)' })
+  @Get()
+  async listVideos(
+    @Request() req: any,
+    @Query('folderId') folderId?: string,
+    @Query('chapterId') chapterId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.videosService.listVideos({ folderId, chapterId, search }, req.user);
+  }
+
+  @ApiOperation({ summary: 'Create a video inside any folder (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Post()
+  async createVideo(@Body() dto: CreateVideoDto) {
+    return this.videosService.createVideo(dto);
+  }
+
+  @ApiOperation({ summary: 'Update a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Patch(':id')
+  async updateVideo(@Param('id') id: string, @Body() dto: UpdateVideoDto) {
+    return this.videosService.updateVideo(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Delete a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Delete(':id')
+  async removeVideo(@Param('id') id: string) {
+    return this.videosService.removeVideo(id);
+  }
+
+  @ApiOperation({ summary: 'Attach a PDF document to a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: VIDEO_PDF_UPLOAD_LIMITS }))
+  @Post(':id/pdf')
+  async uploadVideoPdf(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    return this.videosService.uploadVideoPdf(id, file);
+  }
+
+  @ApiOperation({ summary: 'Remove the attached PDF from a video (Admin / Staff)' })
+  @UseGuards(...MANAGE_VIDEOS_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageVideos')
+  @Delete(':id/pdf')
+  async removeVideoPdf(@Param('id') id: string) {
+    return this.videosService.removeVideoPdf(id);
+  }
+
+  @ApiOperation({ summary: 'Get a single video' })
+  @Get(':id')
+  async getVideo(@Request() req: any, @Param('id') id: string) {
+    return this.videosService.findVideo(id, req.user);
   }
 }

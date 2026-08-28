@@ -22,7 +22,7 @@ import {
 import { Trash2, Star, Edit3, MessageSquareQuote } from 'lucide-react';
 import { CustomerReview } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { ReviewsPageSkeleton } from '../admin-skeleton';
 
 const NAME_MIN = 2;
 const NAME_MAX = 60;
@@ -264,13 +264,8 @@ export default function AdminReviewsPage() {
     setConfirmTarget(null);
   };
 
-  if (!mounted) {
-    return (
-      <div className="space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={4} colsCount={6} />
-      </div>
-    );
+  if (!mounted || (loading && reviews.length === 0)) {
+    return <ReviewsPageSkeleton />;
   }
 
   const query = searchTerm.toLowerCase().trim();
@@ -290,7 +285,7 @@ export default function AdminReviewsPage() {
   const activeCount = reviews.filter((r) => r.isActive).length;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Fixed Header */}
       <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -333,7 +328,7 @@ export default function AdminReviewsPage() {
       )}
 
       {/* Scrollable Table */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <Table>
             <TableHeader>

@@ -152,6 +152,28 @@ class _MockCard extends StatelessWidget {
               AppBadge(label, color: accent),
             ],
           ),
+          // A premium test has to read as premium from the listing. Without
+          // this the card is indistinguishable from a free one and the student
+          // only meets the paywall after tapping through to it.
+          if (mock.isPaid) ...[
+            const SizedBox(height: 11),
+            Row(
+              children: [
+                if (mock.isLocked)
+                  AppBadge(
+                    Fmt.price(mock.price),
+                    color: AppColors.amber,
+                    icon: Icons.lock_rounded,
+                  )
+                else
+                  const AppBadge(
+                    'UNLOCKED',
+                    color: AppColors.emerald,
+                    icon: Icons.lock_open_rounded,
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 13),
           Row(
             children: [

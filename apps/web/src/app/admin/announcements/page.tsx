@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { AnnouncementPopup } from '@psc/shared-types';
-import { AdminSkeletonHeader, AdminSkeletonForm } from '../admin-skeleton';
+import { AnnouncementsPageSkeleton } from '../admin-skeleton';
 
 const announcementSchema = Yup.object({
   title: Yup.string().trim().max(100, 'Title must be 100 characters or fewer').nullable(),
@@ -192,12 +192,6 @@ export default function AdminAnnouncementsPage() {
     try {
       const list = await ApiClient.listAnnouncements();
       setAnnouncements(list || []);
-      if (list && list.length > 0) {
-        const activeFirst = list.find((a) => a.isActive) || list[0];
-        setSelectedPreviewBanner(activeFirst);
-      } else {
-        setSelectedPreviewBanner(null);
-      }
     } catch (err: any) {
       setErrorMessage(err?.message || 'Could not load announcements.');
     } finally {
@@ -383,12 +377,7 @@ export default function AdminAnnouncementsPage() {
   });
 
   if (loading) {
-    return (
-      <div className="w-full space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonForm />
-      </div>
-    );
+    return <AnnouncementsPageSkeleton />;
   }
 
   const activeCount = announcements.filter((a) => a.isActive).length;
@@ -413,9 +402,9 @@ export default function AdminAnnouncementsPage() {
   );
 
   return (
-    <div className="w-full space-y-6 sm:space-y-8 pb-12">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl w-full px-1 sm:px-0">
       {/* ── Page Header ─────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
@@ -450,7 +439,7 @@ export default function AdminAnnouncementsPage() {
       </div>
 
       {/* ── Quick Stats Grid ───────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="p-4 flex items-center justify-between border border-slate-200/80 dark:border-[#1e2e56]">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Banners</p>
@@ -486,151 +475,9 @@ export default function AdminAnnouncementsPage() {
         </Card>
       </div>
 
-      {/* ── Live Student Banner Preview Section ──────────────────────── */}
-      <Card className="p-4 sm:p-6 space-y-4 border border-cyan-500/30 bg-gradient-to-b from-cyan-500/[0.04] to-transparent dark:from-cyan-950/20 dark:to-[#091124]">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-3">
-          <div className="flex items-center gap-2 text-cyan-600 dark:text-cyan-400">
-            <Eye className="w-4 h-4" />
-            <span className="text-xs font-black uppercase tracking-wider">Live Student Banner Preview</span>
-            {selectedPreviewBanner && (
-              <span className="text-[10px] text-slate-400 font-mono">
-                (Previewing: {selectedPreviewBanner.title || 'Selected Announcement'})
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#0c152e] p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={() => setPreviewMode('desktop')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                previewMode === 'desktop'
-                  ? 'bg-white dark:bg-cyan-500 text-slate-900 dark:text-slate-950 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Monitor className="w-3.5 h-3.5" />
-              <span>Desktop</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreviewMode('mobile')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                previewMode === 'mobile'
-                  ? 'bg-white dark:bg-cyan-500 text-slate-900 dark:text-slate-950 shadow-xs'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>Mobile</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Banner Mock Component */}
-        <div
-          className={`mx-auto transition-all duration-300 ${
-            previewMode === 'mobile' ? 'max-w-sm' : 'w-full'
-          }`}
-        >
-          {selectedPreviewBanner && selectedPreviewBanner.isActive ? (
-            <div
-              style={{
-                background: selectedPreviewBanner.backgroundColor?.trim() || undefined,
-              }}
-              className={`relative rounded-2xl overflow-hidden shadow-lg p-3 sm:p-3.5 border transition-all ${
-                !selectedPreviewBanner.backgroundColor
-                  ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-400 text-slate-950 border-amber-600/30'
-                  : previewIsDark
-                  ? 'text-white border-white/10'
-                  : 'text-slate-950 border-slate-950/10'
-              }`}
-            >
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pr-8">
-                <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
-                  {selectedPreviewBanner.imageUrl ? (
-                    <div
-                      className={`w-11 h-11 rounded-xl overflow-hidden shadow-xs shrink-0 border ${
-                        previewIsDark ? 'border-white/20 bg-white/10' : 'border-slate-950/15 bg-slate-950/10'
-                      }`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={selectedPreviewBanner.imageUrl}
-                        alt="Preview"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        previewIsDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
-                      }`}
-                    >
-                      <Megaphone className="w-4 h-4" />
-                    </div>
-                  )}
-
-                  <div className="min-w-0 flex-1">
-                    {selectedPreviewBanner.title && selectedPreviewBanner.title !== 'Global Banner' && (
-                      <p
-                        className={`text-xs sm:text-sm font-black leading-tight tracking-tight line-clamp-1 ${
-                          previewIsDark ? 'text-white' : 'text-slate-950'
-                        }`}
-                      >
-                        {selectedPreviewBanner.title}
-                      </p>
-                    )}
-                    <p
-                      className={`text-[11px] sm:text-xs font-semibold leading-snug line-clamp-2 ${
-                        previewIsDark ? 'text-slate-200' : 'text-slate-900/90'
-                      }`}
-                    >
-                      {selectedPreviewBanner.message}
-                    </p>
-                  </div>
-                </div>
-
-                {selectedPreviewBanner.buttonText && selectedPreviewBanner.redirectUrl && (
-                  <div className="shrink-0 w-full sm:w-auto">
-                    <span
-                      className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold shadow-sm w-full sm:w-auto text-center ${
-                        previewIsDark
-                          ? 'bg-white text-slate-950'
-                          : 'bg-slate-950 text-amber-300'
-                      }`}
-                    >
-                      <span>{selectedPreviewBanner.buttonText}</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div
-                className={`absolute right-2.5 top-2.5 ${
-                  previewIsDark ? 'text-white/60' : 'text-slate-950/60'
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </div>
-            </div>
-          ) : (
-            <div className="p-6 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 text-center space-y-1.5 bg-slate-50/50 dark:bg-[#0c152e]/50">
-              <Megaphone className="w-6 h-6 text-slate-400 mx-auto opacity-50" />
-              <p className="text-xs font-bold text-slate-500">
-                {announcements.length === 0
-                  ? 'No announcements created yet. Click "+ Create Announcement" to publish your first banner.'
-                  : 'No active announcements to preview. Activate an announcement below to display it to students.'}
-              </p>
-            </div>
-          )}
-        </div>
-      </Card>
-
       {/* ── Announcements Management List / Table ──────────────────────────── */}
-      <Card className="p-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl overflow-hidden bg-white dark:bg-[#091124] shadow-sm">
-        <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-[#0c152e]/30">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
+        <div className="shrink-0 p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-[#0c152e]/30">
           <div>
             <CardTitle className="text-base sm:text-lg text-slate-900 dark:text-white font-bold flex items-center gap-2">
               <Layers className="w-4 h-4 text-cyan-500" />
@@ -644,12 +491,12 @@ export default function AdminAnnouncementsPage() {
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Search Input */}
             <div className="relative min-w-[200px] sm:min-w-[240px]">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-400" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <Input
                 placeholder="Search announcements..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8.5 h-8.5 text-xs bg-white dark:bg-[#091124]"
+                className="pl-9 h-9 text-xs bg-white dark:bg-[#091124]"
               />
             </div>
 
@@ -685,376 +532,781 @@ export default function AdminAnnouncementsPage() {
           </div>
         </div>
 
-        {filteredAnnouncements.length === 0 ? (
-          <div className="py-16 text-center space-y-3 p-4">
-            <Megaphone className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
-            <p className="text-sm font-bold text-slate-600 dark:text-slate-400">
-              {searchTerm ? 'No announcements matched your search.' : 'No announcements found.'}
-            </p>
-            {searchTerm ? (
-              <Button variant="outline" size="sm" onClick={() => setSearchTerm('')} className="font-bold cursor-pointer">
-                Clear Search
-              </Button>
-            ) : (
-              <Button variant="gold" onClick={openCreateModal} className="font-bold cursor-pointer">
-                <Plus className="w-4 h-4 mr-1" /> Create Your First Banner
-              </Button>
-            )}
-          </div>
-        ) : viewMode === 'table' ? (
-          /* ── Table View ─────────────────────────────────────────────── */
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
-                  <TableHead className="font-bold text-xs w-28">Priority</TableHead>
-                  <TableHead className="font-bold text-xs min-w-[240px]">Banner & Title</TableHead>
-                  <TableHead className="font-bold text-xs min-w-[240px]">Message</TableHead>
-                  <TableHead className="font-bold text-xs min-w-[180px]">Action & Link</TableHead>
-                  <TableHead className="font-bold text-xs">Status</TableHead>
-                  <TableHead className="font-bold text-xs text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedAnnouncements.map((item) => {
-                  const originalIndex = announcements.findIndex((a) => a.id === item.id);
-                  const isFirst = originalIndex === 0;
-                  const isLast = originalIndex === announcements.length - 1;
+        {/* ── Scrollable Table / Cards Content ─────────────────── */}
+        <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+          {filteredAnnouncements.length === 0 ? (
+            <div className="py-16 text-center space-y-3 p-4">
+              <Megaphone className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
+              <p className="text-sm font-bold text-slate-600 dark:text-slate-400">
+                {searchTerm ? 'No announcements matched your search.' : 'No announcements found.'}
+              </p>
+              {searchTerm ? (
+                <Button variant="outline" size="sm" onClick={() => setSearchTerm('')} className="font-bold cursor-pointer">
+                  Clear Search
+                </Button>
+              ) : (
+                <Button variant="gold" onClick={openCreateModal} className="font-bold cursor-pointer">
+                  <Plus className="w-4 h-4 mr-1" /> Create Your First Banner
+                </Button>
+              )}
+            </div>
+          ) : viewMode === 'table' ? (
+            /* ── Table View ─────────────────────────────────────────────── */
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+                    <TableHead className="font-bold text-xs w-28">Priority</TableHead>
+                    <TableHead className="font-bold text-xs min-w-[240px]">Banner & Title</TableHead>
+                    <TableHead className="font-bold text-xs min-w-[240px]">Message</TableHead>
+                    <TableHead className="font-bold text-xs min-w-[180px]">Action & Link</TableHead>
+                    <TableHead className="font-bold text-xs">Status</TableHead>
+                    <TableHead className="font-bold text-xs text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedAnnouncements.map((item) => {
+                    const originalIndex = announcements.findIndex((a) => a.id === item.id);
+                    const isFirst = originalIndex === 0;
+                    const isLast = originalIndex === announcements.length - 1;
 
-                  return (
-                    <TableRow
-                      key={item.id}
-                      className={`border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-slate-50/70 dark:hover:bg-[#0c152e]/40 transition-colors ${
-                        !item.isActive ? 'opacity-70 bg-slate-50/30 dark:bg-[#080e1e]/30' : ''
-                      }`}
-                    >
-                      {/* Priority Reorder Controls */}
-                      <TableCell className="py-3">
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex flex-col items-center gap-0.5 bg-slate-100 dark:bg-[#142247] p-1 rounded-xl shrink-0">
-                            <button
-                              type="button"
-                              disabled={isFirst}
-                              onClick={() => handleMoveOrder(originalIndex, 'up')}
-                              title="Move Up"
-                              className="p-0.5 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                            >
-                              <ArrowUp className="w-3.5 h-3.5" />
-                            </button>
-                            <span className="text-[10px] font-mono font-black text-cyan-600 dark:text-cyan-400 px-1">
-                              #{originalIndex + 1}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={isLast}
-                              onClick={() => handleMoveOrder(originalIndex, 'down')}
-                              title="Move Down"
-                              className="p-0.5 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                            >
-                              <ArrowDown className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          {isFirst && item.isActive && (
-                            <Badge variant="gold" className="text-[9px] font-bold px-1.5 py-0.5 shrink-0">
-                              ⭐ Top
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-
-                      {/* Banner & Title */}
-                      <TableCell className="py-3">
-                        <div className="flex items-center gap-3">
-                          {item.imageUrl ? (
-                            <div className="w-11 h-11 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-xs">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={item.imageUrl} alt={item.title || 'Banner'} className="w-full h-full object-cover" />
-                            </div>
-                          ) : (
-                            <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0 shadow-inner">
-                              <Megaphone className="w-5 h-5" />
-                            </div>
-                          )}
-                          <div className="space-y-1 min-w-0">
-                            <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate block max-w-[200px]">
-                              {item.title || 'Untitled Banner'}
-                            </span>
-                            {item.backgroundColor ? (
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#142247] text-slate-700 dark:text-slate-300 max-w-[180px] truncate">
-                                <span
-                                  className="w-2.5 h-2.5 rounded-full shadow-xs border border-black/10 shrink-0"
-                                  style={{ background: item.backgroundColor }}
-                                />
-                                <span className="truncate">{item.backgroundColor}</span>
+                    return (
+                      <TableRow
+                        key={item.id}
+                        className={`border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-slate-50/70 dark:hover:bg-[#0c152e]/40 transition-colors ${
+                          !item.isActive ? 'opacity-70 bg-slate-50/30 dark:bg-[#080e1e]/30' : ''
+                        }`}
+                      >
+                        {/* Priority Reorder Controls */}
+                        <TableCell className="py-3">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex flex-col items-center gap-0.5 bg-slate-100 dark:bg-[#142247] p-1 rounded-xl shrink-0">
+                              <button
+                                type="button"
+                                disabled={isFirst}
+                                onClick={() => handleMoveOrder(originalIndex, 'up')}
+                                title="Move Up"
+                                className="p-0.5 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-[10px] font-mono font-black text-cyan-600 dark:text-cyan-400 px-1">
+                                #{originalIndex + 1}
                               </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                                <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-amber-400 to-cyan-400 shrink-0" />
-                                <span>Brand Gradient</span>
-                              </span>
+                              <button
+                                type="button"
+                                disabled={isLast}
+                                onClick={() => handleMoveOrder(originalIndex, 'down')}
+                                title="Move Down"
+                                className="p-0.5 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            {isFirst && item.isActive && (
+                              <Badge variant="gold" className="text-[9px] font-bold px-1.5 py-0.5 shrink-0">
+                                ⭐ Top
+                              </Badge>
                             )}
                           </div>
-                        </div>
-                      </TableCell>
+                        </TableCell>
 
-                      {/* Message */}
-                      <TableCell className="py-3">
-                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 leading-snug max-w-md">
-                          {item.message}
-                        </p>
-                      </TableCell>
-
-                      {/* Action / Link */}
-                      <TableCell className="py-3">
-                        {item.buttonText && item.redirectUrl ? (
-                          <div className="flex flex-col gap-0.5 text-xs">
-                            <span className="font-bold text-slate-900 dark:text-white inline-flex items-center gap-1">
-                              <span>{item.buttonText}</span>
-                              <ArrowRight className="w-3 h-3 text-cyan-500" />
-                            </span>
-                            <span className="font-mono text-[11px] text-cyan-600 dark:text-cyan-400 truncate max-w-[180px]">
-                              {item.redirectUrl}
-                            </span>
+                        {/* Banner & Title */}
+                        <TableCell className="py-3">
+                          <div className="flex items-center gap-3">
+                            {item.imageUrl ? (
+                              <div
+                                onClick={() => setSelectedPreviewBanner(item)}
+                                className="w-11 h-11 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-xs cursor-pointer group relative"
+                                title="Click to preview"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={item.imageUrl} alt={item.title || 'Banner'} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity grid place-items-center">
+                                  <Eye className="w-3 h-3 text-white" />
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                onClick={() => setSelectedPreviewBanner(item)}
+                                className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0 shadow-inner cursor-pointer hover:scale-105 transition-transform"
+                                title="Click to preview"
+                              >
+                                <Megaphone className="w-5 h-5" />
+                              </div>
+                            )}
+                            <div className="space-y-1 min-w-0">
+                              <span
+                                onClick={() => setSelectedPreviewBanner(item)}
+                                className="font-extrabold text-sm text-slate-900 dark:text-white truncate block max-w-[200px] cursor-pointer hover:text-cyan-500 transition-colors"
+                              >
+                                {item.title || 'Untitled Banner'}
+                              </span>
+                              {item.backgroundColor ? (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#142247] text-slate-700 dark:text-slate-300 max-w-[180px] truncate">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full shadow-xs border border-black/10 shrink-0"
+                                    style={{ background: item.backgroundColor }}
+                                  />
+                                  <span className="truncate">{item.backgroundColor}</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                  <span className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-amber-400 to-cyan-400 shrink-0" />
+                                  <span>Brand Gradient</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          <span className="text-xs text-slate-400 font-mono italic">No action button</span>
-                        )}
-                      </TableCell>
+                        </TableCell>
 
-                      {/* Status */}
-                      <TableCell className="py-3">
-                        <div className="flex items-center gap-2">
+                        {/* Message */}
+                        <TableCell className="py-3">
+                          <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 leading-snug max-w-md">
+                            {item.message}
+                          </p>
+                        </TableCell>
+
+                        {/* Action / Link */}
+                        <TableCell className="py-3">
+                          {item.redirectUrl ? (
+                            <div className="flex flex-col gap-0.5 text-xs">
+                              <span className="font-bold text-slate-900 dark:text-white inline-flex items-center gap-1">
+                                <span>{item.buttonText?.trim() || 'Link'}</span>
+                                <ArrowRight className="w-3 h-3 text-cyan-500" />
+                              </span>
+                              <span className="font-mono text-[11px] text-cyan-600 dark:text-cyan-400 truncate max-w-[180px]">
+                                {item.redirectUrl}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-mono italic">No action button</span>
+                          )}
+                        </TableCell>
+
+                        {/* Status */}
+                        <TableCell className="py-3">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={item.isActive ? 'success' : 'outline'}
+                              className="text-[10px] uppercase font-bold"
+                            >
+                              {item.isActive ? 'Active' : 'Disabled'}
+                            </Badge>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(item)}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                                item.isActive
+                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                              }`}
+                            >
+                              {item.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                          </div>
+                        </TableCell>
+
+                        {/* Actions */}
+                        <TableCell className="py-3 text-right">
+                          <div className="flex items-center justify-end space-x-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="p-1.5 h-7 w-7 text-slate-400 hover:text-cyan-400 cursor-pointer"
+                              onClick={() => setSelectedPreviewBanner(item)}
+                              title="Preview Banner Modal"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="p-1.5 h-7 w-7 text-slate-400 hover:text-amber-400 cursor-pointer"
+                              onClick={() => openEditModal(item)}
+                              title="Edit Announcement"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="p-1.5 h-7 w-7 text-slate-400 hover:text-rose-500 cursor-pointer"
+                              onClick={() => setDeleteConfirmItem(item)}
+                              title="Delete Announcement"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            /* ── Cards View ─────────────────────────────────────────────── */
+            <div className="space-y-3 p-4 sm:p-5">
+              {paginatedAnnouncements.map((item) => {
+                const originalIndex = announcements.findIndex((a) => a.id === item.id);
+                const isFirst = originalIndex === 0;
+                const isLast = originalIndex === announcements.length - 1;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                      item.isActive
+                        ? 'bg-white dark:bg-[#0c152e] border-slate-200/90 dark:border-[#1e2e56] shadow-xs'
+                        : 'bg-slate-50/70 dark:bg-[#080e1e] border-slate-200/50 dark:border-slate-800/60 opacity-75'
+                    }`}
+                  >
+                    {/* Left: Reorder Controls + Priority Badge + Image */}
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Order Controls */}
+                      <div className="flex flex-col items-center gap-0.5 bg-slate-100 dark:bg-[#142247] p-1 rounded-xl shrink-0">
+                        <button
+                          type="button"
+                          disabled={isFirst}
+                          onClick={() => handleMoveOrder(originalIndex, 'up')}
+                          title="Move Up"
+                          className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-[10px] font-mono font-black text-cyan-600 dark:text-cyan-400 px-1">
+                          #{originalIndex + 1}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isLast}
+                          onClick={() => handleMoveOrder(originalIndex, 'down')}
+                          title="Move Down"
+                          className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Thumbnail Image */}
+                      {item.imageUrl ? (
+                        <div
+                          onClick={() => setSelectedPreviewBanner(item)}
+                          className="w-14 h-14 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 bg-slate-900 cursor-pointer group relative shadow-2xs"
+                          title="Click to preview"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={item.imageUrl} alt={item.title || 'Banner'} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity grid place-items-center">
+                            <Eye className="w-3 h-3 text-white" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => setSelectedPreviewBanner(item)}
+                          className="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                          title="Click to preview"
+                        >
+                          <Megaphone className="w-6 h-6" />
+                        </div>
+                      )}
+
+                      {/* Content text */}
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4
+                            onClick={() => setSelectedPreviewBanner(item)}
+                            className="text-sm font-extrabold text-slate-900 dark:text-white truncate cursor-pointer hover:text-cyan-500 transition-colors"
+                          >
+                            {item.title || 'Untitled Banner'}
+                          </h4>
                           <Badge
                             variant={item.isActive ? 'success' : 'outline'}
                             className="text-[10px] uppercase font-bold"
                           >
                             {item.isActive ? 'Active' : 'Disabled'}
                           </Badge>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleStatus(item)}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                              item.isActive
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
-                                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                            }`}
-                          >
-                            {item.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
+                          {isFirst && item.isActive && (
+                            <Badge variant="gold" className="text-[10px] font-bold">
+                              ⭐ Top Priority
+                            </Badge>
+                          )}
+                          {item.backgroundColor ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#142247] text-slate-700 dark:text-slate-300 max-w-[200px] truncate">
+                              <span
+                                className="w-3 h-3 rounded-full shadow-xs border border-black/10 shrink-0"
+                                style={{ background: item.backgroundColor }}
+                              />
+                              <span className="truncate">{item.backgroundColor}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                              <span className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-400 to-cyan-400 shrink-0" />
+                              <span>Brand Gradient</span>
+                            </span>
+                          )}
                         </div>
-                      </TableCell>
 
-                      {/* Actions */}
-                      <TableCell className="py-3 text-right">
-                        <div className="flex items-center justify-end space-x-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1.5 h-7 w-7 text-slate-400 hover:text-cyan-400 cursor-pointer"
-                            onClick={() => setSelectedPreviewBanner(item)}
-                            title="Preview Banner"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1.5 h-7 w-7 text-slate-400 hover:text-amber-400 cursor-pointer"
-                            onClick={() => openEditModal(item)}
-                            title="Edit Announcement"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="p-1.5 h-7 w-7 text-slate-400 hover:text-rose-500 cursor-pointer"
-                            onClick={() => setDeleteConfirmItem(item)}
-                            title="Delete Announcement"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          /* ── Cards View ─────────────────────────────────────────────── */
-          <div className="space-y-3 p-4 sm:p-5">
-            {paginatedAnnouncements.map((item) => {
-              const originalIndex = announcements.findIndex((a) => a.id === item.id);
-              const isFirst = originalIndex === 0;
-              const isLast = originalIndex === announcements.length - 1;
+                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-snug">
+                          {item.message}
+                        </p>
 
-              return (
-                <div
-                  key={item.id}
-                  className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
-                    item.isActive
-                      ? 'bg-white dark:bg-[#0c152e] border-slate-200/90 dark:border-[#1e2e56] shadow-xs'
-                      : 'bg-slate-50/70 dark:bg-[#080e1e] border-slate-200/50 dark:border-slate-800/60 opacity-75'
-                  }`}
-                >
-                  {/* Left: Reorder Controls + Priority Badge + Image */}
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {/* Order Controls */}
-                    <div className="flex flex-col items-center gap-0.5 bg-slate-100 dark:bg-[#142247] p-1 rounded-xl shrink-0">
-                      <button
-                        type="button"
-                        disabled={isFirst}
-                        onClick={() => handleMoveOrder(originalIndex, 'up')}
-                        title="Move Up"
-                        className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="text-[10px] font-mono font-black text-cyan-600 dark:text-cyan-400 px-1">
-                        #{originalIndex + 1}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={isLast}
-                        onClick={() => handleMoveOrder(originalIndex, 'down')}
-                        title="Move Down"
-                        className="p-1 rounded text-slate-600 dark:text-slate-300 hover:text-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Thumbnail Image */}
-                    {item.imageUrl ? (
-                      <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 border border-slate-200 dark:border-slate-700 bg-slate-900">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.imageUrl} alt={item.title || 'Banner'} className="w-full h-full object-cover" />
-                      </div>
-                    ) : (
-                      <div className="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-                        <Megaphone className="w-6 h-6" />
-                      </div>
-                    )}
-
-                    {/* Content text */}
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
-                          {item.title || 'Untitled Banner'}
-                        </h4>
-                        <Badge
-                          variant={item.isActive ? 'success' : 'outline'}
-                          className="text-[10px] uppercase font-bold"
-                        >
-                          {item.isActive ? 'Active' : 'Disabled'}
-                        </Badge>
-                        {isFirst && item.isActive && (
-                          <Badge variant="gold" className="text-[10px] font-bold">
-                            ⭐ Top Priority
-                          </Badge>
-                        )}
-                        {item.backgroundColor ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#142247] text-slate-700 dark:text-slate-300 max-w-[200px] truncate">
-                            <span
-                              className="w-3 h-3 rounded-full shadow-xs border border-black/10 shrink-0"
-                              style={{ background: item.backgroundColor }}
-                            />
-                            <span className="truncate">{item.backgroundColor}</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                            <span className="w-3 h-3 rounded-full bg-gradient-to-r from-amber-400 to-cyan-400 shrink-0" />
-                            <span>Brand Gradient</span>
-                          </span>
+                        {item.redirectUrl && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold pt-0.5">
+                            <LinkIcon className="w-3 h-3" />
+                            <span>
+                              {item.buttonText?.trim() ? `${item.buttonText.trim()} ➔ ` : ''}{item.redirectUrl}
+                            </span>
+                          </div>
                         )}
                       </div>
+                    </div>
 
-                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-snug">
-                        {item.message}
-                      </p>
+                    {/* Right: Inline Actions */}
+                    <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                      {/* Toggle Active Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStatus(item)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          item.isActive
+                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                        }`}
+                      >
+                        {item.isActive ? 'Deactivate' : 'Activate'}
+                      </button>
 
-                      {item.buttonText && item.redirectUrl && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold pt-0.5">
-                          <LinkIcon className="w-3 h-3" />
-                          <span>
-                            {item.buttonText} ➔ {item.redirectUrl}
-                          </span>
-                        </div>
-                      )}
+                      {/* Preview Button */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreviewBanner(item)}
+                        className="p-2 rounded-xl bg-slate-100 dark:bg-[#142247] hover:text-cyan-400 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                        title="Preview Banner Modal"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+
+                      {/* Edit Button */}
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(item)}
+                        className="p-2 rounded-xl bg-slate-100 dark:bg-[#142247] hover:text-amber-400 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                        title="Edit Announcement"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+
+                      {/* Delete Button */}
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmItem(item)}
+                        className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition-colors cursor-pointer"
+                        title="Delete Announcement"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-
-                  {/* Right: Inline Actions */}
-                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                    {/* Toggle Active Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStatus(item)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                        item.isActive
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
-                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                      }`}
-                    >
-                      {item.isActive ? 'Deactivate' : 'Activate'}
-                    </button>
-
-                    {/* Preview Button */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPreviewBanner(item)}
-                      className="p-2 rounded-xl bg-slate-100 dark:bg-[#142247] hover:text-cyan-400 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-                      title="Preview in Top View"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-
-                    {/* Edit Button */}
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(item)}
-                      className="p-2 rounded-xl bg-slate-100 dark:bg-[#142247] hover:text-amber-400 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-                      title="Edit Announcement"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-
-                    {/* Delete Button */}
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirmItem(item)}
-                      className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition-colors cursor-pointer"
-                      title="Delete Announcement"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Pagination Footer */}
         {filteredAnnouncements.length > 0 && (
-          <div className="p-4 border-t border-slate-200/80 dark:border-[#1e2e56]/40 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 dark:bg-[#0c152e]/30">
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-              Showing <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredAnnouncements.length, (currentPage - 1) * pageSize + 1)}</span> to{' '}
-              <span className="font-bold text-slate-700 dark:text-slate-200">{Math.min(filteredAnnouncements.length, currentPage * pageSize)}</span> of{' '}
-              <span className="font-bold text-slate-700 dark:text-slate-200">{filteredAnnouncements.length}</span> announcements
-            </span>
+          <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/40 dark:bg-[#091124]/40">
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
               totalItems={filteredAnnouncements.length}
               pageSize={pageSize}
               onPageChange={setCurrentPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(newSize);
+                setCurrentPage(1);
+              }}
+              pageSizeOptions={[5, 10, 20, 50]}
+              className="border-t-0 pt-0"
             />
           </div>
         )}
       </Card>
+
+      {/* ── LIVE STUDENT BANNER PREVIEW MODAL ───────────────────────── */}
+      {selectedPreviewBanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200 !mt-0">
+          <div
+            className="relative w-full max-w-4xl bg-white dark:bg-[#0c152e] border border-slate-200 dark:border-[#1e2e56] rounded-3xl shadow-2xl p-5 sm:p-7 space-y-5 flex flex-col max-h-[92vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#1e2e56] pb-4 shrink-0">
+              <div>
+                <div className="flex items-center gap-2 text-cyan-600 dark:text-cyan-400">
+                  <Sparkles className="w-5 h-5 text-cyan-500" />
+                  <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
+                    Live Student Banner Preview
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Realistic real-time preview of how this announcement appears to students on Desktop and Mobile.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                {/* Desktop / Mobile Switch */}
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#142247] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('desktop')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      previewMode === 'desktop'
+                        ? 'bg-white dark:bg-cyan-500 text-slate-900 dark:text-slate-950 shadow-xs'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Monitor className="w-4 h-4" />
+                    <span>Desktop Web</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('mobile')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      previewMode === 'mobile'
+                        ? 'bg-white dark:bg-cyan-500 text-slate-900 dark:text-slate-950 shadow-xs'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>Mobile App</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreviewBanner(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1e2e56] cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Device Simulation Canvas */}
+            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar space-y-4 py-1">
+              {previewMode === 'desktop' ? (
+                /* Desktop Browser Frame */
+                <div className="rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-slate-100/70 dark:bg-[#070d1e] overflow-hidden shadow-md">
+                  {/* Browser Bar */}
+                  <div className="px-4 py-2.5 bg-slate-200/80 dark:bg-[#0e1730] border-b border-slate-200 dark:border-[#1e2e56] flex items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    </div>
+                    <div className="flex-1 max-w-xs mx-auto px-3 py-0.5 rounded-md bg-white/80 dark:bg-[#080e1e] text-[11px] text-slate-500 dark:text-slate-400 font-mono text-center truncate border border-slate-200/60 dark:border-slate-800">
+                      https://psctipsandtricks.com
+                    </div>
+                  </div>
+
+                  {/* Desktop Banner Display */}
+                  <div
+                    style={{
+                      background: selectedPreviewBanner.backgroundColor?.trim() || undefined,
+                    }}
+                    className={`relative p-3.5 sm:px-6 sm:py-3 transition-all border-b shadow-sm ${
+                      !selectedPreviewBanner.backgroundColor
+                        ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-400 text-slate-950 border-amber-600/30'
+                        : previewIsDark
+                        ? 'text-white border-white/10'
+                        : 'text-slate-950 border-slate-950/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-4 pr-10">
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        {selectedPreviewBanner.imageUrl ? (
+                          <div
+                            className={`w-11 h-11 rounded-xl overflow-hidden shadow-xs shrink-0 border ${
+                              previewIsDark ? 'border-white/20 bg-white/10' : 'border-slate-950/15 bg-slate-950/10'
+                            }`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={selectedPreviewBanner.imageUrl}
+                              alt="Preview"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              previewIsDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
+                            }`}
+                          >
+                            <Megaphone className="w-4 h-4" />
+                          </div>
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          {selectedPreviewBanner.title && selectedPreviewBanner.title !== 'Global Banner' && (
+                            <p
+                              className={`text-sm font-black leading-tight tracking-tight line-clamp-1 ${
+                                previewIsDark ? 'text-white' : 'text-slate-950'
+                              }`}
+                            >
+                              {selectedPreviewBanner.title}
+                            </p>
+                          )}
+                          <p
+                            className={`text-xs font-semibold leading-snug line-clamp-2 ${
+                              previewIsDark ? 'text-slate-200' : 'text-slate-900/90'
+                            }`}
+                          >
+                            {selectedPreviewBanner.message}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedPreviewBanner.redirectUrl && (
+                        <div className="shrink-0 flex items-center">
+                          {selectedPreviewBanner.buttonText?.trim() ? (
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold shadow-sm transition-all ${
+                                previewIsDark
+                                  ? 'bg-white text-slate-950'
+                                  : 'bg-slate-950 text-amber-300'
+                              }`}
+                            >
+                              <span>{selectedPreviewBanner.buttonText.trim()}</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </span>
+                          ) : (
+                            <span
+                              className={`w-8 h-8 rounded-full inline-flex items-center justify-center shadow-md transition-all ${
+                                previewIsDark
+                                  ? 'bg-white text-slate-950'
+                                  : 'bg-slate-950 text-amber-300'
+                              }`}
+                            >
+                              <ArrowRight className="w-4 h-4" />
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 ${
+                        previewIsDark ? 'text-white/60' : 'text-slate-950/60'
+                      }`}
+                    >
+                      <X className="w-4 h-4" />
+                    </div>
+                  </div>
+
+                  {/* Browser Mock Content Skeleton */}
+                  <div className="p-5 space-y-2.5 opacity-25 pointer-events-none">
+                    <div className="h-3.5 bg-slate-300 dark:bg-slate-700 rounded-md w-1/4" />
+                    <div className="h-14 bg-slate-300/60 dark:bg-slate-800 rounded-xl w-full" />
+                  </div>
+                </div>
+              ) : (
+                /* Mobile Device Frame */
+                <div className="max-w-[340px] mx-auto rounded-[32px] border-4 border-slate-800 dark:border-slate-700 bg-slate-100 dark:bg-[#070d1e] overflow-hidden shadow-2xl p-3 space-y-3">
+                  {/* Phone Status Bar */}
+                  <div className="flex items-center justify-between px-3 text-[10px] font-bold text-slate-500 pt-1">
+                    <span>9:41</span>
+                    <div className="w-16 h-3 bg-slate-800 rounded-full mx-auto" />
+                    <div className="flex items-center gap-1">
+                      <span>5G</span>
+                      <div className="w-3.5 h-2 border border-slate-500 rounded-xs" />
+                    </div>
+                  </div>
+
+                  {/* Mobile Announcement Card */}
+                  <div
+                    style={{
+                      background: selectedPreviewBanner.backgroundColor?.trim() || undefined,
+                    }}
+                    className={`relative rounded-2xl overflow-hidden shadow-lg p-3.5 border transition-all ${
+                      !selectedPreviewBanner.backgroundColor
+                        ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-400 text-slate-950 border-amber-600/30'
+                        : previewIsDark
+                        ? 'text-white border-white/10'
+                        : 'text-slate-950 border-slate-950/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2.5 pr-6">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        {selectedPreviewBanner.imageUrl ? (
+                          <div
+                            className={`w-10 h-10 rounded-xl overflow-hidden shadow-xs shrink-0 border ${
+                              previewIsDark ? 'border-white/20 bg-white/10' : 'border-slate-950/15 bg-slate-950/10'
+                            }`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={selectedPreviewBanner.imageUrl}
+                              alt="Preview"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                              previewIsDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
+                            }`}
+                          >
+                            <Megaphone className="w-4 h-4" />
+                          </div>
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          {selectedPreviewBanner.title && selectedPreviewBanner.title !== 'Global Banner' && (
+                            <p
+                              className={`text-xs font-black leading-tight tracking-tight line-clamp-1 ${
+                                previewIsDark ? 'text-white' : 'text-slate-950'
+                              }`}
+                            >
+                              {selectedPreviewBanner.title}
+                            </p>
+                          )}
+                          <p
+                            className={`text-[11px] font-semibold leading-snug line-clamp-2 ${
+                              previewIsDark ? 'text-slate-200' : 'text-slate-900/90'
+                            }`}
+                          >
+                            {selectedPreviewBanner.message}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedPreviewBanner.redirectUrl && (
+                        <div className="shrink-0">
+                          {selectedPreviewBanner.buttonText?.trim() ? (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold shadow-sm ${
+                                previewIsDark
+                                  ? 'bg-white text-slate-950'
+                                  : 'bg-slate-950 text-amber-300'
+                              }`}
+                            >
+                              <span>{selectedPreviewBanner.buttonText.trim()}</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </span>
+                          ) : (
+                            <span
+                              className={`w-7 h-7 rounded-full inline-flex items-center justify-center shadow-md ${
+                                previewIsDark
+                                  ? 'bg-white text-slate-950'
+                                  : 'bg-slate-950 text-amber-300'
+                              }`}
+                            >
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      className={`absolute right-2 top-2 ${
+                        previewIsDark ? 'text-white/60' : 'text-slate-950/60'
+                      }`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+
+                  {/* Mobile Skeleton Items */}
+                  <div className="space-y-2 px-1 pt-1 opacity-20 pointer-events-none">
+                    <div className="h-3 bg-slate-300 dark:bg-slate-700 rounded-md w-1/2" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
+                      <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Banner Details Info Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#111c3a] border border-slate-200/80 dark:border-slate-800 flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    selectedPreviewBanner.isActive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/10 text-slate-400'
+                  }`}>
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase">Banner Status</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block">
+                      {selectedPreviewBanner.isActive ? (
+                        <span className="text-emerald-600 dark:text-emerald-400">● Active (Live)</span>
+                      ) : (
+                        <span className="text-slate-400">○ Disabled</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#111c3a] border border-slate-200/80 dark:border-slate-800 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase">Rotation Priority</span>
+                    <span className="font-extrabold text-cyan-600 dark:text-cyan-400 font-mono mt-0.5 block">
+                      Rank #{announcements.findIndex((a) => a.id === selectedPreviewBanner.id) + 1} of {announcements.length}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#111c3a] border border-slate-200/80 dark:border-slate-800 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                    <LinkIcon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase">Destination Link</span>
+                    <span className="font-mono text-xs text-amber-600 dark:text-amber-400 font-bold truncate block mt-0.5">
+                      {selectedPreviewBanner.redirectUrl || 'None (Notice only)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[#1e2e56] shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const target = selectedPreviewBanner;
+                  setSelectedPreviewBanner(null);
+                  openEditModal(target);
+                }}
+                className="font-bold cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>Edit This Announcement</span>
+              </Button>
+              <Button
+                type="button"
+                variant="gold"
+                size="sm"
+                onClick={() => setSelectedPreviewBanner(null)}
+                className="font-bold cursor-pointer"
+              >
+                Done
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── CREATE / EDIT MODAL ───────────────────────────────────────── */}
       {isModalOpen && (
@@ -1145,17 +1397,29 @@ export default function AdminAnnouncementsPage() {
                       </div>
                     </div>
 
-                    {formik.values.buttonText && formik.values.redirectUrl && (
-                      <span
-                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-extrabold shadow-sm shrink-0 ${
-                          modalIsDark
-                            ? 'bg-white text-slate-950'
-                            : 'bg-slate-950 text-amber-300'
-                        }`}
-                      >
-                        <span>{formik.values.buttonText}</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </span>
+                    {formik.values.redirectUrl && (
+                      formik.values.buttonText?.trim() ? (
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-extrabold shadow-sm shrink-0 ${
+                            modalIsDark
+                              ? 'bg-white text-slate-950'
+                              : 'bg-slate-950 text-amber-300'
+                          }`}
+                        >
+                          <span>{formik.values.buttonText.trim()}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </span>
+                      ) : (
+                        <span
+                          className={`w-7 h-7 rounded-full inline-flex items-center justify-center shadow-md shrink-0 ${
+                            modalIsDark
+                              ? 'bg-white text-slate-950'
+                              : 'bg-slate-950 text-amber-300'
+                          }`}
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </span>
+                      )
                     )}
                   </div>
                 </div>

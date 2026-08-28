@@ -12,6 +12,7 @@ import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/book.dart';
 import '../checkout/purchase_sheet.dart';
+import '../pdfs/pdf_viewer_screen.dart';
 import '../offline/widgets/download_button.dart';
 import 'books_providers.dart';
 
@@ -327,7 +328,13 @@ class _PrimaryAction extends StatelessWidget {
         if (book.previewPdfUrl != null) ...[
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: () => context.push(AppRoutes.bookReader(book.id)),
+            // The reader itself is gated server-side; the preview is a separate
+            // ungated PDF, so it opens in the document viewer instead.
+            onPressed: () => openPdf(
+              context,
+              url: book.previewPdfUrl!,
+              title: '${book.title} — preview',
+            ),
             icon: const Icon(Icons.visibility_outlined, size: 18),
             label: const Text('Read free preview'),
           ),

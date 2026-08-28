@@ -181,7 +181,7 @@ export default function AdminChapterPdfsPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       <div className="shrink-0 space-y-2">
         <Link
           href={`/admin/pdfs/${examId}`}
@@ -224,7 +224,7 @@ export default function AdminChapterPdfsPage() {
         </div>
       )}
 
-      <Card className="flex-1 flex flex-col min-h-0 overflow-y-auto border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-3 space-y-2">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-y-auto border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-3 space-y-2">
         {loading ? (
           Array.from({ length: 4 }).map((_, idx) => <Skeleton key={idx} className="h-16 w-full rounded-xl" />)
         ) : documents.length === 0 ? (

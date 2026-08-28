@@ -28,11 +28,15 @@ class ShellScaffold extends StatelessWidget {
   ];
 
   void _onTap(int index) {
-    // Re-tapping the active tab pops that branch back to its root, which is
-    // what a student expects from a bottom bar.
+    // Home always lands on the landing page. The other tabs only reset when
+    // re-tapped while already active, which is the usual bottom-bar behaviour —
+    // switching away from Books mid-scroll and back should return you there,
+    // but "Home" should always mean home.
+    const homeIndex = 0;
     navigationShell.goBranch(
       index,
-      initialLocation: index == navigationShell.currentIndex,
+      initialLocation:
+          index == homeIndex || index == navigationShell.currentIndex,
     );
   }
 

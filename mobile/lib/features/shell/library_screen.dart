@@ -9,6 +9,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/library.dart';
+import '../offline/downloads_screen.dart';
 import 'library_providers.dart';
 
 /// The study library: YouTube classes and downloadable PDFs, each browsed
@@ -22,7 +23,11 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 2, vsync: this);
+  // Downloads lead and the Library opens on them: they are the only thing here
+  // that works with no connection, and they are what a student who has saved a
+  // book comes back for. With nothing saved the tab is not wasted either — its
+  // empty state explains how to download and links to the catalog.
+  late final TabController _tabs = TabController(length: 3, vsync: this);
 
   @override
   void dispose() {
@@ -37,7 +42,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         title: const Text('Library'),
         bottom: TabBar(
           controller: _tabs,
+          isScrollable: true,
+          tabAlignment: TabAlignment.center,
           tabs: const [
+            Tab(icon: Icon(Icons.download_done_rounded, size: 19), text: 'Downloads'),
             Tab(icon: Icon(Icons.smart_display_outlined, size: 19), text: 'Videos'),
             Tab(icon: Icon(Icons.picture_as_pdf_outlined, size: 19), text: 'PDFs'),
           ],
@@ -46,6 +54,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       body: TabBarView(
         controller: _tabs,
         children: [
+          const DownloadsList(),
           _ExamGrid(
             provider: videoExamsProvider,
             accent: AppColors.red,

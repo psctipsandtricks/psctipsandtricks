@@ -568,7 +568,7 @@ export default function QuizQuestionsStudioPage() {
         </div>
 
         {/* Scrollable Questions Table Container */}
-        <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-4 space-y-3">
+        <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-4 space-y-3">
           {Array.from({ length: 6 }).map((_, idx) => (
             <div key={idx} className="h-12 w-full bg-slate-200 dark:bg-slate-800 rounded-xl" />
           ))}
@@ -578,7 +578,7 @@ export default function QuizQuestionsStudioPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Fixed Top Header & Search Bar */}
       <div className="shrink-0 space-y-3">
         {/* Top Header Navigation */}
@@ -718,7 +718,7 @@ export default function QuizQuestionsStudioPage() {
       )}
 
       {/* Scrollable Questions Table Container */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <DndContext
             sensors={dragSensors}

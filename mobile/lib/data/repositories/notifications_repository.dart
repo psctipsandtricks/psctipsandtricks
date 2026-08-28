@@ -15,6 +15,23 @@ class NotificationsRepository {
         .toList();
   }
 
+  /// Tells the API which device this installation is, so notifications aimed
+  /// at one student can reach their phone.
+  ///
+  /// Called without a session too: the row is created unbound, re-pointed at
+  /// the student when they sign in, and unbound again when they sign out.
+  Future<void> registerDevice({
+    required String token,
+    required String platform,
+    String? appVersion,
+  }) async {
+    await _api.post<dynamic>('/notifications/devices', body: {
+      'token': token,
+      'platform': platform,
+      if (appVersion != null) 'appVersion': appVersion,
+    });
+  }
+
   /// Popups currently inside their scheduled window.
   Future<List<AnnouncementPopup>> fetchActiveAnnouncements() async {
     final res = await _api.get<dynamic>('/notifications/announcements/active');

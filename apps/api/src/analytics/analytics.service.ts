@@ -182,7 +182,7 @@ export class AnalyticsService {
       this.prisma.readingProgress.findMany({
         where: { userId, book: { isPublished: true } },
         include: {
-          book: { select: { id: true, title: true, author: true, coverUrl: true, category: true } },
+          book: { select: { id: true, title: true, author: true, coverUrl: true, heroCoverUrl: true, category: true } },
           chapter: { select: { id: true, title: true } },
           topic: { select: { id: true, title: true } },
         },
@@ -340,6 +340,7 @@ export class AnalyticsService {
           title: row.book.title,
           author: row.book.author,
           coverUrl: row.book.coverUrl,
+          heroCoverUrl: row.book.heroCoverUrl ?? null,
           category: row.book.category,
           progressPercent: percent,
           isCompleted: percent >= 100,

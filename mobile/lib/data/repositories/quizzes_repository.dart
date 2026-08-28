@@ -21,8 +21,8 @@ class QuizzesRepository {
 
   Future<List<Quiz>> fetchQuizzes({
     String? search,
-    String? folderId,
-    String? category,
+    String? folderName,
+    String? accessType,
     bool publishedOnly = true,
     int page = 1,
     int limit = 30,
@@ -34,9 +34,9 @@ class QuizzesRepository {
         'page': page,
         'limit': limit,
         if (search != null && search.isNotEmpty) 'search': search,
-        if (folderId != null) 'folderId': folderId,
-        if (category != null && category.isNotEmpty && category != 'All')
-          'category': category,
+        // The API keys this off Quiz.folderName, not the folder's id.
+        if (folderName != null && folderName.isNotEmpty) 'folder': folderName,
+        if (accessType != null) 'access': accessType,
       },
     );
     return J.rows(res)

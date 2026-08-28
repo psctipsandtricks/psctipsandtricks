@@ -7,7 +7,7 @@ import { Card, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Bu
 import { Trash2, Ticket, Tag, Edit3 } from 'lucide-react';
 import { Coupon } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
-import { AdminSkeletonHeader, AdminSkeletonTable } from '../admin-skeleton';
+import { CouponsPageSkeleton } from '../admin-skeleton';
 
 const sharedCouponFields = {
   code: Yup.string().trim().matches(/^[A-Za-z0-9]+$/, 'Code can only contain letters and numbers').required('Coupon code is required'),
@@ -182,13 +182,8 @@ export default function AdminCouponsPage() {
     setConfirmTarget(null);
   };
 
-  if (!mounted) {
-    return (
-      <div className="space-y-6">
-        <AdminSkeletonHeader />
-        <AdminSkeletonTable rowsCount={4} colsCount={7} />
-      </div>
-    );
+  if (!mounted || (loading && coupons.length === 0)) {
+    return <CouponsPageSkeleton />;
   }
 
   const filteredCoupons = coupons.filter(
@@ -202,7 +197,7 @@ export default function AdminCouponsPage() {
   const paginatedCoupons = filteredCoupons.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4 rounded-b-2xl">
       {/* Fixed Header */}
       <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
@@ -235,7 +230,7 @@ export default function AdminCouponsPage() {
       )}
 
       {/* Scrollable Table */}
-      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm p-0">
+      <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
         <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 relative">
           <Table>
           <TableHeader>
@@ -280,52 +275,83 @@ export default function AdminCouponsPage() {
               </TableRow>
             ) : (
               paginatedCoupons.map((coupon) => (
-              <TableRow key={coupon.id}>
-                <TableCell className="font-mono font-bold text-cyan-400">{coupon.code}</TableCell>
-                <TableCell className="font-bold">{coupon.discountPercent}%</TableCell>
-                <TableCell className="font-mono font-semibold">₹{coupon.maxDiscountAmount}</TableCell>
-                <TableCell className="font-mono text-xs text-slate-500 dark:text-slate-400">{formatDate(coupon.validTill)}</TableCell>
-                <TableCell className="font-mono text-slate-700 dark:text-slate-300">{coupon.usageCount}</TableCell>
-                <TableCell>
-                  <Badge variant={coupon.isActive ? 'success' : 'danger'}>
-                    {coupon.isActive ? 'Active' : 'Disabled'}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="p-2 rounded-xl transition-all shadow-sm"
-                      title="Edit Coupon"
-                      aria-label="Edit Coupon"
-                      onClick={() => handleOpenEditDialog(coupon)}
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                    <Button size="sm" variant={coupon.isActive ? 'outline' : 'primary'} onClick={() => setConfirmTarget({ type: 'toggle', coupon })}>
-                      {coupon.isActive ? 'Disable' : 'Enable'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      className="p-2 rounded-xl transition-all shadow-sm"
-                      title="Delete Coupon"
-                      aria-label="Delete Coupon"
-                      onClick={() => setConfirmTarget({ type: 'delete', coupon })}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
+                <TableRow
+                  key={coupon.id}
+                  className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50/80 dark:hover:bg-[#0c152e]/50 transition-colors"
+                >
+                  <TableCell className="font-mono font-bold text-cyan-600 dark:text-cyan-400 text-xs">
+                    {coupon.code}
+                  </TableCell>
+                  <TableCell className="font-extrabold text-xs text-slate-900 dark:text-white">
+                    {coupon.discountPercent}%
+                  </TableCell>
+                  <TableCell className="font-extrabold text-xs text-slate-900 dark:text-white">
+                    ₹{coupon.maxDiscountAmount}
+                  </TableCell>
+                  <TableCell className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                    {formatDate(coupon.validTill)}
+                  </TableCell>
+                  <TableCell className="text-xs text-slate-600 dark:text-slate-300 font-bold">
+                    {coupon.usageCount}
+                  </TableCell>
+                  <TableCell>
+                    {coupon.isActive ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/30">
+                        Disabled
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenEditDialog(coupon)}
+                        className="p-1.5 text-xs text-slate-600 dark:text-slate-300 hover:text-cyan-500"
+                        title="Edit Coupon"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setConfirmTarget({
+                            type: 'toggle',
+                            coupon,
+                          })
+                        }
+                        className={`px-2.5 py-1 text-xs font-bold ${
+                          coupon.isActive
+                            ? 'text-slate-600 dark:text-slate-300 hover:text-amber-500'
+                            : 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-500'
+                        }`}
+                      >
+                        {coupon.isActive ? 'Disable' : 'Enable'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setConfirmTarget({ type: 'delete', coupon })}
+                        className="p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-500/10"
+                        title="Delete Coupon"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ))
             )}
           </TableBody>
         </Table>
         </div>
 
-        <div className="shrink-0 px-4 py-3 border-t border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#091124]">
+        <div className="shrink-0 px-4 py-3 border-t border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#091124]">
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}

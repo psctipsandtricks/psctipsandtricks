@@ -1,18 +1,16 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/glass_card.dart';
+import '../reader_audio_controller.dart';
 
 /// Teacher narration for the current topic.
 ///
-/// One player instance is owned per reader screen and re-pointed as the student
-/// moves between topics — allocating a decoder per unit would leak audio
-/// sessions on a long book.
-class ReaderAudioPlayer extends StatefulWidget {
+/// A thin view over [ReaderAudioController]; the player itself lives in a
+/// provider so playback carries on when the student opens the topic's notes.
+class ReaderAudioPlayer extends ConsumerStatefulWidget {
   const ReaderAudioPlayer({
     super.key,
     required this.url,
@@ -27,21 +25,20 @@ class ReaderAudioPlayer extends StatefulWidget {
   final bool autoPlay;
 
   @override
-  State<ReaderAudioPlayer> createState() => _ReaderAudioPlayerState();
+  ConsumerState<ReaderAudioPlayer> createState() => _ReaderAudioPlayerState();
 }
 
-class _ReaderAudioPlayerState extends State<ReaderAudioPlayer> {
-  final _player = AudioPlayer();
-  StreamSubscription<PlayerState>? _stateSub;
+class _ReaderAudioPlayerState extends ConsumerState<ReaderAudioPlayer> {
+  ReaderAudioController get _audio => ref.read(readerAudioProvider);
 
-  bool _loading = true;
-  bool _failed = false;
-  double _speed = 1;
+  /// Set while the student drags the scrubber, so the ticking position does not
+  /// yank the thumb out from under their finger.
+  Duration? _scrubbing;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
@@ -50,35 +47,8 @@ class _ReaderAudioPlayerState extends State<ReaderAudioPlayer> {
     if (oldWidget.url != widget.url) _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _failed = false;
-    });
-    try {
-      if (widget.url.startsWith('http')) {
-        await _player.setUrl(widget.url);
-      } else {
-        await _player.setFilePath(widget.url);
-      }
-      if (!mounted) return;
-      setState(() => _loading = false);
-      if (widget.autoPlay) unawaited(_player.play());
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _failed = true;
-        });
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _stateSub?.cancel();
-    _player.dispose();
-    super.dispose();
+  void _load() {
+    _audio.load(widget.url, label: widget.title, autoPlay: widget.autoPlay);
   }
 
   String _fmt(Duration d) {
@@ -87,186 +57,223 @@ class _ReaderAudioPlayerState extends State<ReaderAudioPlayer> {
     return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
   }
 
-  void _cycleSpeed() {
-    const speeds = [1.0, 1.25, 1.5, 2.0, 0.75];
-    final next = speeds[(speeds.indexOf(_speed) + 1) % speeds.length];
-    setState(() => _speed = next);
-    _player.setSpeed(next);
-  }
-
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final audio = _audio;
 
-    if (_failed) {
-      return GlassCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            const Icon(Icons.volume_off_rounded,
-                size: 18, color: AppColors.rose),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Audio for this topic could not be loaded.',
+    return ValueListenableBuilder<bool>(
+      valueListenable: audio.failed,
+      builder: (context, failed, _) {
+        if (failed) {
+          return GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.volume_off_rounded,
+                    size: 18, color: AppColors.rose),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Audio for this topic could not be loaded.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: palette.textSecondary,
+                        ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => audio.reload(autoPlay: true),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return GlassCard(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          borderColor: AppColors.cyan.withValues(alpha: 0.28),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.graphic_eq_rounded,
+                      size: 13, color: AppColors.cyan),
+                  const SizedBox(width: 5),
+                  Text(
+                    'AUDIO LESSON',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: AppColors.cyan,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.7,
+                          fontSize: 10,
+                        ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => setState(audio.cycleSpeed),
+                    style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text('${audio.speed}x'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: palette.textSecondary,
+                      fontWeight: FontWeight.w600,
                     ),
               ),
-            ),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
-      );
-    }
+              const SizedBox(height: 6),
+              ValueListenableBuilder<Duration?>(
+                valueListenable: audio.duration,
+                builder: (context, total, _) {
+                  final hasDuration =
+                      total != null && total > Duration.zero;
+                  final maxMs =
+                      hasDuration ? total.inMilliseconds.toDouble() : 1.0;
 
-    return GlassCard(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      borderColor: AppColors.cyan.withValues(alpha: 0.28),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              StreamBuilder<PlayerState>(
-                stream: _player.playerStateStream,
-                builder: (context, snapshot) {
-                  final state = snapshot.data;
-                  final playing = state?.playing ?? false;
-                  final buffering = _loading ||
-                      state?.processingState == ProcessingState.loading ||
-                      state?.processingState == ProcessingState.buffering;
+                  return ValueListenableBuilder<Duration>(
+                    valueListenable: audio.position,
+                    builder: (context, position, _) {
+                      final shown = _scrubbing ?? position;
+                      final valueMs = shown.inMilliseconds
+                          .clamp(0, maxMs.toInt())
+                          .toDouble();
 
-                  return _CircleButton(
-                    size: 42,
-                    filled: true,
-                    icon: buffering
-                        ? null
-                        : (playing
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded),
-                    busy: buffering,
-                    onTap: buffering
-                        ? null
-                        : () {
-                            if (playing) {
-                              _player.pause();
-                            } else {
-                              // Replay from the top once the clip has ended.
-                              if (state?.processingState ==
-                                  ProcessingState.completed) {
-                                _player.seek(Duration.zero);
-                              }
-                              _player.play();
-                            }
-                          },
+                      return Column(
+                        children: [
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 3,
+                              thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6),
+                              overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 14),
+                              activeTrackColor: AppColors.cyan,
+                              inactiveTrackColor: palette.elevated,
+                              thumbColor: AppColors.cyan,
+                            ),
+                            child: Slider(
+                              value: valueMs,
+                              max: maxMs,
+                              onChanged: hasDuration
+                                  ? (v) => setState(
+                                        () => _scrubbing = Duration(
+                                            milliseconds: v.round()),
+                                      )
+                                  : null,
+                              onChangeEnd: hasDuration
+                                  ? (v) {
+                                      audio.seek(
+                                          Duration(milliseconds: v.round()));
+                                      setState(() => _scrubbing = null);
+                                    }
+                                  : null,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            child: Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  _fmt(shown),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(color: palette.textMuted),
+                                ),
+                                Text(
+                                  hasDuration ? _fmt(total) : '--:--',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(color: palette.textMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   );
                 },
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.graphic_eq_rounded,
-                            size: 13, color: AppColors.cyan),
-                        const SizedBox(width: 5),
-                        Text(
-                          'AUDIO LESSON',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: AppColors.cyan,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.7,
-                                    fontSize: 10,
-                                  ),
-                        ),
-                      ],
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _RoundAction(
+                    icon: Icons.replay_10_rounded,
+                    tooltip: 'Back 10 seconds',
+                    onTap: () => audio.seekBy(const Duration(seconds: -10)),
+                  ),
+                  const SizedBox(width: 20),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: audio.loading,
+                    builder: (context, loading, _) =>
+                        ValueListenableBuilder<bool>(
+                      valueListenable: audio.playing,
+                      builder: (context, playing, _) => _CircleButton(
+                        size: 52,
+                        filled: true,
+                        busy: loading,
+                        icon: playing
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        onTap: loading ? null : audio.togglePlay,
+                      ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(
-                onPressed: _cycleSpeed,
-                style: TextButton.styleFrom(
-                  minimumSize: Size.zero,
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: Text('${_speed}x'),
+                  ),
+                  const SizedBox(width: 20),
+                  _RoundAction(
+                    icon: Icons.forward_10_rounded,
+                    tooltip: 'Forward 10 seconds',
+                    onTap: () => audio.seekBy(const Duration(seconds: 10)),
+                  ),
+                ],
               ),
             ],
           ),
-          StreamBuilder<Duration>(
-            stream: _player.positionStream,
-            builder: (context, snapshot) {
-              final position = snapshot.data ?? Duration.zero;
-              final total = _player.duration ?? Duration.zero;
-              final max = total.inMilliseconds.toDouble();
-              final value = position.inMilliseconds
-                  .clamp(0, max <= 0 ? 0 : max.toInt())
-                  .toDouble();
+        );
+      },
+    );
+  }
+}
 
-              return Column(
-                children: [
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3,
-                      thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape:
-                          const RoundSliderOverlayShape(overlayRadius: 14),
-                      activeTrackColor: AppColors.cyan,
-                      inactiveTrackColor: palette.elevated,
-                      thumbColor: AppColors.cyan,
-                    ),
-                    child: Slider(
-                      value: value,
-                      max: max <= 0 ? 1 : max,
-                      onChanged: max <= 0
-                          ? null
-                          : (v) => _player.seek(
-                                Duration(milliseconds: v.round()),
-                              ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _fmt(position),
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(color: palette.textMuted),
-                        ),
-                        Text(
-                          _fmt(total),
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(color: palette.textMuted),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
+/// Secondary transport control — quieter than the play button so the primary
+/// action stays obvious.
+class _RoundAction extends StatelessWidget {
+  const _RoundAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(9),
+          child: Icon(icon, size: 26, color: context.palette.textSecondary),
+        ),
       ),
     );
   }
@@ -310,6 +317,227 @@ class _CircleButton extends StatelessWidget {
               )
             : Icon(icon, color: Colors.white, size: size * 0.55),
       ),
+    );
+  }
+}
+
+/// The narration transport in one row, docked under a document.
+///
+/// The reader's [ReaderAudioPlayer] is left behind the moment a topic's notes
+/// open full-screen, and narration that cannot be paused from the screen the
+/// student is actually looking at reads as a bug. This is the same shared
+/// controller in a bar-sized form, so play, skip, scrub and speed stay within
+/// reach while reading the PDF.
+///
+/// Renders nothing when there is no clip loaded, so a PDF opened without any
+/// narration keeps the whole screen.
+class ReaderMiniPlayer extends ConsumerStatefulWidget {
+  const ReaderMiniPlayer({super.key});
+
+  @override
+  ConsumerState<ReaderMiniPlayer> createState() => _ReaderMiniPlayerState();
+}
+
+class _ReaderMiniPlayerState extends ConsumerState<ReaderMiniPlayer> {
+  ReaderAudioController get _audio => ref.read(readerAudioProvider);
+
+  /// Set while the student drags the scrubber, so the ticking position does
+  /// not yank the thumb out from under their finger.
+  Duration? _scrubbing;
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final audio = _audio;
+
+    return ValueListenableBuilder<String?>(
+      valueListenable: audio.title,
+      builder: (context, title, _) {
+        if (title == null) return const SizedBox.shrink();
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: audio.failed,
+          builder: (context, failed, _) => DecoratedBox(
+            decoration: BoxDecoration(
+              color: palette.card,
+              border: Border(top: BorderSide(color: palette.border)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: failed
+                  ? _failedRow(context, audio)
+                  : _transport(context, audio, title),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _failedRow(BuildContext context, ReaderAudioController audio) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      child: Row(
+        children: [
+          const Icon(Icons.volume_off_rounded, size: 18, color: AppColors.rose),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Narration could not be loaded.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.palette.textSecondary,
+                  ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => audio.reload(autoPlay: true),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _transport(
+    BuildContext context,
+    ReaderAudioController audio,
+    String title,
+  ) {
+    final palette = context.palette;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Draggable, not just an indicator: skimming a lesson means jumping to
+        // a point, and ±10s is a poor way to cross ten minutes. The track is
+        // kept thin so the document still owns the screen.
+        ValueListenableBuilder<Duration?>(
+          valueListenable: audio.duration,
+          builder: (context, total, _) {
+            final hasDuration = total != null && total > Duration.zero;
+            final maxMs = hasDuration ? total.inMilliseconds.toDouble() : 1.0;
+
+            return ValueListenableBuilder<Duration>(
+              valueListenable: audio.position,
+              builder: (context, position, _) {
+                final shown = _scrubbing ?? position;
+                final value =
+                    shown.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
+
+                return SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 13),
+                    activeTrackColor: AppColors.cyan,
+                    inactiveTrackColor: palette.elevated,
+                    thumbColor: AppColors.cyan,
+                  ),
+                  child: Slider(
+                    value: value,
+                    max: maxMs,
+                    // While dragging, the thumb follows the finger and the
+                    // page does not move — the jump happens once, on release,
+                    // rather than flicking through every page on the way.
+                    onChanged: hasDuration
+                        ? (v) => setState(
+                              () => _scrubbing =
+                                  Duration(milliseconds: v.round()),
+                            )
+                        : null,
+                    onChangeEnd: hasDuration
+                        ? (v) {
+                            audio.seek(Duration(milliseconds: v.round()));
+                            setState(() => _scrubbing = null);
+                          }
+                        : null,
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+          child: Row(
+            children: [
+              ValueListenableBuilder<bool>(
+                valueListenable: audio.loading,
+                builder: (context, loading, _) => ValueListenableBuilder<bool>(
+                  valueListenable: audio.playing,
+                  builder: (context, playing, _) => _CircleButton(
+                    size: 40,
+                    filled: true,
+                    busy: loading,
+                    icon: playing
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    onTap: loading ? null : audio.togglePlay,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    ValueListenableBuilder<Duration>(
+                      valueListenable: audio.position,
+                      builder: (context, position, _) =>
+                          ValueListenableBuilder<Duration?>(
+                        valueListenable: audio.duration,
+                        builder: (context, total, _) => Text(
+                          '${_fmt(position)} / ${total == null ? '--:--' : _fmt(total)}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: palette.textMuted),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _RoundAction(
+                icon: Icons.replay_10_rounded,
+                tooltip: 'Back 10 seconds',
+                onTap: () => audio.seekBy(const Duration(seconds: -10)),
+              ),
+              _RoundAction(
+                icon: Icons.forward_10_rounded,
+                tooltip: 'Forward 10 seconds',
+                onTap: () => audio.seekBy(const Duration(seconds: 10)),
+              ),
+              TextButton(
+                onPressed: () => setState(audio.cycleSpeed),
+                style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text('${audio.speed}x'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

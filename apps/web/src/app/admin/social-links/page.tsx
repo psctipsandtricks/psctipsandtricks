@@ -7,7 +7,7 @@ import { Card, CardTitle, CardDescription, Input, Button } from '@psc/ui';
 import { ExternalLink, Save, CheckCircle2 } from 'lucide-react';
 import { SocialLinks } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
-import { AdminSkeletonHeader } from '../admin-skeleton';
+import { SocialLinksPageSkeleton } from '../admin-skeleton';
 import { TelegramIcon, InstagramIcon, YoutubeIcon, FacebookIcon, TwitterIcon } from '../../social-icons';
 
 /** Kept in sync with the server's `UpdateSocialLinksDto` — empty fails silently to "unset", so only a real mismatch should show an inline error. */
@@ -152,17 +152,7 @@ export default function AdminSocialLinksPage() {
   }, [savedAt]);
 
   if (loading) {
-    return (
-      <div className="space-y-6 max-w-3xl">
-        <AdminSkeletonHeader />
-        <Card className="animate-pulse space-y-4">
-          <div className="h-5 w-40 rounded-lg bg-slate-200 dark:bg-slate-800" />
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-16 w-full rounded-2xl bg-slate-100 dark:bg-slate-800/60" />
-          ))}
-        </Card>
-      </div>
-    );
+    return <SocialLinksPageSkeleton />;
   }
 
   return (

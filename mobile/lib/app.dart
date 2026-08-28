@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_config.dart';
 import 'core/providers/theme_controller.dart';
+import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'features/offline/offline_gate.dart';
 import 'features/offline/offline_providers.dart';
 
 class PscStudentApp extends ConsumerStatefulWidget {
@@ -20,6 +22,12 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // After the first frame, so requesting the notification permission does not
+    // land on top of the splash screen, and so the router exists by the time a
+    // launch-from-tray message is routed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(pushServiceProvider).start();
+    });
   }
 
   @override
@@ -56,7 +64,7 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(scale),
           ),
-          child: child ?? const SizedBox.shrink(),
+          child: OfflineGate(child: child ?? const SizedBox.shrink()),
         );
       },
     );

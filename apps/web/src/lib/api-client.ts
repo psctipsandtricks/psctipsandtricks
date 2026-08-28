@@ -37,6 +37,9 @@ import {
   StaffMember,
   StaffPermission,
   AnnouncementPopup,
+  Notification as AppNotification,
+  SentNotification,
+  PushStatus,
   CustomerReview,
   SocialLinks,
 } from '@psc/shared-types';
@@ -909,6 +912,29 @@ export const ApiClient = {
     fetcher(`/staff/${id}/reactivate`, { method: 'PATCH' }),
   deleteStaff: (id: string) =>
     fetcher(`/staff/${id}`, { method: 'DELETE' }),
+
+  // --- Push Notifications (Admin / Staff with manage_notifications) ---
+  /**
+   * Saves the notification and queues it for FCM delivery. Returns as soon as
+   * the row is written — delivery happens on the API's queue behind it.
+   */
+  sendNotification: (payload: {
+    title: string;
+    body: string;
+    /** Omit for a broadcast to every student. */
+    userId?: string;
+    type?: string;
+    route?: string;
+    imageUrl?: string;
+    scheduledFor?: string;
+  }) => fetcher<AppNotification>('/notifications/send', { method: 'POST', body: JSON.stringify(payload) }),
+  uploadNotificationImage: (file: File) =>
+    uploadFetcher<{ url: string }>('/notifications/image', file),
+  listSentNotifications: (limit = 100) =>
+    fetcher<SentNotification[]>(`/notifications/sent?limit=${limit}`),
+  deleteNotification: (id: string) =>
+    fetcher<{ id: string }>(`/notifications/${id}`, { method: 'DELETE' }),
+  getPushStatus: () => fetcher<PushStatus>('/notifications/push-status'),
 
   // --- Announcement Banner (Admin / Staff with manage_announcements) ---
   listAnnouncements: () => fetcher<AnnouncementPopup[]>('/notifications/announcements'),

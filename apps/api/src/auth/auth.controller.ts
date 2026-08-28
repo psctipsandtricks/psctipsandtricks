@@ -6,6 +6,7 @@ import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { GoogleIdTokenDto } from './dto/google-id-token.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GoogleConfiguredGuard, AppleConfiguredGuard } from './oauth-configured.guard';
 import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
@@ -68,6 +69,16 @@ export class AuthController {
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
       return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
     }
+  }
+
+  @ApiOperation({
+    summary: 'Sign in with an ID token from the native Google Sign-In flow (mobile apps)',
+  })
+  @ApiResponse({ status: 200, description: 'Session issued for the Google account' })
+  @HttpCode(HttpStatus.OK)
+  @Post('google/native')
+  async googleNative(@Body() dto: GoogleIdTokenDto) {
+    return this.authService.loginWithGoogleIdToken(dto.idToken, dto.accessToken);
   }
 
   @ApiOperation({ summary: 'Start Apple Sign-In (redirects to Apple)' })

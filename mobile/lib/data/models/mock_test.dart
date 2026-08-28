@@ -1,4 +1,5 @@
 import '../../core/utils/json.dart';
+import 'book.dart' show AccessState;
 import 'quiz.dart';
 
 enum MockTestStatus { upcoming, live, completed }
@@ -22,6 +23,7 @@ class MockTest {
     required this.scheduledAt,
     required this.status,
     this.quiz,
+    this.access,
     this.participantCount = 0,
     this.joined = false,
     this.submitted = false,
@@ -33,6 +35,12 @@ class MockTest {
   final DateTime scheduledAt;
   final MockTestStatus status;
   final Quiz? quiz;
+
+  /// The server's purchase verdict for the paper behind this test. Both the
+  /// list and the detail route attach it; null only for a payload old enough
+  /// to predate it, which is treated as unlocked rather than as a hard block.
+  final AccessState? access;
+
   final int participantCount;
   final bool joined;
   final bool submitted;
@@ -41,6 +49,16 @@ class MockTest {
   bool get isUpcoming => status == MockTestStatus.upcoming;
   Duration get startsIn => scheduledAt.difference(DateTime.now());
 
+  /// The test is sold rather than free.
+  bool get isPaid => access?.isPaid ?? (quiz?.isPaid ?? false);
+
+  /// A premium test this student has not bought: no questions were sent, and
+  /// join/submit would both be refused, so the UI must show the paywall
+  /// instead of an attempt. Mirrors `isLocked` in `mock-tests/[id]/page.tsx`.
+  bool get isLocked => access != null && !access!.hasAccess;
+
+  double get price => access?.price ?? quiz?.price ?? 0;
+
   factory MockTest.fromJson(Map<String, dynamic> json) => MockTest(
         id: J.str(json['id']),
         title: J.str(json['title']),
@@ -48,6 +66,9 @@ class MockTest {
         scheduledAt: J.date(json['scheduledAt']),
         status: mockStatusFrom(json['status']),
         quiz: json['quiz'] is Map ? Quiz.fromJson(J.map(json['quiz'])) : null,
+        access: json['access'] is Map
+            ? AccessState.fromJson(J.map(json['access']))
+            : null,
         participantCount: J.intVal(json['participantCount']),
         joined: J.boolVal(json['joined']),
         submitted: J.boolVal(json['submitted']),
