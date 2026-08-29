@@ -15,7 +15,9 @@ import 'library_providers.dart';
 /// The study library: YouTube classes and downloadable PDFs, each browsed
 /// Exam → Chapter → item, exactly as on the website.
 class LibraryScreen extends ConsumerStatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({super.key, this.initialIndex = 0});
+
+  final int initialIndex;
 
   @override
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
@@ -23,11 +25,19 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with SingleTickerProviderStateMixin {
-  // Downloads lead and the Library opens on them: they are the only thing here
-  // that works with no connection, and they are what a student who has saved a
-  // book comes back for. With nothing saved the tab is not wasted either — its
-  // empty state explains how to download and links to the catalog.
-  late final TabController _tabs = TabController(length: 3, vsync: this);
+  late final TabController _tabs = TabController(
+    length: 3,
+    vsync: this,
+    initialIndex: widget.initialIndex.clamp(0, 2),
+  );
+
+  @override
+  void didUpdateWidget(covariant LibraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialIndex != widget.initialIndex) {
+      _tabs.animateTo(widget.initialIndex.clamp(0, 2));
+    }
+  }
 
   @override
   void dispose() {

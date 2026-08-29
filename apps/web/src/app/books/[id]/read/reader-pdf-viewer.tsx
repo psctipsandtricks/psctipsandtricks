@@ -446,12 +446,12 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Reader Sticky Header with Page, Sync and Zoom Controls */}
-      <div className="sticky top-16 z-30 flex flex-wrap items-center justify-between gap-2 p-2 sm:p-2.5 rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/90 shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-            <FileText className="w-4 h-4" />
+      <div className="sticky top-[50px] sm:top-[60px] z-20 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/90 shadow-sm mx-1 sm:mx-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 min-w-0">
+          <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
-          <span className="truncate">PDF Notes {numPages ? `(${numPages} pages)` : ''}</span>
+          <span className="truncate text-[11px] sm:text-xs">PDF Notes {numPages ? `(${numPages} pages)` : ''}</span>
           {scale > 1.0 && (
             <span className="hidden lg:inline-block text-[10px] text-slate-400 dark:text-slate-500 font-normal">
               (Drag or scroll horizontally to pan)
@@ -608,11 +608,12 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUpOrLeave}
             onMouseLeave={handleMouseUpOrLeave}
-            className={`w-full max-w-full overflow-x-auto overflow-y-visible pb-6 pt-1 touch-pan-x ${
+            className={`w-full max-w-full overflow-x-auto overflow-y-visible pb-12 pt-1 touch-pan-y ${
               scale > 1.0 ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''
             }`}
             style={{
               WebkitOverflowScrolling: 'touch',
+              touchAction: scale > 1.0 ? 'pan-x pan-y' : 'pan-y',
             }}
           >
             <div

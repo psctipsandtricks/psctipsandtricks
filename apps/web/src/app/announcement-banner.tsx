@@ -104,7 +104,9 @@ export function AnnouncementBanner() {
     return () => clearInterval(timer);
   }, [banners.length, isPaused]);
 
-  if (pathname.startsWith('/admin')) return null;
+  if (pathname.includes('/read') || pathname.startsWith('/admin')) {
+    return null;
+  }
   if (banners.length === 0) return null;
 
   const currentBanner = banners[currentIndex % banners.length];

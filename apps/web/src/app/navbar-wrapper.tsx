@@ -38,7 +38,7 @@ export function NavbarWrapper() {
     });
   }, [router]);
 
-  if (pathname.startsWith('/admin')) {
+  if (pathname.startsWith('/admin') || pathname.includes('/read')) {
     return null;
   }
 

@@ -13,7 +13,7 @@ export function MainWrapper({ children }: { children: React.ReactNode }) {
 
   if (pathname.includes('/read')) {
     return (
-      <main className="flex-1 max-w-[1600px] w-full mx-auto px-2 sm:px-4 lg:px-6 py-4 sm:py-6 relative">
+      <main className="flex-1 w-full max-w-[1700px] mx-auto p-0 sm:px-4 lg:px-6 sm:py-4 relative overflow-x-hidden">
         {children}
       </main>
     );

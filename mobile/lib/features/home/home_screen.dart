@@ -622,8 +622,8 @@ class _ShortcutStrip extends StatefulWidget {
     _Shortcut(Icons.emoji_events_rounded, 'Mock tests', AppColors.amber, AppRoutes.mockTests),
     _Shortcut(Icons.forum_rounded, 'Community', AppColors.indigo, AppRoutes.community),
     _Shortcut(Icons.history_rounded, 'Attempts', AppColors.emerald, AppRoutes.quizHistory),
-    _Shortcut(Icons.smart_display_rounded, 'Videos', AppColors.red, AppRoutes.library),
-    _Shortcut(Icons.picture_as_pdf_rounded, 'PDFs', AppColors.rose, AppRoutes.library),
+    _Shortcut(Icons.smart_display_rounded, 'Videos', AppColors.red, AppRoutes.libraryVideos),
+    _Shortcut(Icons.picture_as_pdf_rounded, 'PDFs', AppColors.rose, AppRoutes.libraryPdfs),
     _Shortcut(Icons.receipt_long_rounded, 'Orders', AppColors.sky, AppRoutes.orders),
   ];
 
@@ -724,14 +724,18 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
   }
 
   void _open() {
-    // These all need a session; bounce through login with a redirect
-    // rather than letting the router reject the push silently.
+    final route = widget.item.route;
+    if (route.startsWith(AppRoutes.library)) {
+      context.go(route);
+      return;
+    }
+
+    // Protected screens require a session; bounce through login if signed out
     final signedIn = ref.read(authControllerProvider).isAuthenticated;
-    final needsAuth = widget.item.route != AppRoutes.library;
     context.push(
-      signedIn || !needsAuth
-          ? widget.item.route
-          : '${AppRoutes.login}?redirect=${Uri.encodeComponent(widget.item.route)}',
+      signedIn
+          ? route
+          : '${AppRoutes.login}?redirect=${Uri.encodeComponent(route)}',
     );
   }
 

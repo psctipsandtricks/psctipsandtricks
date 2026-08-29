@@ -39,6 +39,8 @@ class AppRoutes {
   static const quizzes = '/quizzes';
   static const quizHistory = '/quizzes/history';
   static const library = '/library';
+  static const libraryVideos = '/library?tab=videos';
+  static const libraryPdfs = '/library?tab=pdfs';
   static const account = '/account';
   static const dashboard = '/dashboard';
   static const profile = '/profile';
@@ -156,6 +158,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) =>
             GroupChatScreen(groupId: state.pathParameters['id']!),
       ),
+      GoRoute(
+        path: '/orders',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const OrdersScreen(),
+      ),
+      GoRoute(
+        path: '/profile',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ProfileScreen(),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             ShellScaffold(navigationShell: navigationShell),
@@ -224,7 +236,18 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: AppRoutes.library,
-                builder: (context, state) => const LibraryScreen(),
+                builder: (context, state) {
+                  final tabParam = state.uri.queryParameters['tab'];
+                  final initialIndex = switch (tabParam?.toLowerCase()) {
+                    'videos' || 'video' || '1' => 1,
+                    'pdfs' || 'pdf' || '2' => 2,
+                    _ => 0,
+                  };
+                  return LibraryScreen(
+                    key: ValueKey(initialIndex),
+                    initialIndex: initialIndex,
+                  );
+                },
                 routes: [
                   GoRoute(
                     path: 'videos/:examId',
