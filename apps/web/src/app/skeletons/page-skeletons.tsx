@@ -304,21 +304,27 @@ export function BookDetailSkeleton() {
 
 /**
  * Book Reader Skeleton:
- * Matches the left progress sidebar and the main reading area with PDF and player placeholders.
+ * Mirrors the reader's real geometry — the same sidebar width, the same sticky
+ * offsets, the same card padding — so content landing swaps grey for ink
+ * without anything jumping.
+ *
+ * The offsets matter more than they look: the navbar is hidden on `/read`
+ * (see `navbar-wrapper.tsx`), so both sticky columns start near the top of the
+ * viewport rather than below a header.
  */
 export function BookReaderSkeleton() {
   return (
     <div className="pb-16 w-full animate-in fade-in duration-300">
       <div className="flex flex-col lg:flex-row gap-6 items-start w-full">
-        {/* Left Sidebar Skeleton (w-80) */}
-        <div className="hidden lg:flex flex-col w-80 shrink-0 h-[calc(100vh-6rem)] sticky top-[72px] border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] p-4 space-y-4 shadow-sm">
-          <div className="space-y-2">
+        {/* Left Sidebar — matches ReaderProgressSidebar's desktop panel */}
+        <div className="hidden lg:flex flex-col w-80 xl:w-[21rem] shrink-0 max-h-[calc(100vh-2rem)] sticky top-4 self-start border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden">
+          <div className="p-4 space-y-2 border-b border-slate-200/80 dark:border-[#1e2e56]">
             <Skeleton className="h-5 w-3/4 rounded-lg" />
             <Skeleton className="h-2 w-full rounded-full" />
           </div>
-          <div className="space-y-2.5 flex-1 overflow-hidden">
+          <div className="space-y-2.5 flex-1 px-3 py-3 overflow-hidden">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+              <div key={i} className="p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
                 <Skeleton className="h-4 w-3/4 rounded-md" />
                 <Skeleton className="h-3 w-1/2 rounded-md" />
               </div>
@@ -327,44 +333,87 @@ export function BookReaderSkeleton() {
         </div>
 
         {/* Main Content Column */}
-        <div className="flex-1 min-w-0 w-full space-y-6">
-          {/* Top Sticky Header */}
-          <div className="sticky top-[72px] z-20 px-5 py-3 bg-white/95 dark:bg-[#050a17]/95 backdrop-blur-md border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl shadow-sm flex items-center justify-between">
-            <Skeleton className="h-8 w-24 rounded-lg" />
-            <Skeleton className="h-5 w-48 rounded-md" />
-            <Skeleton className="h-6 w-16 rounded-lg" />
+        <div className="flex-1 min-w-0 w-full space-y-4 sm:space-y-6">
+          {/* Top Sticky Header — back button, topic title, percent, progress bar */}
+          <div className="sticky top-1 sm:top-3 z-30 px-2.5 sm:px-4 py-1.5 sm:py-2 bg-white/95 dark:bg-[#050a17]/95 backdrop-blur-xl border border-slate-200/90 dark:border-[#1e2e56] rounded-2xl shadow-md">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-3">
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <Skeleton className="h-8 w-8 sm:w-20 rounded-xl" />
+                <Skeleton className="h-7 w-14 rounded-lg" />
+              </div>
+              <div className="min-w-0 flex-1 flex flex-col items-center gap-1 px-1 sm:px-2">
+                <Skeleton className="hidden sm:block h-3 w-40 rounded-md" />
+                <Skeleton className="h-4 w-56 max-w-full rounded-md" />
+              </div>
+              <Skeleton className="h-5 w-11 rounded-lg shrink-0" />
+            </div>
+            <div className="mt-1 sm:mt-1.5 h-1 rounded-full bg-slate-200 dark:bg-slate-800" />
           </div>
 
           {/* Book Title Banner */}
-          <div className="flex items-center gap-4 p-4 rounded-2xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] shadow-xs">
-            <Skeleton className="w-28 h-18 rounded-xl shrink-0" />
+          <div className="flex items-center gap-3.5 p-4 rounded-2xl border border-slate-200/80 dark:border-[#1e2e56] bg-gradient-to-r from-slate-50 via-white to-slate-50 dark:from-[#0c152e] dark:via-[#091124] dark:to-[#0c152e] shadow-xs">
+            <Skeleton className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl shrink-0" />
             <div className="space-y-2 flex-1 min-w-0">
-              <Skeleton className="h-4 w-24 rounded-md" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-24 rounded-md" />
+                <Skeleton className="h-3 w-28 rounded-md" />
+              </div>
               <Skeleton className="h-6 w-3/4 rounded-lg" />
             </div>
           </div>
 
-          {/* Active Unit Section */}
-          <div className="rounded-2xl border border-cyan-500/30 bg-white dark:bg-[#091124] p-6 space-y-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-2 flex-1">
-                <Skeleton className="h-6 w-2/3 rounded-lg" />
-                <Skeleton className="h-4 w-1/2 rounded-md" />
+          {/* Chapter Header */}
+          <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-2.5 shrink-0">
+              <Skeleton className="w-8 h-8 rounded-xl" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-2.5 w-20 rounded-md" />
+                <Skeleton className="h-4 w-40 rounded-md" />
               </div>
-              <Skeleton className="h-6 w-24 rounded-lg" />
+            </div>
+            <div className="flex-1 h-px bg-gradient-to-r from-slate-200 dark:from-[#1e2e56] to-transparent" />
+          </div>
+
+          {/* Active Unit Card */}
+          <div className="rounded-2xl border border-cyan-500/40 bg-white dark:bg-[#091124] p-4 sm:p-6 space-y-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                <Skeleton className="mt-0.5 w-6 h-6 rounded-lg shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-6 w-2/3 rounded-lg" />
+                  <Skeleton className="h-4 w-1/2 rounded-md" />
+                </div>
+              </div>
+              <Skeleton className="h-6 w-24 rounded-lg shrink-0" />
             </div>
 
-            {/* Audio Player Card Skeleton */}
-            <Skeleton className="h-14 w-full rounded-xl" />
+            <div className="space-y-5 pt-2">
+              {/* Audio Player */}
+              <Skeleton className="h-14 w-full rounded-xl" />
 
-            {/* PDF Notes Viewer Skeleton */}
-            <div className="rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50 dark:bg-[#070e22] h-[520px] flex flex-col items-center justify-center p-8 space-y-4">
-              <Skeleton className="w-12 h-12 rounded-2xl" />
-              <Skeleton className="h-5 w-48 rounded-lg" />
-              <div className="w-full max-w-md space-y-2">
-                <Skeleton className="h-3 w-full rounded-md" />
-                <Skeleton className="h-3 w-4/5 rounded-md" />
-                <Skeleton className="h-3 w-3/5 rounded-md" />
+              {/* PDF Notes: the controls bar, then the page itself */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2 p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 dark:border-slate-800/90 bg-white dark:bg-[#070e22] shadow-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Skeleton className="hidden sm:block w-7 h-7 rounded-lg shrink-0" />
+                    <Skeleton className="hidden sm:block h-3.5 w-20 rounded-md" />
+                    <Skeleton className="h-8 w-28 rounded-xl shrink-0" />
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Skeleton className="h-8 w-20 rounded-xl" />
+                    <Skeleton className="h-8 w-28 rounded-xl" />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50 dark:bg-[#070e22] h-[520px] flex flex-col items-center justify-center p-8 space-y-4">
+                  <Skeleton className="w-12 h-12 rounded-2xl" />
+                  <Skeleton className="h-5 w-48 rounded-lg" />
+                  <div className="w-full max-w-md space-y-2">
+                    <Skeleton className="h-3 w-full rounded-md" />
+                    <Skeleton className="h-3 w-4/5 rounded-md" />
+                    <Skeleton className="h-3 w-3/5 rounded-md" />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

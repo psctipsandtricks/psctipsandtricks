@@ -119,12 +119,8 @@ const LazyPdfPage = memo(function LazyPdfPage({
       onContextMenu={(e) => e.preventDefault()}
       onDragStart={(e) => e.preventDefault()}
     >
-      {/* Forensic Anti-Leak Watermark Layer on EVERY page */}
-      <ReaderWatermarkOverlay
-        userName={user?.name}
-        userId={user?.id}
-        userIdentifier={user?.email || user?.phone}
-      />
+      {/* Brand watermark on every page. */}
+      <ReaderWatermarkOverlay />
 
       {isVisible ? (
         <Page
@@ -449,8 +445,22 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
       className="space-y-4 select-none print:hidden scroll-mt-24 w-full"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Reader PDF Controls Header: clean inline header above PDF content */}
-      <div className="relative mb-3.5 flex items-center justify-between gap-1.5 sm:gap-2 p-2 sm:p-2.5 rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 shadow-sm mx-0">
+      {/* Reader PDF Controls Header: clean inline header above PDF content.
+
+          Sticky from `lg` up, parked just under the page's own sticky header
+          via the offset that header publishes. Page number and zoom are only
+          useful while you can see the page they act on, and a 22-page document
+          scrolls them far out of reach. Left static on phones and tablets,
+          where a second permanent bar would cost more of the short viewport
+          than it returns.
+
+          Stickiness lives inside the viewer's own box, so the bar is released
+          once the document has scrolled past rather than following on into the
+          next topic. */}
+      <div
+        className="relative mb-3.5 lg:sticky lg:z-20 flex items-center justify-between gap-1.5 sm:gap-2 p-2 sm:p-2.5 rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 shadow-sm mx-0"
+        style={{ top: 'var(--reader-sticky-top, 0.75rem)' }}
+      >
         {/* Left: Notes badge (desktop) + Page Nav (all) */}
         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
           <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 shrink-0">

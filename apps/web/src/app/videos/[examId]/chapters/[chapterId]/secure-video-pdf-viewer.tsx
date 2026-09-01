@@ -72,12 +72,8 @@ const LazyVideoPdfPage = memo(function LazyVideoPdfPage({
         minHeight: isVisible ? undefined : estimatedHeight,
       }}
     >
-      {/* Centered Watermark Overlay on EVERY PDF Page */}
-      <ReaderWatermarkOverlay
-        userName={user?.name || 'Student'}
-        userId={user?.id || 'STUDENT'}
-        userIdentifier={user?.email || user?.phone || undefined}
-      />
+      {/* Brand watermark on every page. */}
+      <ReaderWatermarkOverlay />
 
       {isVisible ? (
         <Page
