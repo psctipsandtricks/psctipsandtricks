@@ -78,6 +78,90 @@ const normalizeRedirectUrl = (raw?: string | null): string | null => {
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 };
 
+/**
+ * A still of the popup students actually get, for the admin preview.
+ *
+ * Kept deliberately close to `announcement-popup.tsx` — same shape, same
+ * accent handling — so what an editor approves here is what ships. It renders
+ * nothing interactive: the buttons are for looking at.
+ */
+function PopupPreviewCard({ item, compact = false }: { item: AnnouncementPopup; compact?: boolean }) {
+  const accent = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test((item.backgroundColor ?? '').trim())
+    ? item.backgroundColor!.trim()
+    : '#f59e0b';
+  const title = item.title && item.title !== 'Global Banner' ? item.title : '';
+  const actionLabel = item.redirectUrl?.trim() ? item.buttonText?.trim() || 'Open' : null;
+
+  return (
+    <div
+      className={`relative w-full ${compact ? 'max-w-[260px]' : 'max-w-md'} overflow-hidden rounded-3xl border border-slate-200/90 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-2xl`}
+    >
+      {item.imageUrl && (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={item.imageUrl}
+          alt="Announcement"
+          className={`w-full object-cover ${compact ? 'h-24' : 'h-40'}`}
+        />
+      )}
+
+      <span
+        className={`absolute top-3 right-3 rounded-full flex items-center justify-center ${
+          compact ? 'w-7 h-7' : 'w-9 h-9'
+        } ${
+          item.imageUrl
+            ? 'bg-slate-950/50 text-white'
+            : 'bg-slate-100 dark:bg-[#111c3a] text-slate-500 dark:text-slate-300'
+        }`}
+      >
+        <X className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+      </span>
+
+      <div className={`${compact ? 'p-4' : 'p-6'} ${item.imageUrl ? '' : compact ? 'pt-9' : 'pt-12'}`}>
+        <span
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border"
+          style={{ color: accent, backgroundColor: `${accent}1f`, borderColor: `${accent}59` }}
+        >
+          <Megaphone className="w-3 h-3" />
+          Announcement
+        </span>
+
+        {title && (
+          <h4
+            className={`mt-3 font-black leading-snug text-slate-950 dark:text-white ${
+              compact ? 'text-sm' : 'text-lg'
+            }`}
+          >
+            {title}
+          </h4>
+        )}
+
+        {item.message?.trim() && (
+          <p
+            className={`mt-2 leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-4 ${
+              compact ? 'text-[11px]' : 'text-sm'
+            }`}
+          >
+            {item.message}
+          </p>
+        )}
+
+        {actionLabel && (
+          <span
+            style={{ backgroundColor: accent }}
+            className={`mt-5 w-full inline-flex items-center justify-center gap-2 rounded-2xl font-extrabold text-slate-950 shadow-lg ${
+              compact ? 'px-3 py-2 text-[11px]' : 'px-5 py-3 text-sm'
+            }`}
+          >
+            <span className="truncate">{actionLabel}</span>
+            <ArrowRight className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function isDarkColor(colorOrGradient?: string | null): boolean {
   if (!colorOrGradient) return false;
   const trimmed = colorOrGradient.trim();
@@ -190,6 +274,7 @@ export default function AdminAnnouncementsPage() {
 
   const loadAnnouncements = async () => {
     try {
+      setLoading(true);
       const list = await ApiClient.listAnnouncements();
       setAnnouncements(list || []);
     } catch (err: any) {
@@ -382,7 +467,6 @@ export default function AdminAnnouncementsPage() {
 
   const activeCount = announcements.filter((a) => a.isActive).length;
   const modalIsDark = isDarkColor(backgroundColor);
-  const previewIsDark = selectedPreviewBanner ? isDarkColor(selectedPreviewBanner.backgroundColor) : false;
 
   const filteredAnnouncements = announcements.filter((item) => {
     if (!searchTerm.trim()) return true;
@@ -715,7 +799,7 @@ export default function AdminAnnouncementsPage() {
                               size="sm"
                               className="p-1.5 h-7 w-7 text-slate-400 hover:text-cyan-400 cursor-pointer"
                               onClick={() => setSelectedPreviewBanner(item)}
-                              title="Preview Banner Modal"
+                              title="Preview announcement popup"
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
@@ -883,7 +967,7 @@ export default function AdminAnnouncementsPage() {
                         type="button"
                         onClick={() => setSelectedPreviewBanner(item)}
                         className="p-2 rounded-xl bg-slate-100 dark:bg-[#142247] hover:text-cyan-400 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-                        title="Preview Banner Modal"
+                        title="Preview announcement popup"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -935,7 +1019,7 @@ export default function AdminAnnouncementsPage() {
         )}
       </Card>
 
-      {/* ── LIVE STUDENT BANNER PREVIEW MODAL ───────────────────────── */}
+      {/* ── LIVE STUDENT POPUP PREVIEW MODAL ────────────────────────── */}
       {selectedPreviewBanner && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200 !mt-0">
           <div
@@ -948,11 +1032,11 @@ export default function AdminAnnouncementsPage() {
                 <div className="flex items-center gap-2 text-cyan-600 dark:text-cyan-400">
                   <Sparkles className="w-5 h-5 text-cyan-500" />
                   <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
-                    Live Student Banner Preview
+                    Live Student Popup Preview
                   </h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Realistic real-time preview of how this announcement appears to students on Desktop and Mobile.
+                  How this announcement appears to students when they open the site or the app.
                 </p>
               </div>
 
@@ -1012,105 +1096,18 @@ export default function AdminAnnouncementsPage() {
                     </div>
                   </div>
 
-                  {/* Desktop Banner Display */}
-                  <div
-                    style={{
-                      background: selectedPreviewBanner.backgroundColor?.trim() || undefined,
-                    }}
-                    className={`relative p-3.5 sm:px-6 sm:py-3 transition-all border-b shadow-sm ${
-                      !selectedPreviewBanner.backgroundColor
-                        ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-400 text-slate-950 border-amber-600/30'
-                        : previewIsDark
-                        ? 'text-white border-white/10'
-                        : 'text-slate-950 border-slate-950/10'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-4 pr-10">
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        {selectedPreviewBanner.imageUrl ? (
-                          <div
-                            className={`w-11 h-11 rounded-xl overflow-hidden shadow-xs shrink-0 border ${
-                              previewIsDark ? 'border-white/20 bg-white/10' : 'border-slate-950/15 bg-slate-950/10'
-                            }`}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={selectedPreviewBanner.imageUrl}
-                              alt="Preview"
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div
-                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                              previewIsDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
-                            }`}
-                          >
-                            <Megaphone className="w-4 h-4" />
-                          </div>
-                        )}
-
-                        <div className="min-w-0 flex-1">
-                          {selectedPreviewBanner.title && selectedPreviewBanner.title !== 'Global Banner' && (
-                            <p
-                              className={`text-sm font-black leading-tight tracking-tight line-clamp-1 ${
-                                previewIsDark ? 'text-white' : 'text-slate-950'
-                              }`}
-                            >
-                              {selectedPreviewBanner.title}
-                            </p>
-                          )}
-                          <p
-                            className={`text-xs font-semibold leading-snug line-clamp-2 ${
-                              previewIsDark ? 'text-slate-200' : 'text-slate-900/90'
-                            }`}
-                          >
-                            {selectedPreviewBanner.message}
-                          </p>
-                        </div>
-                      </div>
-
-                      {selectedPreviewBanner.redirectUrl && (
-                        <div className="shrink-0 flex items-center">
-                          {selectedPreviewBanner.buttonText?.trim() ? (
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-extrabold shadow-sm transition-all ${
-                                previewIsDark
-                                  ? 'bg-white text-slate-950'
-                                  : 'bg-slate-950 text-amber-300'
-                              }`}
-                            >
-                              <span>{selectedPreviewBanner.buttonText.trim()}</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </span>
-                          ) : (
-                            <span
-                              className={`w-8 h-8 rounded-full inline-flex items-center justify-center shadow-md transition-all ${
-                                previewIsDark
-                                  ? 'bg-white text-slate-950'
-                                  : 'bg-slate-950 text-amber-300'
-                              }`}
-                            >
-                              <ArrowRight className="w-4 h-4" />
-                            </span>
-                          )}
-                        </div>
-                      )}
+                  {/* The page the popup lands on, blurred and dimmed the
+                      way the real scrim treats it. */}
+                  <div className="relative min-h-[300px]">
+                    <div className="p-5 space-y-2.5 opacity-40 blur-[2px] pointer-events-none">
+                      <div className="h-3.5 bg-slate-300 dark:bg-slate-700 rounded-md w-1/4" />
+                      <div className="h-14 bg-slate-300/60 dark:bg-slate-800 rounded-xl w-full" />
+                      <div className="h-14 bg-slate-300/60 dark:bg-slate-800 rounded-xl w-full" />
+                      <div className="h-14 bg-slate-300/60 dark:bg-slate-800 rounded-xl w-full" />
                     </div>
-
-                    <div
-                      className={`absolute right-3 top-1/2 -translate-y-1/2 ${
-                        previewIsDark ? 'text-white/60' : 'text-slate-950/60'
-                      }`}
-                    >
-                      <X className="w-4 h-4" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-5">
+                      <PopupPreviewCard item={selectedPreviewBanner} />
                     </div>
-                  </div>
-
-                  {/* Browser Mock Content Skeleton */}
-                  <div className="p-5 space-y-2.5 opacity-25 pointer-events-none">
-                    <div className="h-3.5 bg-slate-300 dark:bg-slate-700 rounded-md w-1/4" />
-                    <div className="h-14 bg-slate-300/60 dark:bg-slate-800 rounded-xl w-full" />
                   </div>
                 </div>
               ) : (
@@ -1126,113 +1123,25 @@ export default function AdminAnnouncementsPage() {
                     </div>
                   </div>
 
-                  {/* Mobile Announcement Card */}
-                  <div
-                    style={{
-                      background: selectedPreviewBanner.backgroundColor?.trim() || undefined,
-                    }}
-                    className={`relative rounded-2xl overflow-hidden shadow-lg p-3.5 border transition-all ${
-                      !selectedPreviewBanner.backgroundColor
-                        ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-400 text-slate-950 border-amber-600/30'
-                        : previewIsDark
-                        ? 'text-white border-white/10'
-                        : 'text-slate-950 border-slate-950/10'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2.5 pr-6">
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        {selectedPreviewBanner.imageUrl ? (
-                          <div
-                            className={`w-10 h-10 rounded-xl overflow-hidden shadow-xs shrink-0 border ${
-                              previewIsDark ? 'border-white/20 bg-white/10' : 'border-slate-950/15 bg-slate-950/10'
-                            }`}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={selectedPreviewBanner.imageUrl}
-                              alt="Preview"
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div
-                            className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                              previewIsDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
-                            }`}
-                          >
-                            <Megaphone className="w-4 h-4" />
-                          </div>
-                        )}
-
-                        <div className="min-w-0 flex-1">
-                          {selectedPreviewBanner.title && selectedPreviewBanner.title !== 'Global Banner' && (
-                            <p
-                              className={`text-xs font-black leading-tight tracking-tight line-clamp-1 ${
-                                previewIsDark ? 'text-white' : 'text-slate-950'
-                              }`}
-                            >
-                              {selectedPreviewBanner.title}
-                            </p>
-                          )}
-                          <p
-                            className={`text-[11px] font-semibold leading-snug line-clamp-2 ${
-                              previewIsDark ? 'text-slate-200' : 'text-slate-900/90'
-                            }`}
-                          >
-                            {selectedPreviewBanner.message}
-                          </p>
-                        </div>
+                  {/* Mobile Announcement Popup */}
+                  <div className="relative min-h-[420px]">
+                    <div className="space-y-2 px-1 pt-1 opacity-40 blur-[2px] pointer-events-none">
+                      <div className="h-3 bg-slate-300 dark:bg-slate-700 rounded-md w-1/2" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
+                        <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
+                        <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
+                        <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
                       </div>
-
-                      {selectedPreviewBanner.redirectUrl && (
-                        <div className="shrink-0">
-                          {selectedPreviewBanner.buttonText?.trim() ? (
-                            <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold shadow-sm ${
-                                previewIsDark
-                                  ? 'bg-white text-slate-950'
-                                  : 'bg-slate-950 text-amber-300'
-                              }`}
-                            >
-                              <span>{selectedPreviewBanner.buttonText.trim()}</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </span>
-                          ) : (
-                            <span
-                              className={`w-7 h-7 rounded-full inline-flex items-center justify-center shadow-md ${
-                                previewIsDark
-                                  ? 'bg-white text-slate-950'
-                                  : 'bg-slate-950 text-amber-300'
-                              }`}
-                            >
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </span>
-                          )}
-                        </div>
-                      )}
                     </div>
-
-                    <div
-                      className={`absolute right-2 top-2 ${
-                        previewIsDark ? 'text-white/60' : 'text-slate-950/60'
-                      }`}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </div>
-                  </div>
-
-                  {/* Mobile Skeleton Items */}
-                  <div className="space-y-2 px-1 pt-1 opacity-20 pointer-events-none">
-                    <div className="h-3 bg-slate-300 dark:bg-slate-700 rounded-md w-1/2" />
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
-                      <div className="h-14 bg-slate-300 dark:bg-slate-800 rounded-xl" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-3">
+                      <PopupPreviewCard item={selectedPreviewBanner} compact />
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Banner Details Info Cards */}
+              {/* Announcement Details Info Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
                 <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#111c3a] border border-slate-200/80 dark:border-slate-800 flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
@@ -1241,7 +1150,7 @@ export default function AdminAnnouncementsPage() {
                     <CheckCircle2 className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="block text-[10px] font-bold text-slate-400 uppercase">Banner Status</span>
+                    <span className="block text-[10px] font-bold text-slate-400 uppercase">Announcement Status</span>
                     <span className="font-extrabold text-slate-900 dark:text-white mt-0.5 block">
                       {selectedPreviewBanner.isActive ? (
                         <span className="text-emerald-600 dark:text-emerald-400">● Active (Live)</span>

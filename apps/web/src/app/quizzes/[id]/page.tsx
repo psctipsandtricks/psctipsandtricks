@@ -72,6 +72,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [timeLeft, setTimeLeft] = useState(900);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [attemptNumber, setAttemptNumber] = useState<number>(1);
@@ -175,17 +176,17 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   }, [params.id, user, reloadKey]);
 
   useEffect(() => {
-    if (isSubmitted || timeLeft <= 0 || loading || !user) return;
+    if (isSubmitted || isSubmitting || timeLeft <= 0 || loading || !user) return;
     const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearInterval(timer);
-  }, [timeLeft, isSubmitted, loading, user]);
+  }, [timeLeft, isSubmitted, isSubmitting, loading, user]);
 
   // Track exactly where the student is so a Resume click can land back here.
   useEffect(() => {
-    if (!attemptId || isSubmitted || loading) return;
+    if (!attemptId || isSubmitted || isSubmitting || loading) return;
     const progress: SavedQuizProgress = { attemptId, currentIndex, selectedAnswers };
     localStorage.setItem(progressStorageKey(params.id), JSON.stringify(progress));
-  }, [attemptId, currentIndex, selectedAnswers, isSubmitted, loading, params.id]);
+  }, [attemptId, currentIndex, selectedAnswers, isSubmitted, isSubmitting, loading, params.id]);
 
   if (loading || authLoading || !user) {
     return <QuizTakingSkeleton />;
@@ -229,7 +230,10 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     setSelectedAnswers((prev) => ({ ...prev, [currentQ.id]: optIndex }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (isSubmitting || isSubmitted) return;
+    setIsSubmitting(true);
+
     let positiveMarks = 0;
     let correct = 0;
     let wrong = 0;
@@ -269,7 +273,9 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     const takenSec = elapsedSeconds % 60;
     const timeTakenFormatted = `${takenMin}m ${takenSec.toString().padStart(2, '0')}s`;
 
-    // 1. Immediately open result modal for instant UI responsiveness
+    // Computed locally only as an offline fallback — the result page the
+    // student lands on reads the server's scoring, which is the same logic the
+    // mobile app renders from.
     setResult({
       score: finalScore,
       positiveMarks,
@@ -285,21 +291,33 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
       timeTakenFormatted,
       attemptNumber,
     });
-    setIsSubmitted(true);
     localStorage.removeItem(progressStorageKey(params.id));
 
-    // 2. Persist attempt asynchronously to backend in background
-    ApiClient.submitQuizAttempt(
-      params.id,
-      {
-        quizId: params.id,
-        answers: answerPayload,
-        timeTakenSeconds: elapsedSeconds,
-      },
-      attemptId || undefined
-    ).catch((err) => {
-      console.warn('API quiz submission error (saved locally):', err);
-    });
+    try {
+      const saved = await ApiClient.submitQuizAttempt(
+        params.id,
+        {
+          quizId: params.id,
+          answers: answerPayload,
+          timeTakenSeconds: elapsedSeconds,
+        },
+        attemptId || undefined
+      );
+      if (saved?.id) {
+        // `replace`, so Back from the review lands on the quiz hub rather than
+        // re-opening the attempt the student just finished.
+        router.replace(`/quizzes/attempts/${saved.id}`);
+        return;
+      }
+      setIsSubmitted(true);
+    } catch (err) {
+      // The attempt could not be persisted — fall back to the locally scored
+      // summary so the student still sees how they did.
+      console.warn('API quiz submission error (showing local summary):', err);
+      setIsSubmitted(true);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCloseModal = () => {
@@ -367,10 +385,12 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
             variant="gold"
             size="sm"
             onClick={handleSubmit}
+            isLoading={isSubmitting}
+            disabled={isSubmitting}
             className="font-bold flex items-center space-x-1 py-1.5 px-3 text-xs shadow-sm cursor-pointer shrink-0"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Submit</span>
+            <span>{isSubmitting ? 'Submitting…' : 'Submit'}</span>
           </Button>
         </div>
       </div>
@@ -500,9 +520,15 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
           </Button>
 
           {currentIndex === questions.length - 1 ? (
-            <Button variant="gold" className="font-bold flex items-center space-x-2" onClick={handleSubmit}>
+            <Button
+              variant="gold"
+              className="font-bold flex items-center space-x-2"
+              onClick={handleSubmit}
+              isLoading={isSubmitting}
+              disabled={isSubmitting}
+            >
               <Send className="w-4 h-4" />
-              <span>Submit Quiz</span>
+              <span>{isSubmitting ? 'Submitting…' : 'Submit Quiz'}</span>
             </Button>
           ) : (
             <Button variant="gold" className="flex items-center space-x-2" onClick={() => setCurrentIndex((i) => i + 1)}>

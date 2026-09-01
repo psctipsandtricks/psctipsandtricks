@@ -428,11 +428,15 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
     [containerWidth]
   );
 
+  // Served from public/ by scripts/copy-pdf-worker.js, so these always match
+  // the installed pdfjs-dist. They were previously pinned to a CDN copy of
+  // 3.11.174 while the engine moved on to 5.x — a mismatch that drops glyphs
+  // (Malayalam among them) rather than raising an error.
   const documentOptions = useMemo(
     () => ({
-      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapUrl: '/pdfjs/cmaps/',
       cMapPacked: true,
-      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+      standardFontDataUrl: '/pdfjs/standard_fonts/',
     }),
     []
   );
@@ -445,129 +449,114 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
       className="space-y-4 select-none print:hidden scroll-mt-24 w-full"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Reader Sticky Header with Page, Sync and Zoom Controls */}
-      <div className="sticky top-[50px] sm:top-[60px] z-20 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/90 shadow-sm mx-1 sm:mx-0">
-        <div className="flex items-center gap-1.5 sm:gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 min-w-0">
-          <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-            <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+      {/* Reader PDF Controls Header: clean inline header above PDF content */}
+      <div className="relative mb-3.5 flex items-center justify-between gap-1.5 sm:gap-2 p-2 sm:p-2.5 rounded-2xl bg-white/95 dark:bg-[#070e22]/95 backdrop-blur-xl border border-slate-200/90 dark:border-slate-800/90 shadow-sm mx-0">
+        {/* Left: Notes badge (desktop) + Page Nav (all) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200 shrink-0">
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </div>
+            <span className="truncate text-[11px] sm:text-xs">Notes {numPages ? `(${numPages}p)` : ''}</span>
           </div>
-          <span className="truncate text-[11px] sm:text-xs">PDF Notes {numPages ? `(${numPages} pages)` : ''}</span>
-          {scale > 1.0 && (
-            <span className="hidden lg:inline-block text-[10px] text-slate-400 dark:text-slate-500 font-normal">
-              (Drag or scroll horizontally to pan)
-            </span>
-          )}
-        </div>
 
-        {/* PDF Back / Page / Forward — moves pages without disturbing audio */}
-        <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
-          <button
-            type="button"
-            onClick={() => goToRelativePage(-1)}
-            disabled={!canGoBack}
-            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer shadow-xs"
-            title="PDF Back — previous page (audio keeps playing)"
-            aria-label="Previous PDF page"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <span className="px-1.5 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 tabular-nums whitespace-nowrap min-w-[54px] text-center">
-            {currentPage} / {numPages || '—'}
-          </span>
-          <button
-            type="button"
-            onClick={() => goToRelativePage(1)}
-            disabled={!canGoForward}
-            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer shadow-xs"
-            title="PDF Forward — next page (audio keeps playing)"
-            aria-label="Next PDF page"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Sync state: Auto-Scroll switch + explicit re-follow */}
-        <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
-          <button
-            type="button"
-            onClick={() => onAutoScrollChange?.(!autoScrollEnabled)}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-black transition-all cursor-pointer shadow-xs ${
-              autoScrollEnabled
-                ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30'
-                : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-transparent'
-            }`}
-            title={
-              autoScrollEnabled
-                ? 'Auto-Scroll is ON — PDF follows the audio cues. Click to take full manual control.'
-                : 'Auto-Scroll is OFF — you control PDF pages manually. Click to follow the audio again.'
-            }
-            aria-pressed={autoScrollEnabled}
-          >
-            {autoScrollEnabled ? <Link2 className="w-3.5 h-3.5" /> : <Link2Off className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">Auto-Scroll {autoScrollEnabled ? 'ON' : 'OFF'}</span>
-            <span className="sm:hidden">{autoScrollEnabled ? 'ON' : 'OFF'}</span>
-          </button>
-
-          {/*
-            Only meaningful while sync is available but latched off by a manual
-            page choice — this is the "explicitly choose to sync" affordance.
-          */}
-          {autoScrollEnabled && manualLatched && (
+          {/* PDF Back / Page / Forward — moves pages without disturbing audio */}
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-0.5 sm:p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
             <button
               type="button"
-              onClick={() => onManualLatchChange?.(false)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-all cursor-pointer shadow-xs animate-in fade-in duration-200"
-              title="Jump the PDF back to the page the audio is currently on"
+              onClick={() => goToRelativePage(-1)}
+              disabled={!canGoBack}
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
+              title="Previous PDF page"
+              aria-label="Previous PDF page"
             >
-              <Crosshair className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Follow audio</span>
+              <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-          )}
+            <span className="px-1 sm:px-1.5 text-[10px] sm:text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 tabular-nums whitespace-nowrap min-w-[48px] sm:min-w-[54px] text-center">
+              {currentPage} / {numPages || '—'}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToRelativePage(1)}
+              disabled={!canGoForward}
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
+              title="Next PDF page"
+              aria-label="Next PDF page"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Zoom Controls Pill */}
-        <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
-          <button
-            type="button"
-            onClick={handleZoomOut}
-            disabled={scale <= 0.6}
-            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer shadow-xs"
-            title="Zoom out (–)"
-            aria-label="Zoom out"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
+        {/* Right side: Auto-scroll & Zoom in single line */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* Sync state: Auto-Scroll switch + explicit re-follow */}
+          <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-0.5 sm:p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
+            <button
+              type="button"
+              onClick={() => onAutoScrollChange?.(!autoScrollEnabled)}
+              className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-black transition-all cursor-pointer shadow-xs ${
+                autoScrollEnabled
+                  ? 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30'
+                  : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-transparent'
+              }`}
+              title={
+                autoScrollEnabled
+                  ? 'Auto-Scroll is ON — PDF follows the audio cues. Click to turn OFF.'
+                  : 'Auto-Scroll is OFF — click to follow audio again.'
+              }
+              aria-pressed={autoScrollEnabled}
+            >
+              {autoScrollEnabled ? <Link2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Link2Off className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+              <span>Auto {autoScrollEnabled ? 'ON' : 'OFF'}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleResetZoom}
-            className="px-2 py-0.5 text-xs font-mono font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-all cursor-pointer min-w-[50px] text-center shadow-xs"
-            title="Reset to 100% width"
-          >
-            {Math.round(scale * 100)}%
-          </button>
+            {autoScrollEnabled && manualLatched && (
+              <button
+                type="button"
+                onClick={() => onManualLatchChange?.(false)}
+                className="flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-all cursor-pointer shadow-xs animate-in fade-in duration-200"
+                title="Jump the PDF back to current audio page"
+              >
+                <Crosshair className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span className="hidden sm:inline">Sync</span>
+              </button>
+            )}
+          </div>
 
-          <button
-            type="button"
-            onClick={handleZoomIn}
-            disabled={scale >= 2.5}
-            className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer shadow-xs"
-            title="Zoom in (+)"
-            aria-label="Zoom in"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
+          {/* Zoom Controls Pill */}
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-0.5 sm:p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              disabled={scale <= 0.6}
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
+              title="Zoom out"
+              aria-label="Zoom out"
+            >
+              <ZoomOut className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+            </button>
 
-          {scale !== 1.0 && (
             <button
               type="button"
               onClick={handleResetZoom}
-              className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-cyan-600 dark:text-cyan-400 transition-all cursor-pointer"
-              title="Reset Zoom (Fit Width)"
+              className="px-1 sm:px-2 py-0.5 text-[10px] sm:text-xs font-mono font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-all cursor-pointer min-w-[40px] sm:min-w-[48px] text-center"
+              title="Reset to 100% width"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              {Math.round(scale * 100)}%
             </button>
-          )}
+
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              disabled={scale >= 2.5}
+              className="p-1 sm:p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
+              title="Zoom in"
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 

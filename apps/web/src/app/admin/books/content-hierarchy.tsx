@@ -197,7 +197,7 @@ export function ContentHierarchyPage({
         setAudioFile(null);
         setPdfFile(null);
         setEditingItem(null);
-        await load(true);
+        await load();
       } catch (err: any) {
         setPageError(err.message || `Failed to save ${nounSingular.toLowerCase()}.`);
       } finally {
@@ -235,7 +235,7 @@ export function ContentHierarchyPage({
     setDeleteTarget(null);
     try {
       await deleteItem(id);
-      await load(true);
+      await load();
     } catch (err: any) {
       setItems(previous);
       setPageError(err.message || `Failed to delete ${nounSingular.toLowerCase()}.`);

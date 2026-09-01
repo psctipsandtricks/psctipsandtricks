@@ -134,6 +134,12 @@ class Book {
   /// Added recently enough to be worth flagging on a card.
   bool get isNew => isRecent(createdAt);
 
+  /// The lapse date on the student's *own* entitlement, or null when there is
+  /// nothing to lapse. Note this is absent for a book merely sold as a
+  /// subscription: the API only attaches one once the book has been bought,
+  /// since until then there is no date to show.
+  SubscriptionAccess? get subscription => access?.subscription;
+
   bool get isFree => finalPrice <= 0;
   bool get hasDiscount => discountPercent > 0 && finalPrice < price;
   bool get isUnlocked => access?.hasAccess ?? !isPremium;

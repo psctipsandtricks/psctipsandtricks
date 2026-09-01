@@ -701,7 +701,7 @@ export default function AdminFolderQuizzesPage() {
 
           await ApiClient.updateQuiz(editingQuizId, apiPayload);
           await syncLiveMockTest(editingQuizId, values);
-          await Promise.all([fetchQuizzes(true), fetchMockTests()]);
+          await Promise.all([fetchQuizzes(), fetchMockTests()]);
         } else {
           setIsDialogOpen(false);
           createdOrUpdated = await ApiClient.createQuiz(apiPayload);
@@ -709,7 +709,7 @@ export default function AdminFolderQuizzesPage() {
             await syncLiveMockTest(createdOrUpdated.id, values);
             router.push(`/admin/quizzes/${createdOrUpdated.id}/questions`);
           } else {
-            await Promise.all([fetchQuizzes(true), fetchMockTests()]);
+            await Promise.all([fetchQuizzes(), fetchMockTests()]);
           }
         }
       } catch (err: any) {
@@ -830,7 +830,7 @@ export default function AdminFolderQuizzesPage() {
     setToastMsg({ type: 'success', text: 'Quiz deleted successfully.' });
     try {
       await ApiClient.deleteQuiz(id);
-      fetchQuizzes(true);
+      await fetchQuizzes();
     } catch (err: any) {
       setQuizzes(previous);
       setTotalCount(previousTotal);

@@ -104,6 +104,7 @@ export default function AdminMockTestsPage() {
 
   const loadData = useCallback(async () => {
     try {
+      setLoading(true);
       const [mockTestData, quizData] = await Promise.all([
         ApiClient.getMockTests(),
         ApiClient.getQuizzes(),
@@ -180,7 +181,7 @@ export default function AdminMockTestsPage() {
     try {
       setDeletingId(mockTest.id);
       await ApiClient.deleteMockTest(mockTest.id);
-      setMockTests((prev) => prev.filter((mt) => mt.id !== mockTest.id));
+      await loadData();
     } catch (err) {
       console.error('Failed to delete mock test:', err);
     } finally {

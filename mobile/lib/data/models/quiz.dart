@@ -111,9 +111,13 @@ class Quiz {
     this.category,
     this.topic,
     this.folderName,
+    this.accessType,
+    this.imageUrl,
     this.access,
     this.questions = const [],
     this.createdAt,
+    this.releaseDate,
+    this.isActive = true,
   });
 
   final String id;
@@ -121,6 +125,8 @@ class Quiz {
   final String? category;
   final String? topic;
   final String? folderName;
+  final String? accessType;
+  final String? imageUrl;
   final int totalQuestions;
   final int durationMinutes;
   final bool isLiveMock;
@@ -133,11 +139,14 @@ class Quiz {
   final AccessState? access;
   final List<Question> questions;
   final DateTime? createdAt;
+  final DateTime? releaseDate;
+  final bool isActive;
 
   bool get isLocked => access != null && !access!.hasAccess;
 
   /// Mirrors the server's own predicate in `quiz-access.service.ts`.
-  bool get isPaid => isPremium || price > 0;
+  bool get isPaid =>
+      isPremium || price > 0 || (accessType?.toUpperCase() == 'PAID');
 
   bool get isNew => isRecent(createdAt);
   Duration get duration => Duration(minutes: durationMinutes);
@@ -148,6 +157,8 @@ class Quiz {
         category: J.strOrNull(json['category']),
         topic: J.strOrNull(json['topic']),
         folderName: J.strOrNull(json['folderName']),
+        accessType: J.strOrNull(json['accessType']),
+        imageUrl: J.strOrNull(json['imageUrl']) ?? J.strOrNull(json['image']),
         totalQuestions: J.intVal(json['totalQuestions']),
         durationMinutes: J.intVal(json['durationMinutes'], 15),
         isLiveMock: J.boolVal(json['isLiveMock']),
@@ -164,6 +175,8 @@ class Quiz {
             : null,
         questions: J.list(json['questions'], Question.fromJson),
         createdAt: J.dateOrNull(json['createdAt']),
+        releaseDate: J.dateOrNull(json['releaseDate']),
+        isActive: J.boolVal(json['isActive'], true),
       );
 }
 
@@ -309,6 +322,163 @@ class QuizAttempt {
       answers: J.list(json['answers'], QuizAnswer.fromJson),
       submittedAt: J.dateOrNull(json['submittedAt']),
       startedAt: J.dateOrNull(json['startedAt']),
+    );
+  }
+}
+
+/// Whether a reviewed question was answered correctly, wrongly, or skipped.
+enum AnswerStatus { correct, incorrect, unattempted }
+
+/// One question of a review, paired with what the student picked. Built by the
+/// server so the app and the website judge every answer identically.
+class ReviewQuestion {
+  const ReviewQuestion({
+    required this.id,
+    required this.number,
+    required this.text,
+    required this.marks,
+    required this.options,
+    required this.status,
+    this.explanation,
+    this.selectedOptionIndex,
+    this.selectedOptionText,
+    this.correctOptionIndex,
+    this.correctOptionText,
+  });
+
+  final String id;
+
+  /// 1-based position in the quiz's own question order.
+  final int number;
+  final String text;
+  final double marks;
+  final String? explanation;
+  final List<QuestionOption> options;
+
+  /// Null when the question was skipped.
+  final int? selectedOptionIndex;
+  final String? selectedOptionText;
+  final int? correctOptionIndex;
+  final String? correctOptionText;
+  final AnswerStatus status;
+
+  bool get isCorrect => status == AnswerStatus.correct;
+  bool get isSkipped => status == AnswerStatus.unattempted;
+
+  factory ReviewQuestion.fromJson(Map<String, dynamic> json) {
+    final rawOptions = json['options'];
+    final options = <QuestionOption>[];
+    if (rawOptions is List) {
+      for (var i = 0; i < rawOptions.length; i++) {
+        options.add(QuestionOption.from(rawOptions[i], i));
+      }
+    }
+    return ReviewQuestion(
+      id: J.str(json['id']),
+      number: J.intVal(json['number']),
+      text: J.str(json['text']),
+      marks: J.dbl(json['marks'], 1),
+      explanation: J.strOrNull(json['explanation']),
+      options: options,
+      selectedOptionIndex: J.intOrNull(json['selectedOptionIndex']),
+      selectedOptionText: J.strOrNull(json['selectedOptionText']),
+      correctOptionIndex: J.intOrNull(json['correctOptionIndex']),
+      correctOptionText: J.strOrNull(json['correctOptionText']),
+      status: switch (J.str(json['status']).toUpperCase()) {
+        'CORRECT' => AnswerStatus.correct,
+        'INCORRECT' => AnswerStatus.incorrect,
+        _ => AnswerStatus.unattempted,
+      },
+    );
+  }
+}
+
+/// A scored attempt plus its full answer key, from
+/// `GET /quizzes/attempts/:attemptId/review`. This is the payload behind both
+/// the app's and the website's result screens — neither re-scores locally.
+class AttemptReview {
+  const AttemptReview({
+    required this.id,
+    required this.quizId,
+    required this.quizTitle,
+    required this.attemptNumber,
+    required this.score,
+    required this.totalMarks,
+    required this.percentage,
+    required this.passed,
+    required this.passingMarks,
+    required this.totalQuestions,
+    required this.correctAnswers,
+    required this.wrongAnswers,
+    required this.unattempted,
+    required this.timeTakenSeconds,
+    required this.negativeMarking,
+    required this.negativeMarks,
+    required this.answersStale,
+    required this.questions,
+    this.startedAt,
+    this.submittedAt,
+  });
+
+  final String id;
+  final String quizId;
+  final String quizTitle;
+  final int attemptNumber;
+  final double score;
+  final double totalMarks;
+  final double percentage;
+  final bool passed;
+  final double passingMarks;
+  final int totalQuestions;
+  final int correctAnswers;
+  final int wrongAnswers;
+  final int unattempted;
+  final int timeTakenSeconds;
+  final NegativeMarking negativeMarking;
+
+  /// Marks actually deducted on this attempt.
+  final double negativeMarks;
+
+  /// True when the quiz was edited after the attempt, so the saved answers no
+  /// longer line up with the questions below.
+  final bool answersStale;
+  final List<ReviewQuestion> questions;
+  final DateTime? startedAt;
+  final DateTime? submittedAt;
+
+  int get attempted => correctAnswers + wrongAnswers;
+  double get accuracy => attempted == 0 ? 0 : (correctAnswers / attempted) * 100;
+
+  factory AttemptReview.fromJson(Map<String, dynamic> json) {
+    final negative = J.map(json['negativeMarking']);
+    return AttemptReview(
+      id: J.str(json['id']),
+      quizId: J.str(json['quizId']),
+      quizTitle: J.str(json['quizTitle'], 'Quiz'),
+      attemptNumber: J.intVal(json['attemptNumber'], 1),
+      score: J.dbl(json['score']),
+      totalMarks: J.dbl(json['totalMarks']),
+      percentage: J.dbl(json['percentage']),
+      passed: J.boolVal(json['passed']),
+      passingMarks: J.dbl(json['passingMarks']),
+      totalQuestions: J.intVal(json['totalQuestions']),
+      correctAnswers: J.intVal(json['correctAnswers']),
+      wrongAnswers: J.intVal(json['wrongAnswers']),
+      unattempted: J.intVal(json['unattempted']),
+      timeTakenSeconds: J.intVal(json['timeTakenSeconds']),
+      // The review nests the rules one level down rather than flattening them
+      // onto the root the way a quiz payload does.
+      negativeMarking: NegativeMarking(
+        enabled: J.boolVal(negative['enabled']),
+        every: J.intVal(negative['every'], 3),
+        deduct: J.dbl(negative['deduct'], 1),
+        allowNegativeScore: J.boolVal(negative['allowNegativeScore']),
+      ),
+      negativeMarks: J.dbl(negative['deducted']),
+      answersStale: J.boolVal(json['answersStale']),
+      questions: J.list(json['questions'], ReviewQuestion.fromJson),
+      startedAt: J.dateOrNull(json['startedAt']),
+      submittedAt: J.dateOrNull(json['submittedAt']),
     );
   }
 }

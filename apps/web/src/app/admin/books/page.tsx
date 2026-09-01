@@ -313,7 +313,7 @@ export default function AdminBooksPage() {
         setPdfPreviewOpen(false);
         setIsDialogOpen(false);
         setEditingBook(null);
-        await fetchBooks(true);
+        await fetchBooks();
       } catch (err: any) {
         setFieldError('title', err.message || `Failed to ${editingBook ? 'update' : 'create'} book.`);
       } finally {
@@ -385,7 +385,7 @@ export default function AdminBooksPage() {
     setTotalCount((prev) => Math.max(0, prev - 1));
     try {
       await ApiClient.deleteBook(id);
-      fetchBooks(true);
+      await fetchBooks();
     } catch (err: any) {
       setBooks(previousBooks);
       setTotalCount(previousTotal);

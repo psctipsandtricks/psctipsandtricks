@@ -237,14 +237,20 @@ export function ReaderProgressSidebar({
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="lg:hidden fixed bottom-5 right-5 z-40 w-12 h-12 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 text-white shadow-xl shadow-cyan-500/40 flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
+        className="lg:hidden fixed bottom-5 right-4 z-40 w-11 h-11 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/35 border border-cyan-400/30 flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
         title="Chapter Progress & Video Lessons"
+        aria-label="Open Chapters & Lessons"
       >
-        <ListTree className="w-5 h-5" />
+        <ListTree className="w-4 h-4" />
       </button>
 
       {/* Desktop sidebar */}
-      <div className="hidden lg:flex flex-col w-80 xl:w-84 shrink-0 max-h-[calc(100vh-5.5rem)] sticky top-[72px] border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden">
+      {/* Pinned to the left for the whole scroll of the book. The offsets are
+          measured from the viewport top, not from a navbar: the site chrome is
+          hidden on /read, so the earlier `top-[72px]` left the panel floating a
+          navbar's height below the reading column it sits beside. `top-4`
+          matches the reader `<main>`'s own `sm:py-4`. */}
+      <div className="hidden lg:flex flex-col w-80 xl:w-[21rem] shrink-0 max-h-[calc(100vh-2rem)] sticky top-4 self-start border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] shadow-sm overflow-hidden">
         <div className="p-3.5 pb-2.5 mb-1 border-b border-slate-200 dark:border-[#1e2e56] space-y-1.5">
           {bookTitle && (
             <p className="text-[11px] font-black text-cyan-600 dark:text-cyan-400 truncate uppercase tracking-wide leading-tight">

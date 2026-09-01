@@ -218,9 +218,9 @@ export default function AdminNotificationsPage() {
     try {
       setIsDeleting(true);
       await ApiClient.deleteNotification(id);
-      setSent((prev) => prev.filter((item) => item.id !== id));
       setDeleteTarget(null);
       showToast('Notification deleted successfully.');
+      await loadData();
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to delete notification.');
     } finally {

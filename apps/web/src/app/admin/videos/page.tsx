@@ -171,7 +171,7 @@ export default function AdminVideoFoldersPage() {
         setEditingFolder(null);
         setParentForNewFolder(null);
         resetForm();
-        await loadFolders(true);
+        await loadFolders();
         if (values.parentId) {
           await refreshFolderContents(values.parentId);
         }
@@ -223,7 +223,7 @@ export default function AdminVideoFoldersPage() {
         if (values.folderId) {
           await refreshFolderContents(values.folderId);
         }
-        await loadFolders(true);
+        await loadFolders();
       } catch (err: any) {
         videoFormik.setFieldError('title', err.message || 'Failed to save video.');
       } finally {
@@ -318,7 +318,7 @@ export default function AdminVideoFoldersPage() {
     try {
       await ApiClient.deleteVideoFolder(target.id);
       setToastMsg({ type: 'success', text: `Folder "${target.name}" deleted.` });
-      await loadFolders(true);
+      await loadFolders();
       if (parentId) {
         await refreshFolderContents(parentId);
       }
@@ -355,7 +355,7 @@ export default function AdminVideoFoldersPage() {
       if (folderId) {
         await refreshFolderContents(folderId);
       }
-      await loadFolders(true);
+      await loadFolders();
     } catch (err: any) {
       setFolderContents(prevFolderContents);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete video.' });

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -6,14 +7,8 @@ import '../../core/theme/app_theme.dart';
 
 /// The five-tab frame every primary screen lives inside.
 ///
-/// The bar is a floating capsule rather than a full-width strip: it reads as an
-/// overlay on top of the page instead of a slab bolted to the bottom edge, and
-/// the active tab carries a lighter lozenge so the current section is legible
-/// at a glance without relying on colour alone.
-///
-/// Each branch keeps its own navigator, so switching tabs preserves scroll
-/// position and any pushed detail screen — tapping away from a book mid-scroll
-/// and back returns exactly where the student was.
+/// Designed as a modern floating capsule with ambient glow, spring scaling,
+/// and tactile haptic feedback.
 class ShellScaffold extends StatelessWidget {
   const ShellScaffold({super.key, required this.navigationShell});
 
@@ -28,16 +23,8 @@ class ShellScaffold extends StatelessWidget {
   ];
 
   void _onTap(int index) {
-    // Home always lands on the landing page. The other tabs only reset when
-    // re-tapped while already active, which is the usual bottom-bar behaviour —
-    // switching away from Books mid-scroll and back should return you there,
-    // but "Home" should always mean home.
-    const homeIndex = 0;
-    navigationShell.goBranch(
-      index,
-      initialLocation:
-          index == homeIndex || index == navigationShell.currentIndex,
-    );
+    HapticFeedback.selectionClick();
+    navigationShell.goBranch(index, initialLocation: true);
   }
 
   @override
@@ -49,20 +36,25 @@ class ShellScaffold extends StatelessWidget {
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
           child: Container(
-            height: 66,
+            height: 64,
             decoration: BoxDecoration(
-              color: palette.card,
-              borderRadius: BorderRadius.circular(33),
-              border: Border.all(color: palette.border),
+              color: palette.card.withValues(alpha: palette.isDark ? 0.94 : 0.98),
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(
+                color: palette.isDark
+                    ? AppColors.darkBorder.withValues(alpha: 0.8)
+                    : palette.border,
+                width: 1,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: palette.isDark
-                      ? Colors.black.withValues(alpha: 0.55)
-                      : const Color(0xFF0F172A).withValues(alpha: 0.13),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+                      ? Colors.black.withValues(alpha: 0.5)
+                      : const Color(0xFF0F172A).withValues(alpha: 0.08),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
@@ -116,44 +108,43 @@ class _TabButton extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
-              // The lozenge is a lifted surface with a cyan wash rather than a
-              // saturated fill — at five tabs a solid block would shout.
               gradient: selected
                   ? LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        AppColors.cyan.withValues(alpha: palette.isDark ? 0.22 : 0.16),
-                        AppColors.indigo.withValues(alpha: palette.isDark ? 0.16 : 0.10),
+                        AppColors.cyan.withValues(alpha: palette.isDark ? 0.22 : 0.14),
+                        AppColors.indigo.withValues(alpha: palette.isDark ? 0.14 : 0.08),
                       ],
                     )
                   : null,
-              borderRadius: BorderRadius.circular(26),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: selected
-                    ? AppColors.cyan.withValues(alpha: 0.34)
+                    ? AppColors.cyan.withValues(alpha: 0.32)
                     : Colors.transparent,
+                width: 1,
               ),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 AnimatedScale(
-                  duration: const Duration(milliseconds: 220),
+                  duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOutBack,
-                  scale: selected ? 1.06 : 1,
+                  scale: selected ? 1.08 : 1.0,
                   child: Icon(
                     selected ? spec.activeIcon : spec.icon,
-                    size: 21,
+                    size: 20,
                     color: color,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 2.5),
                 Text(
                   spec.label,
                   maxLines: 1,
@@ -162,7 +153,7 @@ class _TabButton extends StatelessWidget {
                         color: color,
                         fontWeight:
                             selected ? FontWeight.w800 : FontWeight.w500,
-                        fontSize: 10.5,
+                        fontSize: 10,
                         height: 1.1,
                       ),
                 ),

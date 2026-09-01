@@ -198,7 +198,7 @@ export default function AdminReviewsPage() {
           resetForm();
           await ApiClient.createReview(payload);
         }
-        await fetchReviews(true);
+        await fetchReviews();
       } catch (err: any) {
         setFieldError(
           'customerName',
@@ -233,7 +233,7 @@ export default function AdminReviewsPage() {
     setReviews((prev) => prev.map((r) => (r.id === review.id ? { ...r, isActive: nextActive } : r)));
     try {
       await ApiClient.setReviewActive(review.id, nextActive);
-      await fetchReviews(true);
+      await fetchReviews();
     } catch (err: any) {
       setReviews((prev) =>
         prev.map((r) => (r.id === review.id ? { ...r, isActive: review.isActive } : r)),
@@ -247,7 +247,7 @@ export default function AdminReviewsPage() {
     setReviews((prev) => prev.filter((r) => r.id !== id));
     try {
       await ApiClient.deleteReview(id);
-      await fetchReviews(true);
+      await fetchReviews();
     } catch (err: any) {
       setReviews(previousReviews);
       alert(err.message || 'Failed to delete review.');

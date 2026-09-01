@@ -25,8 +25,12 @@ export class VideosService {
     return VideosService.isCurator(actor) ? {} : { isActive: true };
   }
 
+  private migrationDone = false;
+
   // --- Ensure Migration from Legacy VideoExam / VideoChapter ---
   private async ensureMigration() {
+    if (this.migrationDone) return;
+    this.migrationDone = true;
     try {
       const exams = await this.prisma.videoExam.findMany({
         include: { chapters: { include: { videos: true } } },
@@ -286,7 +290,44 @@ export class VideosService {
   }
 
   async removeFolder(folderId: string) {
-    await this.findFolder(folderId, CURATOR);
+    const folder = await this.findFolder(folderId, CURATOR);
+
+    // Recursively collect all descendant folder IDs
+    const getAllChildren = async (parentId: string): Promise<string[]> => {
+      const children = await this.prisma.videoFolder.findMany({
+        where: { parentId },
+        select: { id: true },
+      });
+      let ids = children.map((c) => c.id);
+      for (const childId of ids) {
+        const subIds = await getAllChildren(childId);
+        ids = [...ids, ...subIds];
+      }
+      return ids;
+    };
+
+    const allDescendantIds = await getAllChildren(folderId);
+    const allFolderIdsToDelete = [folderId, ...allDescendantIds];
+
+    // 1. Delete all videos attached to this folder and its subfolders
+    await this.prisma.video.deleteMany({
+      where: { folderId: { in: allFolderIdsToDelete } },
+    });
+
+    // 2. Clean up any legacy VideoExam and VideoChapter records with matching id or title
+    await this.prisma.videoExam.deleteMany({
+      where: { OR: [{ id: { in: allFolderIdsToDelete } }, { title: folder.name }] },
+    }).catch(() => {});
+    await this.prisma.videoChapter.deleteMany({
+      where: { OR: [{ id: { in: allFolderIdsToDelete } }, { title: folder.name }] },
+    }).catch(() => {});
+
+    // 3. Delete subfolders bottom-up
+    for (const subId of allDescendantIds.reverse()) {
+      await this.prisma.videoFolder.delete({ where: { id: subId } }).catch(() => {});
+    }
+
+    // 4. Delete the target folder
     return this.prisma.videoFolder.delete({
       where: { id: folderId },
     });

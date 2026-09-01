@@ -186,6 +186,14 @@ export class QuizzesController {
     return this.quizzesService.getStudentHistory(req.user.id);
   }
 
+  @ApiOperation({ summary: 'Get the full question-by-question review for one submitted attempt' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('attempts/:attemptId/review')
+  async getAttemptReview(@Request() req: any, @Param('attemptId') attemptId: string) {
+    return this.quizzesService.getAttemptReview(req.user, attemptId);
+  }
+
   @ApiOperation({ summary: 'Get all student quiz attempts (Admin / Staff)' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)

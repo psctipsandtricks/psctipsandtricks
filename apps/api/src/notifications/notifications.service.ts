@@ -192,8 +192,40 @@ export class NotificationsService {
         ],
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      // Deep enough for the app to apply its own rule: it hides notices the
+      // student has read and finished with, but keeps unread ones however old
+      // they are, so the window cannot be as shallow as one screenful.
+      take: 100,
     });
+  }
+
+  /**
+   * Marks one notification read for the caller.
+   *
+   * Only a row addressed to that student can be marked: a broadcast is a
+   * single row shared by everyone, so setting `isRead` on it would mark it read
+   * for the whole school. The app tracks those per device instead, and the
+   * `perUser` flag here tells it which case it got.
+   */
+  async markNotificationRead(id: string, userId: string) {
+    const notification = await this.prisma.notification.findUnique({ where: { id } });
+    if (!notification) throw new NotFoundException('Notification not found');
+
+    // Addressed to somebody else, and not a broadcast this student can see.
+    if (notification.userId && notification.userId !== userId) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    if (!notification.userId) {
+      return { id, isRead: notification.isRead, perUser: false };
+    }
+
+    const updated = await this.prisma.notification.update({
+      where: { id },
+      data: { isRead: true },
+      select: { id: true, isRead: true },
+    });
+    return { ...updated, perUser: true };
   }
 
   /**

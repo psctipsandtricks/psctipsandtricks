@@ -38,13 +38,11 @@ class ChatSocket {
     final socket = io.io(
       AppConfig.socketUrl,
       io.OptionBuilder()
-          // Skip the long-polling upgrade dance: on mobile the websocket
-          // either works or the student is offline anyway.
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .setAuth({'token': accessToken})
           .enableReconnection()
-          .setReconnectionDelay(1500)
-          .setReconnectionDelayMax(8000)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
           .build(),
     );
 

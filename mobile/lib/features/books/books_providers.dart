@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/providers/auth_controller.dart';
 import '../../data/models/book.dart';
 import '../../data/models/offline.dart';
 import '../offline/offline_providers.dart';
@@ -26,10 +27,25 @@ class BookQuery {
 
 final bookQueryProvider = StateProvider<BookQuery>((ref) => const BookQuery());
 
+/// The signed-in student's id, or null for a guest.
+///
+/// Watched by every provider whose answer depends on who is asking. The API
+/// decides "you own this" / "log in" / "pay" per caller, and these providers
+/// are kept alive for the session — so without this dependency a verdict
+/// fetched before sign-in stays pinned for the rest of the app's life. That is
+/// what left a purchased book showing "Unlock full access" next to its own
+/// "Continue reading" card: the resume row was fetched as the signed-in user,
+/// the access verdict was the guest one from before the session resolved.
+///
+/// Selected down to the id so a profile edit does not refetch the catalog.
+String? _viewerId(Ref ref) =>
+    ref.watch(currentUserProvider.select((user) => user?.id));
+
 /// The catalog for the active filters. Kept alive so returning to the Books tab
 /// paints instantly from cache while a refresh runs behind it.
 final booksProvider = FutureProvider.autoDispose<List<Book>>((ref) async {
   ref.keepAlive();
+  _viewerId(ref);
   final query = ref.watch(bookQueryProvider);
   return ref.watch(booksRepositoryProvider).fetchBooks(
         search: query.search,
@@ -53,6 +69,7 @@ final bookCategoriesProvider = Provider.autoDispose<List<String>>((ref) {
 final bookDetailProvider =
     FutureProvider.autoDispose.family<Book, String>((ref, id) async {
   ref.keepAlive();
+  _viewerId(ref);
   return ref.watch(booksRepositoryProvider).fetchBook(id);
 });
 
@@ -78,6 +95,7 @@ class ReaderSource {
 final readerSourceProvider =
     FutureProvider.autoDispose.family<ReaderSource, String>((ref, bookId) async {
   ref.keepAlive();
+  _viewerId(ref);
 
   final offline = ref.watch(offlineBookProvider(bookId));
   if (offline != null && offline.isReadable) {

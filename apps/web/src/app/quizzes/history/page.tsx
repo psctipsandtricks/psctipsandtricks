@@ -634,16 +634,28 @@ function AttemptRow({ attempt }: { attempt: any }) {
                     Penalty: -{negativeMarks}
                   </span>
                 )}
-                <Link href={`/quizzes/${attempt.quizId}`} className="block mt-1.5">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="font-bold h-7 px-2.5 text-[11px] flex items-center space-x-1 border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Retake</span>
-                  </Button>
-                </Link>
+                <div className="flex items-center sm:justify-end gap-1.5 mt-1.5">
+                  <Link href={`/quizzes/attempts/${attempt.id}`}>
+                    <Button
+                      variant="gold"
+                      size="sm"
+                      className="font-bold h-7 px-2.5 text-[11px] flex items-center space-x-1"
+                    >
+                      <ListChecks className="w-3 h-3" />
+                      <span>Review</span>
+                    </Button>
+                  </Link>
+                  <Link href={`/quizzes/${attempt.quizId}`}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="font-bold h-7 px-2.5 text-[11px] flex items-center space-x-1 border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10 hover:border-cyan-400/70"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Retake</span>
+                    </Button>
+                  </Link>
+                </div>
               </div>
               <ScoreRing percentage={attempt.percentage || 0} band={band} />
             </>

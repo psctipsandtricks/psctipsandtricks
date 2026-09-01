@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Providers } from './providers';
-import { AnnouncementBanner } from './announcement-banner';
+import { AnnouncementPopupHost } from './announcement-popup';
 import { NavbarWrapper } from './navbar-wrapper';
 import { FooterWrapper } from './footer-wrapper';
 import { MainWrapper } from './main-wrapper';
@@ -52,7 +52,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen flex flex-col font-sans relative overflow-x-hidden">
         <Providers>
-          <AnnouncementBanner />
+          <AnnouncementPopupHost />
           <NavbarWrapper />
           <MainWrapper>{children}</MainWrapper>
           <FooterWrapper />

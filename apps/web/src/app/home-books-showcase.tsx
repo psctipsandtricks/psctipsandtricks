@@ -20,58 +20,6 @@ import { Book } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from './auth-provider';
 
-// Fallback curated books in case API has not loaded or for instant SSR
-const CURATED_FEATURED_BOOKS: Partial<Book>[] = [
-  {
-    id: 'scert-basic-social-science',
-    title: 'NEW SCERT BASIC SCIENCE & SOCIAL SCIENCE (STD 5–10)',
-    author: 'PSC Tips and Tricks Editorial Board',
-    description: 'Complete chapter-wise subdivisions from 5th to 10th standard textbook syllabus with audio narration and previous year questions.',
-    category: 'SCERT Textbooks',
-    price: 399,
-    discountPercent: 50,
-    finalPrice: 199,
-    isPublished: true,
-    coverUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'kerala-history-renaissance',
-    title: 'Kerala History & Renaissance Master Guide',
-    author: 'Dr. Suresh Kumar & Team',
-    description: 'Comprehensive historical timeline from ancient Venad to modern Kerala renaissance leaders, social movements, and key dates.',
-    category: 'Kerala History',
-    price: 299,
-    discountPercent: 40,
-    finalPrice: 179,
-    isPublished: true,
-    coverUrl: 'https://images.unsplash.com/photo-1461360370896-922624d12aa1?w=600&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'indian-constitution-governance',
-    title: 'Indian Constitution & Public Administration',
-    author: 'PSC Tips and Tricks Law Faculty',
-    description: 'Articles, amendments, constitutional bodies, and landmark judgments tailored for Kerala PSC preliminary and main exams.',
-    category: 'Indian Constitution',
-    price: 349,
-    discountPercent: 45,
-    finalPrice: 189,
-    isPublished: true,
-    coverUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'maths-mental-ability-shortcuts',
-    title: 'Maths & Mental Ability 500+ Shortcut Tricks',
-    author: 'Prof. Rajesh M. Pillai',
-    description: 'Speed maths, data interpretation, number series, and logical reasoning shortcuts to score full marks in 20 minutes.',
-    category: 'Mathematics',
-    price: 249,
-    discountPercent: 40,
-    finalPrice: 149,
-    isPublished: true,
-    coverUrl: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=600&auto=format&fit=crop&q=80',
-  },
-];
-
 const NEW_BOOK_WINDOW_DAYS = 7;
 const AUTO_SCROLL_INTERVAL_MS = 4200;
 
@@ -106,7 +54,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
     if (initialBooks && initialBooks.length > 0) {
       return initialBooks.filter((b) => b.isPublished);
     }
-    return CURATED_FEATURED_BOOKS as Book[];
+    return [];
   });
   const [loading, setLoading] = useState(() => (initialBooks && initialBooks.length > 0 ? false : true));
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -128,16 +76,10 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
         const list: Book[] = Array.isArray(res) ? res : res?.data || [];
         const published = list.filter((b: Book) => b.isPublished);
         if (isMounted) {
-          if (published.length > 0) {
-            setBooks(published);
-          } else if (!initialBooks || initialBooks.length === 0) {
-            setBooks(CURATED_FEATURED_BOOKS as Book[]);
-          }
+          setBooks(published);
         }
       } catch {
-        if (isMounted && (!initialBooks || initialBooks.length === 0)) {
-          setBooks(CURATED_FEATURED_BOOKS as Book[]);
-        }
+        // Keep previous or initial books on error
       } finally {
         if (isMounted) {
           setLoading(false);

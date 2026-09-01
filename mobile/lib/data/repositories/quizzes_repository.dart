@@ -65,18 +65,31 @@ class QuizzesRepository {
     return map == null || map.isEmpty ? null : QuizAttempt.fromJson(map);
   }
 
-  Future<void> submitAttempt(
+  /// Scores and persists the attempt. Resolves to the stored attempt, whose id
+  /// addresses the review endpoint below.
+  Future<QuizAttempt?> submitAttempt(
     String quizId,
     QuizSubmission submission, {
     String? attemptId,
-  }) {
-    return _api.post<dynamic>(
+  }) async {
+    final res = await _api.post<dynamic>(
       '/quizzes/$quizId/submit',
       body: {
         ...submission.toJson(),
         if (attemptId != null) 'attemptId': attemptId,
       },
     );
+    final map = J.mapOrNull(res);
+    return map == null || map.isEmpty ? null : QuizAttempt.fromJson(map);
+  }
+
+  /// The scored attempt with its full answer key. The website renders its
+  /// result page from this same payload, so both stay in step.
+  Future<AttemptReview> fetchAttemptReview(String attemptId) async {
+    final res = await _api.get<Map<String, dynamic>>(
+      '/quizzes/attempts/$attemptId/review',
+    );
+    return AttemptReview.fromJson(res);
   }
 
   Future<List<QuizAttempt>> fetchMyAttempts() async {

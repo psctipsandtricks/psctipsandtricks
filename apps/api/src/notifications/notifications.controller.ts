@@ -51,6 +51,14 @@ export class NotificationsController {
     return this.notificationsService.getUserNotifications(req.user.id);
   }
 
+  @ApiOperation({ summary: 'Mark one notification as read' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/read')
+  async markRead(@Request() req: any, @Param('id') id: string) {
+    return this.notificationsService.markNotificationRead(id, req.user.id);
+  }
+
   @ApiOperation({ summary: 'Register this device for push notifications' })
   @ApiBearerAuth()
   @UseGuards(OptionalJwtAuthGuard)

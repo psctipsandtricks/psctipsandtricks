@@ -157,7 +157,9 @@ class _AttemptCard extends StatelessWidget {
     final accent = attempt.passed ? AppColors.emerald : AppColors.amber;
 
     return GlassCard(
-      onTap: () => context.push(AppRoutes.quizAttempt(attempt.quizId)),
+      // Opens the same server-scored result the student saw on submitting;
+      // retaking is the deliberate second step inside it.
+      onTap: () => context.push(AppRoutes.quizResult(attempt.id)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -246,6 +248,24 @@ class _AttemptCard extends StatelessWidget {
                       color: palette.textMuted,
                     ),
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.fact_check_outlined,
+                  size: 14, color: AppColors.cyan),
+              const SizedBox(width: 6),
+              Text(
+                'Review answers',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.cyan,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const Spacer(),
+              Icon(Icons.chevron_right_rounded,
+                  size: 16, color: palette.textMuted),
             ],
           ),
         ],

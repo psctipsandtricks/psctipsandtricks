@@ -9,13 +9,18 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/offline.dart';
+import '../../data/repositories/books_repository.dart';
 import '../offline/offline_providers.dart';
+import '../../core/utils/orientation.dart';
+import '../../core/utils/secure_screen.dart';
 import '../pdfs/pdf_viewer_screen.dart';
+import '../pdfs/widgets/pdf_document_view.dart';
 import '../videos/video_player_screen.dart';
 import 'books_providers.dart';
 import 'reader_audio_controller.dart';
 import 'reader_types.dart';
 import 'widgets/reader_audio_player.dart';
+import 'widgets/reader_contents_drawer.dart';
 
 /// The multimedia reader: one topic at a time, with its narration, class video
 /// and notes attached.
@@ -43,6 +48,15 @@ class BookReaderScreen extends ConsumerStatefulWidget {
 class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   final _scrollController = ScrollController();
 
+  /// Needed because the contents button lives in a child widget, and only the
+  /// Scaffold's own state can open its drawer.
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Set when the student taps a speaker in the sidebar: the unit that should
+  /// start playing as soon as its page is built. Cleared by [_goTo], so an
+  /// autoplay never fires twice or follows them to the next topic.
+  String? _autoPlayUnitId;
+
   List<ReadingUnit> _units = const [];
   List<ChapterSummary> _chapters = const [];
 
@@ -59,6 +73,35 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
 
   /// Set when the content came out of the offline vault.
   OfflineBook? _offline;
+
+  /// Held in state because the drawer is attached to the Scaffold, above the
+  /// async body that knows the book.
+  String _bookTitle = '';
+
+  /// Set once the student deliberately asks for the notes instead of the
+  /// document. Sticky across topics for the rest of the session: someone
+  /// reading the written notes wants the next topic's notes too, and having
+  /// the view flip back to the PDF on every Next would be maddening.
+  ///
+  /// Default false, which is what makes a topic's PDF the first thing on
+  /// screen with nothing to tap.
+  bool _preferNotes = false;
+
+  /// How far through the open document, for the app bar's page count.
+  PdfViewState? _pdfState;
+
+  /// The narration url the shared player was last pointed at, so the reader
+  /// does not reload the same clip on every rebuild.
+  String? _loadedAudioUrl;
+
+  /// Held rather than read back in [dispose]: `ref` is already disposed by the
+  /// time a ConsumerState is torn down, so reading a provider there throws.
+  /// For the narration that meant it was never stopped; for the repository it
+  /// meant the closing progress flush — the whole point of which is to catch
+  /// the position when the reader is shut straight after a jump — threw before
+  /// it ever reached the network.
+  ReaderAudioController? _audio;
+  BooksRepository? _books;
 
   /// Remote media URL to the decrypted working copy on disk. Populated lazily,
   /// one unit at a time — decrypting a whole book's audio up front would cost
@@ -77,22 +120,34 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   @override
   void initState() {
     super.initState();
+    // A book page is a fixed shape and a landscape phone fits one at a
+    // readable size, so the reader is one of the two screens that leaves the
+    // app-wide portrait lock. Restored in dispose.
+    allowAllOrientations();
+    // Book content is the paid product: block screenshots and screen recording
+    // for as long as it is on screen, including the full-screen document viewer
+    // opened from here, which shares this window. Released in dispose.
+    unawaited(requestSecureScreen());
     // Drive the scroll off the shared player, so it keeps working no matter
     // which screen started playback.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ref.read(readerAudioProvider).playing.addListener(_onPlayingChanged);
+      final audio = ref.read(readerAudioProvider);
+      _audio = audio;
+      _books = ref.read(booksRepositoryProvider);
+      audio.playing.addListener(_onPlayingChanged);
       _startScrollTicker();
     });
   }
 
   @override
   void dispose() {
+    restorePortraitOnly();
+    unawaited(releaseSecureScreen());
     _scrollTicker?.cancel();
-    final audio = ref.read(readerAudioProvider);
-    audio.playing.removeListener(_onPlayingChanged);
+    _audio?.playing.removeListener(_onPlayingChanged);
     // Narration should not follow the student out of the book.
-    unawaited(audio.stop());
+    if (_audio != null) unawaited(_audio!.stop());
     _releaseWorkingCopies();
     _saveTimer?.cancel();
     // Flush whatever the debounce is still holding, so closing the reader right
@@ -221,6 +276,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
       _activeIndex = index;
       if (index > _maxReached) _maxReached = index;
       _showResumeBanner = false;
+      _autoPlayUnitId = null;
     });
     _scrollTicker?.cancel();
     _scrollTicker = null;
@@ -243,13 +299,14 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
 
   void _flushProgress() {
     if (_units.isEmpty) return;
+    final books = _books;
+    if (books == null) return;
     final unit = _units[_activeIndex];
     final percent = (((_maxReached + 1) / _units.length) * 100).round();
 
     // Fire and forget: a failed progress write must never interrupt reading.
     unawaited(
-      ref
-          .read(booksRepositoryProvider)
+      books
           .saveProgress(
             bookId: widget.bookId,
             chapterId: unit.chapterId,
@@ -260,29 +317,125 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     );
   }
 
-  void _openContents() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => _ContentsSheet(
-        chapters: _chapters,
-        activeIndex: _activeIndex,
-        maxReached: _maxReached,
-        onSelect: (index) {
-          Navigator.of(context).pop();
-          _goTo(index);
-        },
-      ),
+  /// Opens a unit from the sidebar and starts its narration.
+  ///
+  /// The old app's speaker button did exactly this — jump there and play — and
+  /// it is the reason the sidebar is worth opening at all for an audio-first
+  /// student. Playback itself is left to the page's own player so there is
+  /// still only ever one set of transport controls on screen.
+  void _openUnitAudio(int index) {
+    if (index < 0 || index >= _units.length) return;
+    final unit = _units[index];
+    if (!unit.hasAudio) return;
+
+    if (index == _activeIndex) {
+      // Already the open page: its player is mounted with this clip loaded, so
+      // rebuilding nothing and just starting it is both correct and instant.
+      final audio = ref.read(readerAudioProvider);
+      if (!audio.playing.value) audio.togglePlay();
+      return;
+    }
+
+    _goTo(index);
+    setState(() => _autoPlayUnitId = unit.id);
+  }
+
+  /// Points the shared player at the open topic's narration.
+  ///
+  /// Done here rather than inside the player widget because the document view
+  /// shows only the mini transport, which displays what is loaded but never
+  /// loads anything — so with the player widget owning the source, narration
+  /// would be silent for exactly the view that most needs it.
+  void _loadUnitAudio(ReadingUnit unit) {
+    final audio = ref.read(readerAudioProvider);
+
+    if (!unit.hasAudio) {
+      if (_loadedAudioUrl != null) {
+        _loadedAudioUrl = null;
+        unawaited(audio.stop());
+      }
+      return;
+    }
+
+    final url = _localPaths[unit.audioUrl] ?? unit.audioUrl!;
+    if (_loadedAudioUrl == url) return;
+    _loadedAudioUrl = url;
+    unawaited(audio.load(
+      url,
+      label: unit.title,
+      autoPlay: _autoPlayUnitId == unit.id ||
+          (_autoResumed && _activeIndex == _savedIndex),
+    ));
+  }
+
+  Widget _buildContentsPanel(String bookTitle, {VoidCallback? onClose}) {
+    return ReaderContentsPanel(
+      bookTitle: bookTitle,
+      chapters: _chapters,
+      activeIndex: _activeIndex,
+      maxReached: _maxReached,
+      totalUnits: _units.length,
+      onSelect: (index) {
+        onClose?.call();
+        _goTo(index);
+      },
+      onPlayAudio: (index) {
+        onClose?.call();
+        _openUnitAudio(index);
+      },
+      onClose: onClose,
     );
   }
+
+  /// Below this the sidebar is a drawer; at or above it there is room to pin it
+  /// open beside the page, which is what a tablet or a large foldable wants.
+  static const _pinnedSidebarBreakpoint = 840.0;
+
+  /// Paired with the width above so a landscape phone is not mistaken for a
+  /// tablet: both are wide, only one has the height to spare.
+  static const _tabletMinHeight = 600.0;
+
+  /// Under this there is no room for anything but the page and its controls.
+  static const _shortViewportHeight = 520.0;
 
   @override
   Widget build(BuildContext context) {
     final sourceAsync = ref.watch(readerSourceProvider(widget.bookId));
     final progressAsync = ref.watch(bookProgressProvider(widget.bookId));
 
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width;
+    // A phone turned sideways is wide but very short. Pinning a 340dp panel
+    // there would leave the page a sliver, so the sidebar stays a drawer
+    // unless the screen is a genuine tablet — wide *and* tall.
+    final isWide =
+        width >= _pinnedSidebarBreakpoint && size.height >= _tabletMinHeight;
+    // Landscape on a phone: everything optional gives up its height so the
+    // page keeps as much as possible.
+    final isShort = size.height < _shortViewportHeight;
+
     return Scaffold(
+      key: _scaffoldKey,
+      // No drawer when the panel is already pinned open — two copies of the
+      // contents, one hidden behind an edge swipe, would be worse than one.
+      drawer: isWide
+          ? null
+          : Drawer(
+              // Narrow enough on a small phone to leave the page visible
+              // behind it, so the sidebar reads as a layer over the book.
+              width: width * 0.86 > 340 ? 340 : width * 0.86,
+              // Built through a Builder, not inline: the chapter tree is
+              // assembled further down this same build pass, inside the async
+              // body, so anything read here directly would be a frame stale —
+              // which on the first build means an empty drawer that never
+              // refills. The closure defers the read until the drawer opens.
+              child: Builder(
+                builder: (drawerContext) => _buildContentsPanel(
+                  _bookTitle,
+                  onClose: () => Navigator.of(drawerContext).maybePop(),
+                ),
+              ),
+            ),
       body: AsyncView(
         value: sourceAsync,
         onRetry: () => ref.invalidate(readerSourceProvider(widget.bookId)),
@@ -290,6 +443,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
         data: (source) {
           final content = source.content;
           _offline = source.offline;
+          _bookTitle = content.title;
           final units = flattenChapters(content.chapters);
 
           // Wait for the progress row before settling on a starting unit, so
@@ -316,7 +470,17 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
           final unit = _units[_activeIndex];
           final percent = ((_maxReached + 1) / _units.length).clamp(0.0, 1.0);
 
-          return Column(
+          // The document is the reader's default face. A topic that carries a
+          // PDF opens straight onto it — no tile to find, no tap — and the
+          // written notes are one toggle away.
+          final showDocument = unit.hasPdf && !_preferNotes;
+
+          // The clip belongs to the topic, not to whichever view is drawing.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _loadUnitAudio(unit);
+          });
+
+          final page = Column(
             children: [
               _ReaderAppBar(
                 bookTitle: content.title,
@@ -331,14 +495,53 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                   ref.read(autoScrollProvider.notifier).toggle();
                   _startScrollTicker();
                 },
-                onContents: _openContents,
+                onContents:
+                    isWide ? null : () => _scaffoldKey.currentState?.openDrawer(),
+                showingDocument: showDocument,
+                onToggleView: unit.hasPdf
+                    ? () => setState(() {
+                          _preferNotes = !_preferNotes;
+                          _pdfState = null;
+                        })
+                    : null,
+                pageLabel: showDocument && _pdfState != null && _pdfState!.isReady
+                    ? 'p.${_pdfState!.currentPage + 1}/${_pdfState!.pageCount}'
+                    : null,
+                isCompact: isShort,
+                onPrev: _activeIndex > 0 ? () => _goTo(_activeIndex - 1) : null,
+                onNext: _activeIndex < _units.length - 1
+                    ? () => _goTo(_activeIndex + 1)
+                    : null,
               ),
-              if (_showResumeBanner && _savedIndex != null)
+              // Hidden in landscape, where the banner would cost a third of
+              // what is left for the page itself.
+              if (_showResumeBanner && _savedIndex != null && !isShort)
                 _ResumeBanner(
                   unitTitle: _units[_savedIndex!].title,
                   onResume: () => _goTo(_savedIndex!),
                   onDismiss: () => setState(() => _showResumeBanner = false),
                 ),
+              if (showDocument)
+                Expanded(
+                  child: PdfDocumentView(
+                    // Keyed by topic so each document keeps its own place and
+                    // starts its own sync rather than inheriting the last
+                    // topic's page.
+                    key: ValueKey('pdf-${unit.id}'),
+                    url: unit.pdfUrl!,
+                    localPath: _localPaths[unit.pdfUrl],
+                    syncCues: unit.syncCues,
+                    onStateChanged: (state) {
+                      if (!mounted) return;
+                      if (_pdfState?.currentPage == state.currentPage &&
+                          _pdfState?.pageCount == state.pageCount) {
+                        return;
+                      }
+                      setState(() => _pdfState = state);
+                    },
+                  ),
+                )
+              else
               Expanded(
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
@@ -408,7 +611,9 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                         key: ValueKey('audio-${unit.id}'),
                         url: _localPaths[unit.audioUrl] ?? unit.audioUrl!,
                         title: unit.title,
-                        autoPlay: _autoResumed && _activeIndex == _savedIndex,
+                        // The reader loads the clip; this is the transport
+                        // for it, not a second owner of the source.
+                        autoLoad: false,
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -470,17 +675,15 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                                   ? 'Saved on this device'
                                   : 'Tap to read the PDF';
                           return PdfAttachmentTile(
-                            title: 'Notes — ${unit.title}',
+                            title: 'Document — ${unit.title}',
                             subtitle: resumePage > 0
                                 ? 'Continue on page ${resumePage + 1}'
                                 : offlineNote,
-                            onTap: () => openPdf(
-                              context,
-                              url: unit.pdfUrl!,
-                              title: unit.title,
-                              localPath: _localPaths[unit.pdfUrl],
-                              syncCues: unit.syncCues,
-                            ),
+                            // Switches this page back to the document rather
+                            // than stacking another screen on top of it: the
+                            // document is a view of the topic, not a detour
+                            // the student has to press back out of.
+                            onTap: () => setState(() => _preferNotes = false),
                           );
                         },
                       ),
@@ -489,12 +692,42 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                   ),
                 ),
               ),
-              _ReaderFooter(
-                canGoBack: _activeIndex > 0,
-                canGoForward: _activeIndex < _units.length - 1,
-                onPrev: () => _goTo(_activeIndex - 1),
-                onNext: () => _goTo(_activeIndex + 1),
-                isLast: _activeIndex == _units.length - 1,
+              // The document fills the screen, so the narration transport
+              // sits with the page controls — the same shape the full-screen
+              // document viewer uses. It draws nothing when no clip is loaded.
+              if (showDocument) const ReaderMiniPlayer(),
+              // A landscape phone has roughly 400dp of height; a full footer
+              // would take a fifth of it for two buttons that now live in the
+              // app bar instead.
+              if (!isShort)
+                _ReaderFooter(
+                  canGoBack: _activeIndex > 0,
+                  canGoForward: _activeIndex < _units.length - 1,
+                  onPrev: () => _goTo(_activeIndex - 1),
+                  onNext: () => _goTo(_activeIndex + 1),
+                  isLast: _activeIndex == _units.length - 1,
+                ),
+            ],
+          );
+
+          if (!isWide) return page;
+
+          // Tablet and foldable: the contents sit permanently alongside the
+          // page, so moving between topics costs no gesture at all. The text
+          // column is capped rather than allowed to fill the rest of a wide
+          // screen — a 900px line length is unreadable.
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(width: 340, child: _buildContentsPanel(content.title)),
+              VerticalDivider(width: 1, color: context.palette.border),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: page,
+                  ),
+                ),
               ),
             ],
           );
@@ -515,6 +748,12 @@ class _ReaderAppBar extends StatelessWidget {
     required this.autoScroll,
     required this.onToggleAutoScroll,
     required this.onContents,
+    required this.showingDocument,
+    required this.onToggleView,
+    required this.pageLabel,
+    required this.isCompact,
+    required this.onPrev,
+    required this.onNext,
   });
 
   final String bookTitle;
@@ -525,7 +764,29 @@ class _ReaderAppBar extends StatelessWidget {
   final bool showAutoScroll;
   final bool autoScroll;
   final VoidCallback onToggleAutoScroll;
-  final VoidCallback onContents;
+
+  /// Null when the contents panel is pinned open beside the page and there is
+  /// nothing to open.
+  final VoidCallback? onContents;
+
+  /// True while the topic's PDF is the thing on screen.
+  final bool showingDocument;
+
+  /// Swaps between the document and the written notes. Null on a topic that
+  /// has no document, where there is nothing to swap to.
+  final VoidCallback? onToggleView;
+
+  /// e.g. `p.3/12`, appended to the subtitle while a document is open.
+  final String? pageLabel;
+
+  /// Landscape on a phone: every row costs the page, so the second line of the
+  /// title folds away into the first and the footer's job moves up here.
+  final bool isCompact;
+
+  /// Only wired while [isCompact] — otherwise paging lives in the footer.
+  /// Null at either end of the book.
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -538,7 +799,8 @@ class _ReaderAppBar extends StatelessWidget {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 6, 12, 8),
+              padding: EdgeInsets.fromLTRB(4, isCompact ? 2 : 6, 12,
+                  isCompact ? 2 : 8),
               child: Row(
                 children: [
                   IconButton(
@@ -550,7 +812,7 @@ class _ReaderAppBar extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          bookTitle,
+                          isCompact ? unit.title : bookTitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style:
@@ -558,13 +820,17 @@ class _ReaderAppBar extends StatelessWidget {
                                     fontWeight: FontWeight.w800,
                                   ),
                         ),
-                        Text(
-                          'Chapter ${unit.chapterNumber} · $position',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: palette.textMuted,
-                                  ),
-                        ),
+                        if (!isCompact)
+                          Text(
+                            'Chapter ${unit.chapterNumber} · $position'
+                            '${pageLabel == null ? '' : ' · $pageLabel'}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(color: palette.textMuted),
+                          ),
                       ],
                     ),
                   ),
@@ -588,8 +854,12 @@ class _ReaderAppBar extends StatelessWidget {
                   if (showAutoScroll)
                     Tooltip(
                       message: autoScroll
-                          ? 'Auto-scroll on — follows the audio'
-                          : 'Auto-scroll off',
+                          ? showingDocument
+                              ? 'Pages turn with the audio — tap to turn off'
+                              : 'Auto-scroll on — follows the audio'
+                          : showingDocument
+                              ? 'Auto page-turn off'
+                              : 'Auto-scroll off',
                       child: InkWell(
                         onTap: onToggleAutoScroll,
                         borderRadius: BorderRadius.circular(AppTheme.radiusSm),
@@ -640,11 +910,45 @@ class _ReaderAppBar extends StatelessWidget {
                         ),
                       ),
                     ),
-                  IconButton(
-                    tooltip: 'Contents',
-                    icon: const Icon(Icons.menu_book_rounded),
-                    onPressed: onContents,
-                  ),
+                  // In landscape the footer is gone, so the page controls sit
+                  // here instead of leaving the student stranded on one topic.
+                  if (isCompact) ...[
+                    IconButton(
+                      tooltip: 'Previous topic',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.chevron_left_rounded),
+                      onPressed: onPrev,
+                    ),
+                    IconButton(
+                      tooltip: 'Next topic',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      onPressed: onNext,
+                    ),
+                  ],
+                  if (onToggleView != null)
+                    IconButton(
+                      tooltip: showingDocument
+                          ? 'Show the written notes'
+                          : 'Show the document',
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        showingDocument
+                            ? Icons.article_rounded
+                            : Icons.picture_as_pdf_rounded,
+                        color: showingDocument
+                            ? palette.textSecondary
+                            : AppColors.rose,
+                      ),
+                      onPressed: onToggleView,
+                    ),
+                  if (onContents != null)
+                    IconButton(
+                      tooltip: 'Chapters and topics',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.menu_rounded),
+                      onPressed: onContents,
+                    ),
                 ],
               ),
             ),
@@ -876,192 +1180,6 @@ class _ReaderFooter extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ContentsSheet extends StatelessWidget {
-  const _ContentsSheet({
-    required this.chapters,
-    required this.activeIndex,
-    required this.maxReached,
-    required this.onSelect,
-  });
-
-  final List<ChapterSummary> chapters;
-  final int activeIndex;
-  final int maxReached;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.75,
-      maxChildSize: 0.94,
-      builder: (context, scrollController) => Column(
-        children: [
-          Container(
-            width: 42,
-            height: 4,
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: palette.border,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: Row(
-              children: [
-                Text(
-                  'Contents',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                ),
-                const Spacer(),
-                Text(
-                  '${chapters.length} chapters',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: palette.textMuted,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-              itemCount: chapters.length,
-              itemBuilder: (context, index) {
-                final chapter = chapters[index];
-                return Theme(
-                  data: Theme.of(context)
-                      .copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    initiallyExpanded: chapter.containsUnit(activeIndex),
-                    tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-                    childrenPadding: const EdgeInsets.only(bottom: 8),
-                    leading: Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: AppColors.cyan.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '${chapter.chapterNumber}',
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: AppColors.cyan,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                      ),
-                    ),
-                    title: Text(
-                      chapter.title,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            height: 1.3,
-                          ),
-                    ),
-                    subtitle: Text(
-                      '${chapter.units.length} topics',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: palette.textMuted,
-                          ),
-                    ),
-                    children: [
-                      for (final unit in chapter.units)
-                        _UnitRow(
-                          unit: unit,
-                          isActive: unit.unitIndex == activeIndex,
-                          isRead: unit.unitIndex <= maxReached,
-                          onTap: () => onSelect(unit.unitIndex),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UnitRow extends StatelessWidget {
-  const _UnitRow({
-    required this.unit,
-    required this.isActive,
-    required this.isRead,
-    required this.onTap,
-  });
-
-  final ReadingUnit unit;
-  final bool isActive;
-  final bool isRead;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        padding: EdgeInsets.fromLTRB(unit.isSubtopic ? 30 : 14, 10, 12, 10),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.cyan.withValues(alpha: 0.10) : null,
-          borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-          border: Border.all(
-            color: isActive
-                ? AppColors.cyan.withValues(alpha: 0.35)
-                : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isRead
-                  ? Icons.check_circle_rounded
-                  : Icons.radio_button_unchecked_rounded,
-              size: 15,
-              color: isRead ? AppColors.emerald : palette.textMuted,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                unit.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isActive ? AppColors.cyan : palette.textSecondary,
-                      fontWeight:
-                          isActive ? FontWeight.w700 : FontWeight.w500,
-                      height: 1.35,
-                    ),
-              ),
-            ),
-            if (unit.hasAudio)
-              Icon(Icons.headphones_rounded, size: 13, color: palette.textMuted),
-            if (unit.hasVideo)
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Icon(Icons.smart_display_rounded,
-                    size: 13, color: palette.textMuted),
-              ),
-          ],
         ),
       ),
     );

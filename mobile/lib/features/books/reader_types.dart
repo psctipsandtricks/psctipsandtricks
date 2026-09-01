@@ -120,19 +120,49 @@ List<ReadingUnit> flattenChapters(List<Chapter> chapters) {
   return units;
 }
 
-/// A chapter and the span of units it covers — the contents drawer's model.
+/// A topic and the subtopics filed under it — the sidebar's second level.
+///
+/// The reader itself pages through the flat [ReadingUnit] list; this grouping
+/// exists only so the contents sidebar can show the shape a student recognises
+/// from the book, chapter → topic → subtopic, instead of one long list where a
+/// subtopic looks like a topic that happens to be indented.
+class TopicGroup {
+  const TopicGroup({required this.topic, required this.subtopics});
+
+  final ReadingUnit topic;
+  final List<ReadingUnit> subtopics;
+
+  bool get hasSubtopics => subtopics.isNotEmpty;
+
+  bool containsUnit(int index) =>
+      topic.unitIndex == index ||
+      subtopics.any((subtopic) => subtopic.unitIndex == index);
+
+  /// Whether opening this group would reveal any narration — what decides if a
+  /// collapsed topic still deserves a headphones hint.
+  bool get hasAudioAnywhere =>
+      topic.hasAudio || subtopics.any((subtopic) => subtopic.hasAudio);
+}
+
+/// A chapter and the span of units it covers — the contents sidebar's model.
 class ChapterSummary {
   const ChapterSummary({
     required this.chapterId,
     required this.chapterNumber,
     required this.title,
     required this.units,
+    required this.topics,
   });
 
   final String chapterId;
   final int chapterNumber;
   final String title;
+
+  /// Every unit in the chapter, topics and subtopics alike, in reading order.
   final List<ReadingUnit> units;
+
+  /// The same units as a two-level tree.
+  final List<TopicGroup> topics;
 
   int get unitStart => units.first.unitIndex;
   int get unitEnd => units.last.unitIndex;
@@ -140,23 +170,45 @@ class ChapterSummary {
   bool containsUnit(int index) => index >= unitStart && index <= unitEnd;
 }
 
-List<ChapterSummary> buildChapterSummaries(List<ReadingUnit> units) {
-  final summaries = <ChapterSummary>[];
-  for (final unit in units) {
-    if (summaries.isNotEmpty && summaries.last.chapterId == unit.chapterId) {
-      summaries.last.units.add(unit);
+/// Splits one chapter's units into topics and the subtopics beneath them.
+///
+/// [flattenChapters] always emits a topic immediately before its own
+/// subtopics, so a single forward pass is enough. A leading subtopic cannot
+/// occur, but is given its own group rather than dropped if it ever does.
+List<TopicGroup> _groupTopics(List<ReadingUnit> chapterUnits) {
+  final groups = <TopicGroup>[];
+  for (final unit in chapterUnits) {
+    if (!unit.isSubtopic || groups.isEmpty) {
+      groups.add(TopicGroup(topic: unit, subtopics: <ReadingUnit>[]));
     } else {
-      summaries.add(
-        ChapterSummary(
-          chapterId: unit.chapterId,
-          chapterNumber: unit.chapterNumber,
-          title: unit.chapterTitle,
-          units: [unit],
-        ),
-      );
+      groups.last.subtopics.add(unit);
     }
   }
-  return summaries;
+  return groups;
+}
+
+List<ChapterSummary> buildChapterSummaries(List<ReadingUnit> units) {
+  // Units arrive in reading order, so a chapter's units are always contiguous.
+  final byChapter = <List<ReadingUnit>>[];
+  for (final unit in units) {
+    if (byChapter.isNotEmpty &&
+        byChapter.last.first.chapterId == unit.chapterId) {
+      byChapter.last.add(unit);
+    } else {
+      byChapter.add(<ReadingUnit>[unit]);
+    }
+  }
+
+  return [
+    for (final chapterUnits in byChapter)
+      ChapterSummary(
+        chapterId: chapterUnits.first.chapterId,
+        chapterNumber: chapterUnits.first.chapterNumber,
+        title: chapterUnits.first.chapterTitle,
+        units: chapterUnits,
+        topics: _groupTopics(chapterUnits),
+      ),
+  ];
 }
 
 /// Locates the unit a saved progress row points at. Prefers the exact topic,

@@ -194,7 +194,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
         if (values.parentId && values.parentId !== folderId) {
           await refreshSubFolderContents(values.parentId);
         }
-        await loadFolder(true);
+        await loadFolder();
       } catch (err: any) {
         subFolderFormik.setFieldError('name', err.message || 'Failed to save folder.');
       } finally {
@@ -244,7 +244,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
         if (targetFId !== folderId) {
           await refreshSubFolderContents(targetFId);
         }
-        await loadFolder(true);
+        await loadFolder();
       } catch (err: any) {
         videoFormik.setFieldError('title', err.message || 'Failed to save video.');
       } finally {
@@ -347,7 +347,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
       if (pId && pId !== folderId) {
         await refreshSubFolderContents(pId);
       }
-      await loadFolder(true);
+      await loadFolder();
     } catch (err: any) {
       setFolderData(prevFolderData);
       setSubFolderContents(prevSubContents);
@@ -388,7 +388,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
       if (fId && fId !== folderId) {
         await refreshSubFolderContents(fId);
       }
-      await loadFolder(true);
+      await loadFolder();
     } catch (err: any) {
       setFolderData(prevFolderData);
       setSubFolderContents(prevSubContents);

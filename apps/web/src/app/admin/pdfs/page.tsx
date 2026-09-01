@@ -164,7 +164,7 @@ export default function AdminPdfFoldersPage() {
         setEditingFolder(null);
         setParentForNewFolder(null);
         resetForm();
-        await loadFolders(true);
+        await loadFolders();
         if (values.parentId) {
           await refreshFolderContents(values.parentId);
         }
@@ -219,7 +219,7 @@ export default function AdminPdfFoldersPage() {
         if (values.folderId) {
           await refreshFolderContents(values.folderId);
         }
-        await loadFolders(true);
+        await loadFolders();
       } catch (err: any) {
         docFormik.setFieldError('title', err.message || 'Failed to save PDF document.');
       } finally {
@@ -257,15 +257,15 @@ export default function AdminPdfFoldersPage() {
     setIsFolderDialogOpen(true);
   };
 
-  const handleOpenCreateDoc = (folder: PdfFolder) => {
+  const handleOpenCreateDoc = (targetFolder?: PdfFolder | null) => {
     setEditingDoc(null);
-    setTargetFolderForDoc(folder);
+    setTargetFolderForDoc(targetFolder || null);
     setDocFile(null);
     docFormik.resetForm({
       values: {
         title: '',
         description: '',
-        folderId: folder.id,
+        folderId: targetFolder ? targetFolder.id : folders[0]?.id || '',
         isActive: true,
       },
     });
@@ -312,7 +312,7 @@ export default function AdminPdfFoldersPage() {
     try {
       await ApiClient.deletePdfFolder(target.id);
       setToastMsg({ type: 'success', text: `Folder "${target.name}" deleted.` });
-      await loadFolders(true);
+      await loadFolders();
       if (parentId) {
         await refreshFolderContents(parentId);
       }
@@ -349,7 +349,7 @@ export default function AdminPdfFoldersPage() {
       if (folderId) {
         await refreshFolderContents(folderId);
       }
-      await loadFolders(true);
+      await loadFolders();
     } catch (err: any) {
       setFolderContents(prevFolderContents);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete document.' });

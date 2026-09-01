@@ -57,6 +57,7 @@ export default function AdminQuizFoldersPage() {
   const [editingFolder, setEditingFolder] = useState<QuizFolder | null>(null);
   const [parentForNewFolder, setParentForNewFolder] = useState<QuizFolder | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QuizFolder | null>(null);
+  const [deleteQuizTarget, setDeleteQuizTarget] = useState<{ quiz: any; folderId: string; folderName: string } | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
   // Expandable Hierarchy Tree State
@@ -176,7 +177,7 @@ export default function AdminQuizFoldersPage() {
           resetForm();
           setToastMsg({ type: 'success', text: `Folder "${payload.name}" updated successfully.` });
           await ApiClient.updateQuizFolder(edited.id, payload);
-          await loadFolders(true);
+          await loadFolders();
 
           if (edited.parentId) {
             refreshFolderContents(edited.parentId, edited.parentName || '');
@@ -189,7 +190,7 @@ export default function AdminQuizFoldersPage() {
           resetForm();
           setToastMsg({ type: 'success', text: `Folder "${payload.name}" created successfully.` });
           await ApiClient.createQuizFolder({ ...payload, orderIndex: folders.length });
-          await loadFolders(true);
+          await loadFolders();
 
           if (parent) {
             setExpandedFolders((prev) => ({ ...prev, [parent.id]: true }));
@@ -230,7 +231,7 @@ export default function AdminQuizFoldersPage() {
     setToastMsg({ type: 'success', text: `Folder "${folder.name}" deleted.` });
     try {
       await ApiClient.deleteQuizFolder(folder.id);
-      await loadFolders(true);
+      await loadFolders();
       if (folder.parentId) {
         refreshFolderContents(folder.parentId, folder.parentName || '');
       }
@@ -250,6 +251,17 @@ export default function AdminQuizFoldersPage() {
     } catch (err: any) {
       setFolders(previous);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete folder.' });
+    }
+  };
+
+  const handleDeleteQuiz = async (target: { quiz: any; folderId: string; folderName: string }) => {
+    setToastMsg({ type: 'success', text: `Quiz "${target.quiz.title}" deleted.` });
+    try {
+      await ApiClient.deleteQuiz(target.quiz.id);
+      await refreshFolderContents(target.folderId, target.folderName);
+      await loadFolders();
+    } catch (err: any) {
+      setToastMsg({ type: 'error', text: err.message || 'Failed to delete quiz.' });
     }
   };
 
@@ -849,12 +861,23 @@ export default function AdminQuizFoldersPage() {
                                               </Badge>
                                             </TableCell>
                                             <TableCell className="py-2 text-right">
-                                              <Link href={`/admin/quizzes/${qz.id}/questions`}>
-                                                <Button size="sm" variant="outline" className="text-xs h-6 px-2 font-bold border-cyan-500/30 text-cyan-600 cursor-pointer">
-                                                  <ListChecks className="w-3 h-3 mr-0.5" />
-                                                  <span>Questions</span>
+                                              <div className="flex items-center justify-end gap-1">
+                                                <Link href={`/admin/quizzes/${qz.id}/questions`}>
+                                                  <Button size="sm" variant="outline" className="text-xs h-6 px-2 font-bold border-cyan-500/30 text-cyan-600 cursor-pointer">
+                                                    <ListChecks className="w-3 h-3 mr-0.5" />
+                                                    <span>Questions</span>
+                                                  </Button>
+                                                </Link>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-6 w-6 p-0 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                                  onClick={() => setDeleteQuizTarget({ quiz: qz, folderId: subF.id, folderName: subF.name })}
+                                                  title="Delete Quiz"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
                                                 </Button>
-                                              </Link>
+                                              </div>
                                             </TableCell>
                                           </TableRow>
                                         ))}
@@ -902,12 +925,23 @@ export default function AdminQuizFoldersPage() {
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="py-2.5 text-right">
-                                  <Link href={`/admin/quizzes/${qz.id}/questions`}>
-                                    <Button size="sm" variant="outline" className="text-xs h-6 px-2 font-bold border-cyan-500/30 text-cyan-600 cursor-pointer">
-                                      <ListChecks className="w-3 h-3 mr-0.5" />
-                                      <span>Questions</span>
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Link href={`/admin/quizzes/${qz.id}/questions`}>
+                                      <Button size="sm" variant="outline" className="text-xs h-6 px-2 font-bold border-cyan-500/30 text-cyan-600 cursor-pointer">
+                                        <ListChecks className="w-3 h-3 mr-0.5" />
+                                        <span>Questions</span>
+                                      </Button>
+                                    </Link>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                      onClick={() => setDeleteQuizTarget({ quiz: qz, folderId: folder.id, folderName: folder.name })}
+                                      title="Delete Quiz"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
                                     </Button>
-                                  </Link>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1000,7 +1034,7 @@ export default function AdminQuizFoldersPage() {
         title="Delete Quiz Folder"
         description={
           deleteTarget
-            ? `Are you sure you want to delete "${deleteTarget.name}"? Any quizzes currently in this folder will be moved to the Root folder. This action cannot be undone.`
+            ? `Are you sure you want to permanently delete folder "${deleteTarget.name}" and all sub-folders and quizzes inside it? This action cannot be undone.`
             : undefined
         }
         confirmLabel="Delete Folder"
@@ -1010,6 +1044,24 @@ export default function AdminQuizFoldersPage() {
           setDeleteTarget(null);
         }}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* Delete Quiz Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={deleteQuizTarget !== null}
+        title="Delete Quiz"
+        description={
+          deleteQuizTarget
+            ? `Are you sure you want to permanently delete quiz "${deleteQuizTarget.quiz.title}"? This action cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete Quiz"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteQuizTarget) handleDeleteQuiz(deleteQuizTarget);
+          setDeleteQuizTarget(null);
+        }}
+        onCancel={() => setDeleteQuizTarget(null)}
       />
     </div>
   );

@@ -689,6 +689,7 @@ export default function AdminOrdersPage() {
 
       setToastMsg({ type: 'success', text: `Order #${editingOrder.id.substring(0, 8)} updated successfully.` });
       setEditingOrder(null);
+      await fetchOrders();
     } catch (err: any) {
       setToastMsg({ type: 'error', text: err.message || 'Failed to update order.' });
     } finally {

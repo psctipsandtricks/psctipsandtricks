@@ -8,12 +8,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../features/notifications/notifications_screen.dart';
 import '../../firebase_options.dart';
 import '../providers/app_providers.dart';
 import '../providers/auth_controller.dart';
 import '../router/app_router.dart';
+import '../router/notification_destination.dart';
+import '../../features/notifications/read_notifications.dart';
 
 /// The topic every installation subscribes to. The API broadcasts here rather
 /// than looping over stored tokens, so a notice for everyone costs one request.
@@ -210,18 +213,32 @@ class PushService {
     _route(message.data.map((k, v) => MapEntry(k, '$v')));
   }
 
-  /// Sends the student wherever the notification points.
+  /// Sends the student wherever the notification points, and marks it read.
   ///
-  /// `route` is honoured when the API sends one, so a notification about a new
-  /// book can open that book; everything else lands on the notifications
-  /// screen, where the message is waiting in full.
+  /// The destination is whatever the admin panel typed, so it is validated
+  /// before it is opened: a route this build does not have, a link meant for
+  /// the website, or a typo must land on the notification list rather than on
+  /// a blank screen. A notification with no destination lands there too — the
+  /// message is waiting in full.
   void _route(Map<String, String> data) {
     _refreshInbox();
 
-    final route = (data['route'] ?? '').trim();
-    final target = route.isEmpty
-        ? AppRoutes.notifications
-        : (route.startsWith('/') ? route : '/$route');
+    // Opening a notification is reading it, however the app was launched.
+    final notificationId = (data['notificationId'] ?? '').trim();
+    if (notificationId.isNotEmpty) {
+      _ref.read(readNotificationsProvider.notifier).markRead(notificationId);
+    }
+
+    final destination = resolveNotificationDestination(data['route']);
+
+    if (destination != null && destination.isExternal) {
+      launchUrl(destination.externalUrl!, mode: LaunchMode.externalApplication);
+      return;
+    }
+
+    // An unusable destination is not an error to show anyone — the list is
+    // always a sane place to arrive.
+    final target = destination?.location ?? AppRoutes.notifications;
 
     try {
       _ref.read(routerProvider).push(target);

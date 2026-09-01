@@ -97,7 +97,21 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       socket.onMessage.listen((message) {
         if (message.groupId != null && message.groupId != widget.groupId) return;
         if (!mounted) return;
+
+        // If message already exists by id, ignore
         if (_messages.any((m) => m.id == message.id)) return;
+
+        // If it matches an optimistic message from the same user with the same content, replace it
+        final optimisticIdx = _messages.indexWhere((m) =>
+            m.id.startsWith('optimistic-') &&
+            m.userId == message.userId &&
+            m.content == message.content);
+        if (optimisticIdx != -1) {
+          setState(() => _messages[optimisticIdx] = message);
+          unawaited(_markRead());
+          return;
+        }
+
         setState(() => _messages.insert(0, message));
         unawaited(_markRead());
       }),
@@ -191,18 +205,29 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _composer.text.trim();
     if (text.isEmpty) return;
 
-    final token = ref.read(tokenStoreProvider).accessToken;
-    if (token == null) return;
+    final me = ref.read(currentUserProvider);
+    if (me == null) return;
 
-    ref
-        .read(chatSocketProvider(token))
-        .sendMessage(groupId: widget.groupId, content: text);
+    final tempId = 'optimistic-${DateTime.now().millisecondsSinceEpoch}';
+    final optimisticMsg = ChatMessage(
+      id: tempId,
+      userId: me.id,
+      userName: me.name,
+      userAvatar: me.avatarUrl,
+      content: text,
+      type: ChatMessageType.text,
+      groupId: widget.groupId,
+      createdAt: DateTime.now(),
+    );
+
     _composer.clear();
-    setState(() {});
+    setState(() {
+      _messages.insert(0, optimisticMsg);
+    });
 
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -210,6 +235,51 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
       );
+    }
+
+    try {
+      final savedMessage = await ref.read(chatRepositoryProvider).sendMessage(
+            widget.groupId,
+            content: text,
+          );
+
+      if (!mounted) return;
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == tempId);
+        if (index != -1) {
+          _messages[index] = savedMessage;
+        } else if (!_messages.any((m) => m.id == savedMessage.id)) {
+          _messages.insert(0, savedMessage);
+        }
+      });
+      unawaited(_markRead());
+      ref.invalidate(chatGroupsProvider);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.removeWhere((m) => m.id == tempId);
+          _composer.text = text;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: AppColors.rose,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.removeWhere((m) => m.id == tempId);
+          _composer.text = text;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send message. Please check connection.'),
+            backgroundColor: AppColors.rose,
+          ),
+        );
+      }
     }
   }
 
@@ -665,8 +735,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
 final chatSocketProvider =
     Provider.family.autoDispose<ChatSocket, String>((ref, token) {
+  final link = ref.keepAlive();
   final socket = ChatSocket(accessToken: token);
-  ref.onDispose(socket.dispose);
+  ref.onDispose(() {
+    link.close();
+    socket.dispose();
+  });
   return socket;
 });
 

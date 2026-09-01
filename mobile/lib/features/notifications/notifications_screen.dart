@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
@@ -9,13 +11,66 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
+import '../../core/router/notification_destination.dart';
 import '../../data/models/notification.dart';
+import 'read_notifications.dart';
 
 final notificationsProvider =
     FutureProvider.autoDispose<List<AppNotification>>((ref) async {
   ref.keepAlive();
   return ref.watch(notificationsRepositoryProvider).fetchNotifications();
 });
+
+/// How many notifications the student has not opened yet.
+///
+/// Counted from the same merged read state the list paints from, so the badge
+/// and the list can never disagree. Unread notices are never hidden by the
+/// retention rule, so every one of these is reachable on the list — the badge
+/// cannot send anyone looking for something that is not there.
+final unreadNotificationCountProvider = Provider.autoDispose<int>((ref) {
+  final notifications =
+      ref.watch(notificationsProvider).valueOrNull ?? const <AppNotification>[];
+  return countUnread(notifications, ref.watch(readNotificationsProvider));
+});
+
+/// Unread means neither the server nor this device has it marked read — the
+/// same test the list uses to decide what to highlight.
+int countUnread(
+  List<AppNotification> all,
+  Set<String> locallyRead,
+) =>
+    all.where((n) => !n.isRead && !locallyRead.contains(n.id)).length;
+
+/// How long a notification the student has already read stays on the list.
+const notificationReadRetention = Duration(days: 7);
+
+/// The notifications to show, newest first.
+///
+/// Read notices older than a week are hidden — they have been dealt with and
+/// the list is not an archive. Unread ones are never hidden however old they
+/// are: hiding something the student has not seen would lose it silently. None
+/// of this deletes anything; the rows stay on the server either way.
+List<AppNotification> visibleNotifications(
+  List<AppNotification> all, {
+  required Set<String> locallyRead,
+  required DateTime now,
+}) {
+  final cutoff = now.subtract(notificationReadRetention);
+
+  final visible = all.where((n) {
+    final isRead = n.isRead || locallyRead.contains(n.id);
+    if (!isRead) return true;
+    final created = n.createdAt;
+    // An undated notification cannot be judged old, so it is kept.
+    if (created == null) return true;
+    return created.isAfter(cutoff);
+  }).toList();
+
+  visible.sort(
+    (a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
+  );
+  return visible;
+}
 
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
@@ -46,17 +101,37 @@ class NotificationsScreen extends ConsumerWidget {
               );
             }
 
-            final sorted = [...notifications]..sort(
-                (a, b) => (b.createdAt ?? DateTime(0))
-                    .compareTo(a.createdAt ?? DateTime(0)),
+            final locallyRead = ref.watch(readNotificationsProvider);
+            final visible = visibleNotifications(
+              notifications,
+              locallyRead: locallyRead,
+              now: DateTime.now(),
+            );
+
+            if (visible.isEmpty) {
+              return ListView(
+                children: const [
+                  SizedBox(height: 60),
+                  EmptyView(
+                    icon: Icons.notifications_none_rounded,
+                    title: 'Nothing new',
+                    message:
+                        'Notices you have already read are tidied away after a '
+                        'week. Anything unread stays here until you open it.',
+                  ),
+                ],
               );
+            }
 
             return ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-              itemCount: sorted.length,
+              itemCount: visible.length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, index) =>
-                  _NotificationCard(notification: sorted[index]),
+              itemBuilder: (context, index) => _NotificationCard(
+                notification: visible[index],
+                unread: !visible[index].isRead &&
+                    !locallyRead.contains(visible[index].id),
+              ),
             );
           },
         ),
@@ -66,9 +141,12 @@ class NotificationsScreen extends ConsumerWidget {
 }
 
 class _NotificationCard extends ConsumerWidget {
-  const _NotificationCard({required this.notification});
+  const _NotificationCard({required this.notification, required this.unread});
 
   final AppNotification notification;
+
+  /// Merged server and on-device read state — see [ReadNotificationsController].
+  final bool unread;
 
   /// Colour and icon by notification kind, so a rank update and a new-book
   /// notice are distinguishable at a glance.
@@ -88,14 +166,26 @@ class _NotificationCard extends ConsumerWidget {
     }
   }
 
+  /// Opening a notification marks it read and takes the student wherever it
+  /// points. A notice with no destination is still openable — that tap is how
+  /// it gets marked read.
   void _handleTap(BuildContext context, WidgetRef ref) {
-    final route = (notification.route ?? '').trim();
-    if (route.isEmpty) return;
+    ref.read(readNotificationsProvider.notifier).markRead(notification.id);
 
-    final target = route.startsWith('/') ? route : '/$route';
+    final destination = resolveNotificationDestination(notification.route);
+    if (destination == null || destination.isExternal) {
+      // Already on the list, so an external link is the only thing left to do.
+      if (destination?.externalUrl != null) {
+        launchUrl(destination!.externalUrl!, mode: LaunchMode.externalApplication);
+      }
+      return;
+    }
+
     try {
-      ref.read(routerProvider).push(target);
-    } catch (_) {}
+      ref.read(routerProvider).push(destination.location!);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Could not open ${destination.location}: $e');
+    }
   }
 
   @override
@@ -106,11 +196,9 @@ class _NotificationCard extends ConsumerWidget {
     final hasImage = (notification.imageUrl ?? '').trim().isNotEmpty;
 
     return GlassCard(
-      borderColor: notification.isRead
-          ? null
-          : AppColors.cyan.withValues(alpha: 0.35),
+      borderColor: unread ? AppColors.cyan.withValues(alpha: 0.35) : null,
       padding: const EdgeInsets.all(14),
-      onTap: hasRoute ? () => _handleTap(context, ref) : null,
+      onTap: () => _handleTap(context, ref),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -133,14 +221,13 @@ class _NotificationCard extends ConsumerWidget {
                       child: Text(
                         notification.title,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: notification.isRead
-                                  ? FontWeight.w600
-                                  : FontWeight.w800,
+                              fontWeight:
+                                  unread ? FontWeight.w800 : FontWeight.w600,
                               height: 1.3,
                             ),
                       ),
                     ),
-                    if (!notification.isRead)
+                    if (unread)
                       Container(
                         width: 7,
                         height: 7,

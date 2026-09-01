@@ -100,11 +100,74 @@ class BookCard extends StatelessWidget {
                       ),
                   ],
                 ),
+                if (book.subscription != null) ...[
+                  const SizedBox(height: 6),
+                  SubscriptionValidity(subscription: book.subscription!),
+                ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// When a book is held on a subscription rather than owned outright, the date
+/// that entitlement runs out.
+///
+/// Shown on the card itself because the alternative — opening the book to find
+/// out — is exactly the discovery a student should not have to make. The
+/// wording and colour shift as the date approaches so a lapse is never a
+/// surprise: quiet while there is time, amber inside the last week, and red
+/// once it has gone.
+class SubscriptionValidity extends StatelessWidget {
+  const SubscriptionValidity({
+    super.key,
+    required this.subscription,
+    this.compact = false,
+  });
+
+  final SubscriptionAccess subscription;
+
+  /// Tightens the type for the narrower carousel tile.
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final validTill = subscription.validTill;
+    // A subscription the API could not date is not worth a half-empty line.
+    if (validTill == null) return const SizedBox.shrink();
+
+    final expired = subscription.isExpired;
+    final color = expired
+        ? AppColors.rose
+        : subscription.isExpiringSoon
+            ? AppColors.amber
+            : context.palette.textMuted;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          expired ? Icons.event_busy_rounded : Icons.event_available_rounded,
+          size: compact ? 11 : 12,
+          color: color,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            '${expired ? 'Expired' : 'Valid till'} ${Fmt.date(validTill)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontSize: compact ? 10 : 11,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -180,9 +243,14 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// Compact cover-forward tile used by the home carousel (16:9 YouTube aspect ratio).
+/// Cover-forward premium card used by the home carousel (16:9 widescreen YouTube aspect ratio).
 class BookTile extends StatelessWidget {
-  const BookTile({super.key, required this.book, this.onTap, this.width = 160});
+  const BookTile({
+    super.key,
+    required this.book,
+    this.onTap,
+    this.width = 240,
+  });
 
   final Book book;
   final VoidCallback? onTap;
@@ -190,50 +258,355 @@ class BookTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final palette = context.palette;
+    final isDark = palette.isDark;
+    final coverHeight = width * (9 / 16);
+
+    return Container(
       width: width,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                BookCover(url: book.coverUrl, width: width),
-                if (book.isNew)
-                  const Positioned(
-                    top: 6,
-                    left: 6,
-                    child: AppBadge(
-                      'NEW',
-                      color: AppColors.emerald,
-                      filled: true,
+      decoration: BoxDecoration(
+        color: palette.card,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(
+          color: isDark
+              ? const Color(0xFF1E293B)
+              : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Cover with Badges
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(AppTheme.radiusLg - 1),
+                    ),
+                    child: AppImage(
+                      url: book.heroCoverUrl ?? book.coverUrl,
+                      width: width,
+                      height: coverHeight,
+                      fallbackIcon: Icons.auto_stories_rounded,
                     ),
                   ),
-              ],
-            ),
-            const SizedBox(height: 9),
-            Flexible(
-              child: Text(
-                book.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
+
+                  // Gradient overlay on bottom of image for badge legibility
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(AppTheme.radiusLg - 1),
+                        ),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.2),
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.5),
+                          ],
+                          stops: const [0.0, 0.4, 1.0],
+                        ),
+                      ),
                     ),
+                  ),
+
+                  // Top Left: NEW / Category badge
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (book.isNew) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF10B981), Color(0xFF059669)],
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF10B981)
+                                      .withValues(alpha: 0.4),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.auto_awesome_rounded,
+                                    size: 10, color: Colors.white),
+                                SizedBox(width: 3),
+                                Text(
+                                  'NEW',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                        ],
+                        if (book.category.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Text(
+                              book.category.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Top Right: Discount / Access badge
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (book.hasDiscount)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFF59E0B), Color(0xFFEA580C)],
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '-${book.discountPercent}%',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          )
+                        else if (book.isUnlocked && book.isPremium)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.check_circle_rounded,
+                                    size: 10, color: Colors.white),
+                                SizedBox(width: 3),
+                                Text(
+                                  'OWNED',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Bottom Left info on image: Chapters or audio pill
+                  if ((book.chaptersCount ?? 0) > 0 || book.previewAudioUrl != null)
+                    Positioned(
+                      bottom: 6,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            width: 0.6,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (book.previewAudioUrl != null) ...[
+                              const Icon(Icons.headphones_rounded,
+                                  size: 10, color: AppColors.cyan),
+                              const SizedBox(width: 3),
+                              const Text(
+                                'Audiobook',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ] else if ((book.chaptersCount ?? 0) > 0) ...[
+                              const Icon(Icons.menu_book_rounded,
+                                  size: 10, color: AppColors.amber),
+                              const SizedBox(width: 3),
+                              Text(
+                                '${book.chaptersCount} Chapters',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              book.isFree ? 'Free' : Fmt.price(book.finalPrice),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: book.isFree ? AppColors.emerald : AppColors.amber,
-                    fontWeight: FontWeight.w800,
-                  ),
-            ),
-          ],
+
+              // Book Details
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      book.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            height: 1.25,
+                            letterSpacing: -0.2,
+                          ),
+                    ),
+                    const SizedBox(height: 3),
+                    if (book.author.isNotEmpty)
+                      Text(
+                        book.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: palette.textMuted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        if (book.isFree)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: AppColors.emerald.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: AppColors.emerald.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: const Text(
+                              'FREE',
+                              style: TextStyle(
+                                color: AppColors.emerald,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          )
+                        else ...[
+                          Text(
+                            Fmt.price(book.finalPrice),
+                            style: TextStyle(
+                              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                          if (book.hasDiscount) ...[
+                            const SizedBox(width: 5),
+                            Text(
+                              Fmt.price(book.price),
+                              style: TextStyle(
+                                color: palette.textMuted,
+                                fontSize: 11,
+                                decoration: TextDecoration.lineThrough,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: AppColors.cyan.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 13,
+                            color: AppColors.cyan,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (book.subscription != null) ...[
+                      const SizedBox(height: 5),
+                      SubscriptionValidity(
+                        subscription: book.subscription!,
+                        compact: true,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

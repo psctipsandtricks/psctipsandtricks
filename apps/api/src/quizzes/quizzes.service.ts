@@ -20,6 +20,35 @@ const CURATOR: AccessActor = { id: '', role: 'ADMIN' as any };
  */
 const RELEASE_DATE_GRACE_MS = 60_000;
 
+export type QuizAnswerStatus = 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
+
+/** One option as the review screens consume it, whatever shape it was stored in. */
+export interface ReviewOption {
+  id: string;
+  text: string;
+  explanation: string | null;
+}
+
+/**
+ * Question options are stored as JSON and, depending on how the quiz was
+ * authored, arrive either as `{ id, text }` objects or as bare strings. The
+ * review contract exposes exactly one shape so neither client has to branch.
+ */
+function normalizeOptions(raw: unknown): ReviewOption[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((option, index) => {
+    if (option && typeof option === 'object') {
+      const record = option as Record<string, unknown>;
+      return {
+        id: typeof record.id === 'string' ? record.id : `opt-${index}`,
+        text: typeof record.text === 'string' ? record.text : '',
+        explanation: typeof record.explanation === 'string' ? record.explanation : null,
+      };
+    }
+    return { id: `opt-${index}`, text: String(option ?? ''), explanation: null };
+  });
+}
+
 @Injectable()
 export class QuizzesService {
   constructor(
@@ -82,7 +111,7 @@ export class QuizzesService {
 
     const andClauses: Prisma.QuizWhereInput[] = [];
 
-    // For student/published catalog or non-staff users, strictly exclude quizzes whose releaseDate is in the future
+    // For student/published catalog or non-staff users, strictly exclude inactive, future-dated, draft, or orphaned quizzes
     if (isPublishedOnly || !this.quizAccess.isStaff(actor)) {
       andClauses.push({
         OR: [
@@ -91,11 +120,16 @@ export class QuizzesService {
           { releaseDate: { lte: new Date().toISOString() } },
         ],
       });
-    }
-
-    if (isPublishedOnly) {
       andClauses.push({ isActive: true });
       andClauses.push({ questions: { some: {} } });
+
+      // Ensure quizzes belong to active, existing folders
+      const activeFolders = await this.prisma.quizFolder.findMany({
+        where: { isActive: true },
+        select: { name: true },
+      });
+      const activeFolderNames = activeFolders.map((f) => f.name);
+      andClauses.push({ folderName: { in: activeFolderNames } });
     }
 
     if (query?.folder && query.folder !== 'ALL') {
@@ -480,6 +514,122 @@ export class QuizzesService {
     return submission;
   }
 
+  /**
+   * The answer key alongside what the student actually picked, for one
+   * submitted attempt. This is the single source of truth behind the result /
+   * review screens on both the website and the mobile app — neither client
+   * re-derives correctness locally.
+   *
+   * Questions come back in the quiz's own order, so the review reads in the
+   * same sequence the student answered them.
+   */
+  async getAttemptReview(actor: AccessActor, attemptId: string) {
+    const submission = await this.prisma.quizSubmission.findUnique({
+      where: { id: attemptId },
+      include: {
+        quiz: {
+          include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+        },
+      },
+    });
+
+    // 404 rather than 403 for someone else's attempt — a guessed id must not
+    // confirm that the attempt exists.
+    if (!submission || (submission.userId !== actor.id && !this.quizAccess.isStaff(actor))) {
+      throw new NotFoundException('Attempt not found');
+    }
+    if (submission.attemptStatus !== 'COMPLETED') {
+      throw new BadRequestException('This attempt has not been submitted yet.');
+    }
+
+    const quiz = submission.quiz;
+    const selectionByQuestion = new Map<string, number>();
+    for (const raw of Array.isArray(submission.answers) ? submission.answers : []) {
+      const answer = raw as { questionId?: unknown; selectedOptionIndex?: unknown };
+      if (typeof answer?.questionId !== 'string') continue;
+      if (typeof answer.selectedOptionIndex !== 'number') continue;
+      selectionByQuestion.set(answer.questionId, answer.selectedOptionIndex);
+    }
+
+    let matchedAnswers = 0;
+    const questions = quiz.questions.map((question, index) => {
+      const options = normalizeOptions(question.options);
+      const recorded = selectionByQuestion.get(question.id);
+      if (recorded !== undefined) matchedAnswers++;
+
+      // An index the options no longer cover (an edited quiz) is treated as no
+      // answer rather than silently pointing at the wrong option text.
+      const selectedOptionIndex =
+        recorded !== undefined && recorded >= 0 && recorded < options.length ? recorded : null;
+      const correctOptionIndex =
+        question.correctOptionIndex >= 0 && question.correctOptionIndex < options.length
+          ? question.correctOptionIndex
+          : null;
+
+      const status: QuizAnswerStatus =
+        selectedOptionIndex === null
+          ? 'UNATTEMPTED'
+          : selectedOptionIndex === correctOptionIndex
+            ? 'CORRECT'
+            : 'INCORRECT';
+
+      return {
+        id: question.id,
+        // 1-based so clients can label "Question 3" without recomputing it.
+        number: index + 1,
+        text: question.text,
+        marks: question.marks,
+        explanation: question.explanation,
+        options,
+        selectedOptionIndex,
+        selectedOptionText: selectedOptionIndex === null ? null : options[selectedOptionIndex].text,
+        correctOptionIndex,
+        correctOptionText: correctOptionIndex === null ? null : options[correctOptionIndex].text,
+        status,
+        isCorrect: status === 'CORRECT',
+      };
+    });
+
+    // Saving a quiz recreates its questions with fresh ids, which orphans the
+    // question ids stored on older attempts. Rather than render every answer
+    // as skipped without explanation, say so and let the client warn.
+    const answersStale = selectionByQuestion.size > 0 && matchedAnswers === 0;
+
+    const negativeDeducted = quiz.negativeMarkingEnabled
+      ? Math.floor(submission.wrongAnswers / Math.max(1, quiz.negativeMarkingEvery)) *
+        quiz.negativeMarkingDeduct
+      : 0;
+
+    return {
+      id: submission.id,
+      quizId: submission.quizId,
+      quizTitle: quiz.title,
+      attemptNumber: submission.attemptNumber,
+      attemptStatus: submission.attemptStatus,
+      score: submission.score,
+      totalMarks: submission.totalMarks,
+      percentage: submission.percentage,
+      passed: submission.passed,
+      passingMarks: quiz.passingMarks,
+      totalQuestions: submission.totalQuestions,
+      correctAnswers: submission.correctAnswers,
+      wrongAnswers: submission.wrongAnswers,
+      unattempted: submission.unattempted,
+      timeTakenSeconds: submission.timeTakenSeconds,
+      startedAt: submission.startedAt,
+      submittedAt: submission.submittedAt,
+      negativeMarking: {
+        enabled: quiz.negativeMarkingEnabled,
+        every: quiz.negativeMarkingEvery,
+        deduct: quiz.negativeMarkingDeduct,
+        allowNegativeScore: quiz.allowNegativeScore,
+        deducted: Math.round(negativeDeducted * 100) / 100,
+      },
+      answersStale,
+      questions,
+    };
+  }
+
   async getStudentHistory(userId: string) {
     return this.prisma.quizSubmission.findMany({
       where: { userId },
@@ -568,7 +718,17 @@ export class QuizzesService {
       this.prisma.quiz.groupBy({
         by: ['folderName'],
         _count: { _all: true },
-        where: isCurator ? {} : { isActive: true },
+        where: isCurator
+          ? {}
+          : {
+              isActive: true,
+              questions: { some: {} },
+              OR: [
+                { releaseDate: null },
+                { releaseDate: '' },
+                { releaseDate: { lte: new Date().toISOString() } },
+              ],
+            },
       }),
     ]);
 
@@ -788,19 +948,50 @@ export class QuizzesService {
       },
     });
 
-    const targetName = folder ? folder.name : (idOrName.startsWith('virtual-') ? decodeURIComponent(idOrName.replace('virtual-', '')) : idOrName);
-
-    // Move any quizzes inside this folder to 'Root'
-    await this.prisma.quiz.updateMany({
-      where: { folderName: targetName },
-      data: { folderName: 'Root' },
-    });
+    const folderNamesToDelete: string[] = [];
+    const folderIdsToDelete: string[] = [];
 
     if (folder) {
-      await this.prisma.quizFolder.delete({ where: { id: folder.id } });
+      folderNamesToDelete.push(folder.name);
+      folderIdsToDelete.push(folder.id);
+
+      const collectDescendants = async (parentId: string) => {
+        const children = await this.prisma.quizFolder.findMany({
+          where: { parentId },
+        });
+        for (const child of children) {
+          folderNamesToDelete.push(child.name);
+          folderIdsToDelete.push(child.id);
+          await collectDescendants(child.id);
+        }
+      };
+
+      await collectDescendants(folder.id);
+    } else {
+      const targetName = idOrName.startsWith('virtual-')
+        ? decodeURIComponent(idOrName.replace('virtual-', ''))
+        : idOrName;
+      folderNamesToDelete.push(targetName);
     }
 
-    return { success: true, message: `Folder "${targetName}" deleted, quizzes moved to Root.` };
+    // 1. Permanently delete all quizzes in this folder and its subfolders
+    if (folderNamesToDelete.length > 0) {
+      await this.prisma.quiz.deleteMany({
+        where: { folderName: { in: folderNamesToDelete } },
+      });
+    }
+
+    // 2. Delete the folders from database
+    if (folderIdsToDelete.length > 0) {
+      await this.prisma.quizFolder.deleteMany({
+        where: { id: { in: folderIdsToDelete } },
+      });
+    }
+
+    return {
+      success: true,
+      message: `Folder "${folder?.name || idOrName}" and all its contents were deleted successfully.`,
+    };
   }
 
   async reorderFolders(dto: { items: { id: string; orderIndex: number }[] }) {

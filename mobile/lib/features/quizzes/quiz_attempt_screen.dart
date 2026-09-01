@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -85,6 +86,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
   Timer? _ticker;
   int _elapsedSeconds = 0;
   bool _submitted = false;
+  bool _submitting = false;
 
   String get _storageKey => 'quiz-progress-${widget.quizId}';
 
@@ -190,7 +192,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       // Persist about every 5s rather than every tick — a write per second on
       // a 60-minute paper is thousands of needless disk hits.
       if (_elapsedSeconds % 5 == 0) _persistProgress();
-      if (_elapsedSeconds >= total) _submit(auto: true);
+      if (_elapsedSeconds >= total) unawaited(_submit(auto: true));
     });
   }
 
@@ -247,18 +249,22 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
         ],
       ),
     );
-    if (ok == true) _submit();
+    if (ok == true) unawaited(_submit());
   }
 
-  /// Scores locally for an instant result, then persists in the background —
-  /// the same trade-off the website makes so the student is never left waiting
-  /// on the network to see how they did.
-  void _submit({bool auto = false}) {
+  /// Persists the attempt, then hands the student to the server-scored result
+  /// screen — the same payload the website's result page renders, so the two
+  /// never disagree about an answer. Should the network fail, the locally
+  /// scored sheet stands in so the attempt is never lost without a result.
+  Future<void> _submit({bool auto = false}) async {
     final quiz = _quiz;
     if (quiz == null || _submitted) return;
 
     _ticker?.cancel();
-    setState(() => _submitted = true);
+    setState(() {
+      _submitted = true;
+      _submitting = true;
+    });
 
     var positiveMarks = 0.0;
     var correct = 0;
@@ -307,10 +313,9 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
 
     ref.read(sharedPrefsProvider).remove(_storageKey);
 
-    unawaited(
-      ref
-          .read(quizzesRepositoryProvider)
-          .submitAttempt(
+    QuizAttempt? saved;
+    try {
+      saved = await ref.read(quizzesRepositoryProvider).submitAttempt(
             widget.quizId,
             QuizSubmission(
               quizId: widget.quizId,
@@ -318,14 +323,34 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
               timeTakenSeconds: _elapsedSeconds,
             ),
             attemptId: _attemptId,
-          )
-          .then((_) {
-            // History and the dashboard both change once this lands.
-            ref.invalidate(quizHistoryProvider);
-          })
-          .catchError((_) {}),
-    );
+          );
+      // History and the dashboard both change once this lands.
+      ref.invalidate(quizHistoryProvider);
+    } catch (_) {
+      saved = null;
+    }
 
+    if (!mounted) return;
+    setState(() => _submitting = false);
+
+    if (saved != null && saved.id.isNotEmpty) {
+      if (auto) {
+        // The result screen has no timer context of its own, so say why the
+        // attempt ended before handing over to it.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Time ran out — your attempt was submitted.'),
+          ),
+        );
+      }
+      // `replace`, so Back from the result lands on the quiz hub rather than
+      // re-opening the attempt the student just finished.
+      context.replace(AppRoutes.quizResult(saved.id));
+      return;
+    }
+
+    // The attempt could not be persisted — the locally scored sheet still
+    // tells the student how they did, using the same rules the server applies.
     showQuizResultSheet(
       context,
       quiz: quiz,
@@ -409,79 +434,88 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
         }
       },
       child: Scaffold(
-        body: SafeArea(
-          child: Column(
-            children: [
-              _AttemptHeader(
-                quiz: quiz,
-                position: _currentIndex + 1,
-                total: quiz.questions.length,
-                remaining: _remainingSeconds,
-                answered: _answers.length,
-                onSubmit: _confirmSubmit,
-                onGrid: () => _showQuestionGrid(quiz),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
-                  children: [
-                    Row(
+        // A blocking overlay while the attempt is being persisted — the
+        // result screen is server-scored, so there is nothing to show until
+        // the submit lands.
+        body: Stack(
+          children: [
+            SafeArea(
+              child: Column(
+                children: [
+                  _AttemptHeader(
+                    quiz: quiz,
+                    position: _currentIndex + 1,
+                    total: quiz.questions.length,
+                    remaining: _remainingSeconds,
+                    answered: _answers.length,
+                    onSubmit: _confirmSubmit,
+                    onGrid: () => _showQuestionGrid(quiz),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
                       children: [
-                        AppBadge('QUESTION ${_currentIndex + 1}'),
-                        const SizedBox(width: 8),
-                        AppBadge(
-                          'ATTEMPT #$_attemptNumber',
-                          color: AppColors.amber,
+                        Row(
+                          children: [
+                            AppBadge('QUESTION ${_currentIndex + 1}'),
+                            const SizedBox(width: 8),
+                            AppBadge(
+                              'ATTEMPT #$_attemptNumber',
+                              color: AppColors.amber,
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${Fmt.marks(question.marks)} ${question.marks == 1 ? 'mark' : 'marks'}',
+                              style:
+                                  Theme.of(context).textTheme.labelSmall?.copyWith(
+                                        color: context.palette.textMuted,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                            ),
+                          ],
                         ),
-                        const Spacer(),
+                        const SizedBox(height: 16),
                         Text(
-                          '${Fmt.marks(question.marks)} ${question.marks == 1 ? 'mark' : 'marks'}',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: context.palette.textMuted,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                          question.text,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                height: 1.5,
+                                fontSize: 17,
+                              ),
                         ),
+                        const SizedBox(height: 20),
+                        for (var i = 0; i < question.options.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 11),
+                            child: _OptionTile(
+                              index: i,
+                              option: question.options[i],
+                              isSelected: selected == i,
+                              isCorrect: i == question.correctOptionIndex,
+                              reveal: reveal,
+                              onTap: () => _select(question, i),
+                            ),
+                          ),
+                        if (reveal && (question.explanation ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _Explanation(text: question.explanation!),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      question.text,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            height: 1.5,
-                            fontSize: 17,
-                          ),
-                    ),
-                    const SizedBox(height: 20),
-                    for (var i = 0; i < question.options.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 11),
-                        child: _OptionTile(
-                          index: i,
-                          option: question.options[i],
-                          isSelected: selected == i,
-                          isCorrect: i == question.correctOptionIndex,
-                          reveal: reveal,
-                          onTap: () => _select(question, i),
-                        ),
-                      ),
-                    if (reveal && (question.explanation ?? '').isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _Explanation(text: question.explanation!),
-                    ],
-                  ],
-                ),
+                  ),
+                  _AttemptFooter(
+                    canPrev: _currentIndex > 0,
+                    isLast: _currentIndex == quiz.questions.length - 1,
+                    onPrev: () => _goTo(_currentIndex - 1),
+                    onNext: () => _goTo(_currentIndex + 1),
+                    onSubmit: _confirmSubmit,
+                  ),
+                ],
               ),
-              _AttemptFooter(
-                canPrev: _currentIndex > 0,
-                isLast: _currentIndex == quiz.questions.length - 1,
-                onPrev: () => _goTo(_currentIndex - 1),
-                onNext: () => _goTo(_currentIndex + 1),
-                onSubmit: _confirmSubmit,
-              ),
-            ],
-          ),
+            ),
+            if (_submitting)
+              const Positioned.fill(child: _SubmittingOverlay()),
+          ],
         ),
       ),
     );
@@ -944,6 +978,36 @@ class _AttemptSkeleton extends StatelessWidget {
             SkeletonBox(height: 56, radius: AppTheme.radiusMd),
             SizedBox(height: 11),
             SkeletonBox(height: 56, radius: AppTheme.radiusMd),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Covers the attempt while its answers are on their way to the server, so a
+/// slow network cannot be mistaken for a submit that did not register.
+class _SubmittingOverlay extends StatelessWidget {
+  const _SubmittingOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return ColoredBox(
+      color: palette.background.withValues(alpha: 0.82),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(strokeWidth: 3),
+            const SizedBox(height: 16),
+            Text(
+              'Submitting your answers…',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: palette.textSecondary,
+                  ),
+            ),
           ],
         ),
       ),

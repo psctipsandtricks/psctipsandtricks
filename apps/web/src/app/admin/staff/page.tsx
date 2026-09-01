@@ -365,7 +365,7 @@ export default function StaffManagementPage() {
       } else {
         await ApiClient.reactivateStaff(target.staff.id);
       }
-      await fetchStaff(true);
+      await fetchStaff();
     } catch (err: any) {
       setStaffList(previous);
       setErrorBanner(err?.message || 'Failed to update account status');
@@ -384,7 +384,7 @@ export default function StaffManagementPage() {
 
     try {
       await ApiClient.deleteStaff(target.id);
-      await fetchStaff(true);
+      await fetchStaff();
     } catch (err: any) {
       setStaffList(previous);
       setTotalItems(prevTotal);

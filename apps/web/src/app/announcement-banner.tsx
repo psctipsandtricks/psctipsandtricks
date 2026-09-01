@@ -82,7 +82,7 @@ export function AnnouncementBanner() {
           if (stored) {
             dismissedSet = new Set(JSON.parse(stored));
           }
-        } catch {}
+        } catch { }
 
         const pending = active.filter((b) => !dismissedSet.has(`${b.id}:${b.updatedAt}`));
         setBanners(pending);
@@ -104,9 +104,7 @@ export function AnnouncementBanner() {
     return () => clearInterval(timer);
   }, [banners.length, isPaused]);
 
-  if (pathname.includes('/read') || pathname.startsWith('/admin')) {
-    return null;
-  }
+  if (pathname.startsWith('/admin')) return null;
   if (banners.length === 0) return null;
 
   const currentBanner = banners[currentIndex % banners.length];
@@ -121,7 +119,7 @@ export function AnnouncementBanner() {
       if (stored) dismissedSet = new Set(JSON.parse(stored));
       dismissedSet.add(key);
       localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(dismissedSet)));
-    } catch {}
+    } catch { }
 
     const remaining = banners.filter((b) => b.id !== currentBanner.id);
     setBanners(remaining);
@@ -165,22 +163,20 @@ export function AnnouncementBanner() {
       style={{
         background: customBg || undefined,
       }}
-      className={`relative shadow-md border-b transition-all z-40 ${
-        !customBg
+      className={`relative shadow-md border-b transition-all z-40 ${!customBg
           ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-cyan-400 text-slate-950 border-amber-600/20'
           : isDark
-          ? 'text-white border-white/10'
-          : 'text-slate-950 border-slate-950/10'
-      }`}
+            ? 'text-white border-white/10'
+            : 'text-slate-950 border-slate-950/10'
+        }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex flex-col sm:flex-row items-center justify-between gap-3 pr-12 sm:pr-14">
         <div className="flex items-center gap-3 w-full sm:w-auto min-w-0">
           {/* Banner Image / Thumbnail or Icon */}
           {currentBanner.imageUrl ? (
             <div
-              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden shadow-xs shrink-0 border ${
-                isDark ? 'border-white/20 bg-white/10' : 'border-slate-950/10 bg-slate-950/5'
-              }`}
+              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden shadow-xs shrink-0 border ${isDark ? 'border-white/20 bg-white/10' : 'border-slate-950/10 bg-slate-950/5'
+                }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -191,9 +187,8 @@ export function AnnouncementBanner() {
             </div>
           ) : (
             <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                isDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
-              }`}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isDark ? 'bg-white/15 text-white' : 'bg-slate-950/10 text-slate-950'
+                }`}
             >
               <Megaphone className="w-4 h-4" />
             </div>
@@ -203,17 +198,15 @@ export function AnnouncementBanner() {
           <div className="min-w-0 flex-1">
             {currentBanner.title && currentBanner.title !== 'Global Banner' && (
               <p
-                className={`text-xs sm:text-sm font-black leading-tight tracking-tight truncate sm:whitespace-normal ${
-                  isDark ? 'text-white' : 'text-slate-950'
-                }`}
+                className={`text-xs sm:text-sm font-black leading-tight tracking-tight truncate sm:whitespace-normal ${isDark ? 'text-white' : 'text-slate-950'
+                  }`}
               >
                 {currentBanner.title}
               </p>
             )}
             <p
-              className={`text-[11px] sm:text-xs font-semibold leading-snug line-clamp-2 sm:line-clamp-1 ${
-                isDark ? 'text-slate-200' : 'text-slate-900/90'
-              }`}
+              className={`text-[11px] sm:text-xs font-semibold leading-snug line-clamp-2 sm:line-clamp-1 ${isDark ? 'text-slate-200' : 'text-slate-900/90'
+                }`}
             >
               {currentBanner.message}
             </p>
@@ -224,24 +217,21 @@ export function AnnouncementBanner() {
           {/* Multi-announcement stepper / controls if more than 1 active */}
           {banners.length > 1 && (
             <div
-              className={`flex items-center gap-1 rounded-xl px-2 py-1 ${
-                isDark ? 'bg-white/10 text-white' : 'bg-slate-950/10 text-slate-950'
-              }`}
+              className={`flex items-center gap-1 rounded-xl px-2 py-1 ${isDark ? 'bg-white/10 text-white' : 'bg-slate-950/10 text-slate-950'
+                }`}
             >
               <button
                 type="button"
                 onClick={handlePrev}
                 aria-label="Previous announcement"
-                className={`p-1 rounded-lg transition-colors cursor-pointer ${
-                  isDark ? 'hover:bg-white/15 text-white' : 'hover:bg-slate-950/10 text-slate-950'
-                }`}
+                className={`p-1 rounded-lg transition-colors cursor-pointer ${isDark ? 'hover:bg-white/15 text-white' : 'hover:bg-slate-950/10 text-slate-950'
+                  }`}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
               <span
-                className={`text-[10px] font-mono font-bold px-1 ${
-                  isDark ? 'text-white/90' : 'text-slate-950/80'
-                }`}
+                className={`text-[10px] font-mono font-bold px-1 ${isDark ? 'text-white/90' : 'text-slate-950/80'
+                  }`}
               >
                 {currentIndex + 1}/{banners.length}
               </span>
@@ -249,9 +239,8 @@ export function AnnouncementBanner() {
                 type="button"
                 onClick={handleNext}
                 aria-label="Next announcement"
-                className={`p-1 rounded-lg transition-colors cursor-pointer ${
-                  isDark ? 'hover:bg-white/15 text-white' : 'hover:bg-slate-950/10 text-slate-950'
-                }`}
+                className={`p-1 rounded-lg transition-colors cursor-pointer ${isDark ? 'hover:bg-white/15 text-white' : 'hover:bg-slate-950/10 text-slate-950'
+                  }`}
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -263,11 +252,10 @@ export function AnnouncementBanner() {
             <button
               type="button"
               onClick={handleButtonClick}
-              className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 text-xs font-extrabold shadow-sm transition-all cursor-pointer shrink-0 ${
-                isDark
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 text-xs font-extrabold shadow-sm transition-all cursor-pointer shrink-0 ${isDark
                   ? 'bg-white hover:bg-slate-100 text-slate-950 border border-white'
                   : 'bg-slate-950 hover:bg-slate-900 text-amber-300 hover:text-amber-200 border border-slate-900'
-              }`}
+                }`}
               title={currentBanner.redirectUrl || 'Open link'}
             >
               {currentBanner.buttonText?.trim() && <span>{currentBanner.buttonText.trim()}</span>}
@@ -285,11 +273,10 @@ export function AnnouncementBanner() {
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss announcement"
-          className={`absolute right-2 sm:right-4 top-2 sm:top-1/2 sm:-translate-y-1/2 w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-            isDark
+          className={`absolute right-2 sm:right-4 top-2 sm:top-1/2 sm:-translate-y-1/2 w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${isDark
               ? 'text-white/70 hover:text-white hover:bg-white/15'
               : 'text-slate-950/70 hover:text-slate-950 hover:bg-slate-950/15'
-          }`}
+            }`}
         >
           <X className="w-4 h-4" />
         </button>

@@ -187,7 +187,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
         if (values.parentId && values.parentId !== folderId) {
           await refreshSubFolderContents(values.parentId);
         }
-        await loadFolder(true);
+        await loadFolder();
       } catch (err: any) {
         subFolderFormik.setFieldError('name', err.message || 'Failed to save folder.');
       } finally {
@@ -240,7 +240,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
         if (targetFId !== folderId) {
           await refreshSubFolderContents(targetFId);
         }
-        await loadFolder(true);
+        await loadFolder();
       } catch (err: any) {
         docFormik.setFieldError('title', err.message || 'Failed to save document.');
       } finally {
@@ -341,7 +341,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
       if (pId && pId !== folderId) {
         await refreshSubFolderContents(pId);
       }
-      await loadFolder(true);
+      await loadFolder();
     } catch (err: any) {
       setFolderData(prevFolderData);
       setSubFolderContents(prevSubContents);
@@ -382,7 +382,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
       if (fId && fId !== folderId) {
         await refreshSubFolderContents(fId);
       }
-      await loadFolder(true);
+      await loadFolder();
     } catch (err: any) {
       setFolderData(prevFolderData);
       setSubFolderContents(prevSubContents);

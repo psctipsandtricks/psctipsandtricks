@@ -16,6 +16,7 @@ class ReaderAudioPlayer extends ConsumerStatefulWidget {
     required this.url,
     required this.title,
     this.autoPlay = false,
+    this.autoLoad = true,
   });
 
   /// Either an http(s) URL or an absolute path to a decrypted local file, so
@@ -23,6 +24,13 @@ class ReaderAudioPlayer extends ConsumerStatefulWidget {
   final String url;
   final String title;
   final bool autoPlay;
+
+  /// Whether this widget points the shared player at [url] itself.
+  ///
+  /// False in the book reader, which loads the clip for the open topic no
+  /// matter which view is showing — the document view has no big player, and
+  /// two owners of the source would race over autoplay.
+  final bool autoLoad;
 
   @override
   ConsumerState<ReaderAudioPlayer> createState() => _ReaderAudioPlayerState();
@@ -48,6 +56,7 @@ class _ReaderAudioPlayerState extends ConsumerState<ReaderAudioPlayer> {
   }
 
   void _load() {
+    if (!widget.autoLoad) return;
     _audio.load(widget.url, label: widget.title, autoPlay: widget.autoPlay);
   }
 

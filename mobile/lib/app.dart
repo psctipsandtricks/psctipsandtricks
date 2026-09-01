@@ -6,6 +6,7 @@ import 'core/providers/theme_controller.dart';
 import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'features/announcements/announcement_popup.dart';
 import 'features/offline/offline_gate.dart';
 import 'features/offline/offline_providers.dart';
 
@@ -64,7 +65,13 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(scale),
           ),
-          child: OfflineGate(child: child ?? const SizedBox.shrink()),
+          child: OfflineGate(
+            // Above the router, so the notice reaches the student wherever
+            // the app opened them.
+            child: AnnouncementPopupHost(
+              child: child ?? const SizedBox.shrink(),
+            ),
+          ),
         );
       },
     );

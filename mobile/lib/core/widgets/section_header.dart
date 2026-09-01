@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
-/// Section title with an optional trailing action, used on the home and
-/// dashboard screens to separate rails.
+/// Modern section title with an optional trailing action, used across home,
+/// catalog, quizzes, and dashboard screens.
 class SectionHeader extends StatelessWidget {
   const SectionHeader({
     super.key,
@@ -13,6 +14,7 @@ class SectionHeader extends StatelessWidget {
     this.actionLabel,
     this.onAction,
     this.icon,
+    this.iconColor = AppColors.cyan,
     this.padding = const EdgeInsets.fromLTRB(16, 0, 16, 12),
   });
 
@@ -21,6 +23,7 @@ class SectionHeader extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
   final IconData? icon;
+  final Color iconColor;
   final EdgeInsetsGeometry padding;
 
   @override
@@ -34,24 +37,30 @@ class SectionHeader extends StatelessWidget {
         children: [
           if (icon != null) ...[
             Container(
-              padding: const EdgeInsets.all(7),
+              padding: const EdgeInsets.all(7.5),
               decoration: BoxDecoration(
-                color: AppColors.cyan.withValues(alpha: 0.12),
+                color: iconColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                border: Border.all(
+                  color: iconColor.withValues(alpha: 0.22),
+                  width: 0.8,
+                ),
               ),
-              child: Icon(icon, size: 16, color: AppColors.cyan),
+              child: Icon(icon, size: 16, color: iconColor),
             ),
             const SizedBox(width: 10),
           ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.3,
+                        fontSize: 16,
                       ),
                 ),
                 if (subtitle != null)
@@ -61,6 +70,7 @@ class SectionHeader extends StatelessWidget {
                       subtitle!,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: palette.textMuted,
+                            fontSize: 12,
                           ),
                     ),
                   ),
@@ -68,18 +78,37 @@ class SectionHeader extends StatelessWidget {
             ),
           ),
           if (actionLabel != null && onAction != null)
-            TextButton(
-              onPressed: onAction,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Row(
-                children: [
-                  Text(actionLabel!),
-                  const Icon(Icons.chevron_right_rounded, size: 17),
-                ],
+            InkWell(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onAction!();
+              },
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                decoration: BoxDecoration(
+                  color: AppColors.cyan.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      actionLabel!,
+                      style: const TextStyle(
+                        color: AppColors.cyan,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    const Icon(
+                      Icons.arrow_forward_rounded,
+                      color: AppColors.cyan,
+                      size: 13,
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
@@ -88,7 +117,7 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-/// Rounded search field used by the catalog and quiz hub.
+/// Rounded search field used by the catalog, quiz hub, and discussions.
 class AppSearchField extends StatelessWidget {
   const AppSearchField({
     super.key,
@@ -109,6 +138,7 @@ class AppSearchField extends StatelessWidget {
       controller: controller,
       onChanged: onChanged,
       textInputAction: TextInputAction.search,
+      style: const TextStyle(fontSize: 14),
       decoration: InputDecoration(
         hintText: hintText,
         prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -122,13 +152,13 @@ class AppSearchField extends StatelessWidget {
                   onChanged?.call('');
                 },
               ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
     );
   }
 }
 
-/// Horizontal, single-select filter row.
+/// Horizontal, single-select filter row with smooth pill styling and active glow.
 class FilterChipsRow extends StatelessWidget {
   const FilterChipsRow({
     super.key,
@@ -157,10 +187,15 @@ class FilterChipsRow extends StatelessWidget {
         itemBuilder: (context, index) {
           final option = options[index];
           final isActive = option == selected;
+
           return GestureDetector(
-            onTap: () => onSelected(option),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onSelected(option);
+            },
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
               padding: const EdgeInsets.symmetric(horizontal: 14),
               alignment: Alignment.center,
               decoration: BoxDecoration(
@@ -168,14 +203,26 @@ class FilterChipsRow extends StatelessWidget {
                 color: isActive ? null : palette.card,
                 borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                 border: Border.all(
-                  color: isActive ? Colors.transparent : palette.border,
+                  color: isActive
+                      ? Colors.transparent
+                      : palette.border,
                 ),
+                boxShadow: isActive
+                    ? [
+                        BoxShadow(
+                          color: AppColors.cyan.withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : null,
               ),
               child: Text(
                 option,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       color: isActive ? Colors.white : palette.textSecondary,
-                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 12.5,
                     ),
               ),
             ),

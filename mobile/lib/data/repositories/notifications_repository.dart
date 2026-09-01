@@ -20,6 +20,15 @@ class NotificationsRepository {
   ///
   /// Called without a session too: the row is created unbound, re-pointed at
   /// the student when they sign in, and unbound again when they sign out.
+  /// Marks one notification read.
+  ///
+  /// Only persists server-side for a notification addressed to this student —
+  /// a broadcast row is shared by everyone, so the API leaves it alone and the
+  /// app keeps its own record instead.
+  Future<void> markRead(String id) async {
+    await _api.patch<dynamic>('/notifications/$id/read');
+  }
+
   Future<void> registerDevice({
     required String token,
     required String platform,

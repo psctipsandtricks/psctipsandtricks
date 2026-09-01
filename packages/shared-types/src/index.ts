@@ -436,6 +436,73 @@ export interface QuizResult {
   createdAt: string;
 }
 
+/** Whether a reviewed question was answered correctly, wrongly, or skipped. */
+export type QuizAnswerStatus = 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
+
+/** One option, normalized by the server whatever shape the quiz was authored in. */
+export interface ReviewOption {
+  id: string;
+  text: string;
+  explanation: string | null;
+}
+
+/** One question of a review, paired with what the student picked. */
+export interface QuizReviewQuestion {
+  id: string;
+  /** 1-based position in the quiz's own question order. */
+  number: number;
+  text: string;
+  marks: number;
+  explanation?: string | null;
+  options: ReviewOption[];
+  /** null when the question was skipped. */
+  selectedOptionIndex: number | null;
+  selectedOptionText: string | null;
+  correctOptionIndex: number | null;
+  correctOptionText: string | null;
+  status: QuizAnswerStatus;
+  isCorrect: boolean;
+}
+
+/**
+ * The scored attempt plus its full answer key, as served by
+ * `GET /quizzes/attempts/:attemptId/review`. Both the website and the mobile
+ * app render their result/review screens from this exact payload.
+ */
+export interface QuizAttemptReview {
+  id: string;
+  quizId: string;
+  quizTitle: string;
+  attemptNumber: number;
+  attemptStatus: 'COMPLETED';
+  score: number;
+  totalMarks: number;
+  percentage: number;
+  passed: boolean;
+  passingMarks: number;
+  totalQuestions: number;
+  correctAnswers: number;
+  wrongAnswers: number;
+  unattempted: number;
+  timeTakenSeconds: number;
+  startedAt: string;
+  submittedAt?: string | null;
+  negativeMarking: {
+    enabled: boolean;
+    every: number;
+    deduct: number;
+    allowNegativeScore: boolean;
+    /** Marks actually deducted on this attempt. */
+    deducted: number;
+  };
+  /**
+   * True when the quiz was edited after this attempt, so the stored answers no
+   * longer line up with the current questions.
+   */
+  answersStale: boolean;
+  questions: QuizReviewQuestion[];
+}
+
 export type AttemptStatus = 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED';
 
 export interface QuizAttempt {

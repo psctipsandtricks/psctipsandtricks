@@ -10,21 +10,24 @@ import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/formatters.dart';
 import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
+import '../announcements/announcement_providers.dart';
 import '../books/widgets/book_card.dart';
 import '../dashboard/dashboard_providers.dart';
-import '../quizzes/widgets/quiz_card.dart';
+import '../notifications/notifications_screen.dart';
+import '../quizzes/widgets/premium_quiz_carousel.dart';
 import '../../data/models/book.dart';
-import '../../data/models/quiz.dart';
 import 'home_providers.dart';
-import 'widgets/announcements_section.dart';
 import 'widgets/continue_reading_rail.dart';
+import 'widgets/home_book_carousel.dart';
 import 'widgets/live_mock_banner.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
+
   const HomeScreen({super.key});
 
   @override
@@ -86,7 +89,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 SizedBox(width: 8),
               ],
             ),
-            const SliverToBoxAdapter(child: AnnouncementsSection()),
             SliverToBoxAdapter(
               child: _FadeSlide(
                 animation: _entranceController,
@@ -95,13 +97,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
             ),
             const SliverToBoxAdapter(child: LiveMockBanner()),
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            // ── 3D Scrolled Book Showcase Carousel (mirrors website) ────────
             SliverToBoxAdapter(
               child: _FadeSlide(
                 animation: _entranceController,
                 delay: 0.12,
-                child: const _HeroPanel(),
+                child: const HomeBookCarousel(),
               ),
             ),
+            const SliverToBoxAdapter(child: SizedBox(height: 18)),
             // The rail carries its own leading gap, because a signed-in
             // student with nothing started renders nothing here and a spacer
             // out here would leave a double gap above the catalog.
@@ -109,7 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               SliverToBoxAdapter(
                 child: _FadeSlide(
                   animation: _entranceController,
-                  delay: 0.20,
+                  delay: 0.18,
                   child: const ContinueReadingRail(),
                 ),
               ),
@@ -141,7 +146,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 delay: 0.38,
                 child: SectionHeader(
                   title: 'Premium question banks',
-                  subtitle: 'Full solutions, analytics and rank tracking',
+                  subtitle: 'Top 10 newest question banks & test series',
                   icon: Icons.workspace_premium_rounded,
                   actionLabel: 'Quiz Hub',
                   onAction: () => context.go(AppRoutes.quizzes),
@@ -152,7 +157,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               child: _FadeSlide(
                 animation: _entranceController,
                 delay: 0.42,
-                child: _PremiumQuizRail(quizzesAsync: quizzesAsync),
+                child: PremiumQuizCarousel(quizzesAsync: quizzesAsync),
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 26)),
@@ -283,11 +288,15 @@ class _HeaderAction extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
+
+  /// Drawn as a count on the icon when above zero.
+  final int badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -298,7 +307,15 @@ class _HeaderAction extends StatelessWidget {
         customBorder: const CircleBorder(),
         child: Padding(
           padding: const EdgeInsets.all(9),
-          child: Icon(icon, size: 22, color: context.palette.textSecondary),
+          child: Badge.count(
+            count: badgeCount,
+            isLabelVisible: badgeCount > 0,
+            // Rose rather than the app's cyan: a count of things waiting is the
+            // one place on this bar that should pull the eye.
+            backgroundColor: AppColors.rose,
+            textColor: Colors.white,
+            child: Icon(icon, size: 22, color: context.palette.textSecondary),
+          ),
         ),
       ),
     );
@@ -326,10 +343,18 @@ class _NotificationsButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final signedIn = ref.watch(authControllerProvider).isAuthenticated;
+    // Only read the inbox for someone who has one: the endpoint needs a
+    // session, so watching it as a guest is a guaranteed 401 on every launch.
+    final unread = signedIn ? ref.watch(unreadNotificationCountProvider) : 0;
 
     return _HeaderAction(
-      icon: Icons.notifications_none_rounded,
-      tooltip: 'Notifications',
+      icon: unread > 0
+          ? Icons.notifications_active_rounded
+          : Icons.notifications_none_rounded,
+      tooltip: unread > 0
+          ? Fmt.count(unread, 'unread notification')
+          : 'Notifications',
+      badgeCount: unread,
       onTap: () => context.push(
         signedIn
             ? AppRoutes.notifications
@@ -368,242 +393,6 @@ class _AvatarButton extends ConsumerWidget {
                 name: user.name,
                 size: 34,
               ),
-      ),
-    );
-  }
-}
-
-/// The landing panel — the app's equivalent of the website's hero.
-class _HeroPanel extends StatefulWidget {
-  const _HeroPanel();
-
-  @override
-  State<_HeroPanel> createState() => _HeroPanelState();
-}
-
-class _HeroPanelState extends State<_HeroPanel>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _glowController;
-
-  @override
-  void initState() {
-    super.initState();
-    _glowController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _glowController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer(
-      builder: (context, ref, _) {
-        final books = ref.watch(featuredBooksProvider).valueOrNull ?? const <Book>[];
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-          child: AnimatedBuilder(
-            animation: _glowController,
-            builder: (context, child) {
-              final t = _glowController.value;
-              return Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.cyan.withValues(alpha: 0.14 + 0.06 * t),
-                      AppColors.indigo.withValues(alpha: 0.08 + 0.04 * (1 - t)),
-                      AppColors.amber.withValues(alpha: 0.06 + 0.04 * t),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-                  border: Border.all(
-                    color: AppColors.cyan.withValues(alpha: 0.22 + 0.12 * t),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.cyan.withValues(alpha: 0.08 + 0.08 * t),
-                      blurRadius: 18 + 8 * t,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: child,
-              );
-            },
-            child: Stack(
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(
-                    right: books.isEmpty ? 0 : _HeroCoverCarousel.width + 16,
-                  ),
-                  child: const _HeroPitch(),
-                ),
-                if (books.isNotEmpty)
-                  Positioned(
-                    top: 0,
-                    bottom: 0,
-                    right: 0,
-                    child: _HeroCoverCarousel(books: books),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// The headline, sub-line and calls to action, sized for a half-width column.
-class _HeroPitch extends StatelessWidget {
-  const _HeroPitch();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const AppBadge('KERALA PSC · SSC', icon: Icons.auto_awesome_rounded),
-        const SizedBox(height: 12),
-        Text(
-          'Crack your next exam with interactive study material',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-                height: 1.25,
-                letterSpacing: -0.4,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Mock tests · Question banks · Audio e-books',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: context.palette.textSecondary,
-                height: 1.5,
-              ),
-        ),
-        const SizedBox(height: 14),
-        GradientButton(
-          label: 'Browse books',
-          icon: Icons.menu_book_rounded,
-          compact: true,
-          onPressed: () => context.go(AppRoutes.books),
-        ),
-      ],
-    );
-  }
-}
-
-/// One catalog cover at a time, advancing to the next on a timer.
-class _HeroCoverCarousel extends StatefulWidget {
-  const _HeroCoverCarousel({required this.books});
-
-  static const width = 150.0;
-
-  final List<Book> books;
-
-  @override
-  State<_HeroCoverCarousel> createState() => _HeroCoverCarouselState();
-}
-
-class _HeroCoverCarouselState extends State<_HeroCoverCarousel>
-    with SingleTickerProviderStateMixin {
-  static const _hold = Duration(milliseconds: 3200);
-  static const _slide = Duration(milliseconds: 550);
-
-  final _controller = PageController();
-  Timer? _timer;
-  late final AnimationController _floatController;
-
-  @override
-  void initState() {
-    super.initState();
-    _floatController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 3),
-    )..repeat(reverse: true);
-    _restartTimer();
-  }
-
-  @override
-  void didUpdateWidget(covariant _HeroCoverCarousel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.books.length != widget.books.length) _restartTimer();
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _floatController.dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _restartTimer() {
-    _timer?.cancel();
-    if (widget.books.length < 2) return;
-    _timer = Timer.periodic(_hold, (_) {
-      if (!mounted || !_controller.hasClients) return;
-      final current = _controller.page?.round() ?? 0;
-      _controller.animateToPage(
-        current + 1,
-        duration: _slide,
-        curve: Curves.easeInOutCubic,
-      );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final books = widget.books;
-    if (MediaQuery.disableAnimationsOf(context)) _timer?.cancel();
-
-    return SizedBox(
-      width: _HeroCoverCarousel.width,
-      child: AnimatedBuilder(
-        animation: _floatController,
-        builder: (context, child) {
-          final floatOffset = (1 - Curves.easeInOut.transform(_floatController.value)) * 5;
-          return Transform.translate(
-            offset: Offset(0, floatOffset),
-            child: child,
-          );
-        },
-        child: PageView.builder(
-          controller: _controller,
-          itemBuilder: (context, index) => Center(
-            child: AspectRatio(
-              aspectRatio: 2 / 3,
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: AppImage(
-                  url: books[index % books.length].heroCoverUrl ??
-                      books[index % books.length].coverUrl,
-                  radius: AppTheme.radiusMd,
-                  fallbackIcon: Icons.menu_book_rounded,
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -808,30 +597,119 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
   }
 }
 
-class _BooksRail extends StatelessWidget {
+class _BooksRail extends StatefulWidget {
   const _BooksRail({required this.booksAsync});
 
   final AsyncValue<List<Book>> booksAsync;
 
   @override
+  State<_BooksRail> createState() => _BooksRailState();
+}
+
+class _BooksRailState extends State<_BooksRail> {
+  final ScrollController _scrollController = ScrollController();
+  Timer? _autoScrollTimer;
+  Timer? _resumeTimer;
+  bool _isInteracting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndStartAutoScroll();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BooksRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.booksAsync != oldWidget.booksAsync) {
+      _checkAndStartAutoScroll();
+    }
+  }
+
+  void _checkAndStartAutoScroll() {
+    widget.booksAsync.whenData((books) {
+      if (books.length > 1) {
+        _startAutoScroll();
+      } else {
+        _stopAutoScroll();
+      }
+    });
+  }
+
+  void _startAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 3200), (_) {
+      if (!mounted || !_scrollController.hasClients || _isInteracting) return;
+
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.offset;
+      const step = 240.0 + 14.0; // card width + separator
+
+      if (currentScroll >= maxScroll - 8) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 1100),
+          curve: Curves.easeInOutCubic,
+        );
+      } else {
+        final next = (currentScroll + step).clamp(0.0, maxScroll);
+        _scrollController.animateTo(
+          next,
+          duration: const Duration(milliseconds: 750),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    });
+  }
+
+  void _stopAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+    _resumeTimer?.cancel();
+    _resumeTimer = null;
+  }
+
+  void _onPointerDown() {
+    _isInteracting = true;
+    _autoScrollTimer?.cancel();
+    _resumeTimer?.cancel();
+  }
+
+  void _onPointerUp() {
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        _isInteracting = false;
+        _startAutoScroll();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _stopAutoScroll();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 180,
-      child: booksAsync.when(
+      height: 246,
+      child: widget.booksAsync.when(
         skipLoadingOnRefresh: true,
         loading: () => ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: 4,
-          separatorBuilder: (_, __) => const SizedBox(width: 12),
+          itemCount: 3,
+          separatorBuilder: (_, __) => const SizedBox(width: 14),
           itemBuilder: (_, __) => const SkeletonBox(
-            width: 160,
-            height: 160,
-            radius: AppTheme.radiusMd,
+            width: 240,
+            height: 240,
+            radius: AppTheme.radiusLg,
           ),
         ),
-        error: (error, _) =>
-            ErrorView(error: error, compact: true),
+        error: (error, _) => ErrorView(error: error, compact: true),
         data: (books) {
           if (books.isEmpty) {
             return Center(
@@ -843,99 +721,45 @@ class _BooksRail extends StatelessWidget {
               ),
             );
           }
-          return ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: books.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final book = books[index];
-              return BookTile(
-                book: book,
-                onTap: () => context.push(AppRoutes.bookDetail(book.id)),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// Premium question banks as a horizontal rail.
-///
-/// A rail rather than a stacked list: these sit below two other sections, and
-/// a vertical list of three would push the support banner off any phone screen
-/// while showing less of the catalog.
-class _PremiumQuizRail extends ConsumerWidget {
-  const _PremiumQuizRail({required this.quizzesAsync});
-
-  final AsyncValue<List<Quiz>> quizzesAsync;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return SizedBox(
-      height: 186,
-      child: quizzesAsync.when(
-        skipLoadingOnRefresh: true,
-        loading: () => ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: 3,
-          separatorBuilder: (_, __) => const SizedBox(width: 12),
-          itemBuilder: (_, __) => const SkeletonBox(
-            width: 252,
-            height: 170,
-            radius: AppTheme.radiusLg,
-          ),
-        ),
-        error: (error, _) => ErrorView(error: error, compact: true),
-        data: (quizzes) {
-          if (quizzes.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: Text(
-                  'No premium question banks published yet.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.palette.textMuted,
-                      ),
-                ),
+          return Listener(
+            onPointerDown: (_) => _onPointerDown(),
+            onPointerUp: (_) => _onPointerUp(),
+            onPointerCancel: (_) => _onPointerUp(),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollStartNotification ||
+                    notification is UserScrollNotification) {
+                  _onPointerDown();
+                } else if (notification is ScrollEndNotification) {
+                  _onPointerUp();
+                }
+                return false;
+              },
+              child: ListView.separated(
+                controller: _scrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                itemCount: books.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 14),
+                itemBuilder: (context, index) {
+                  final book = books[index];
+                  return BookTile(
+                    book: book,
+                    width: 240,
+                    onTap: () => context.push(AppRoutes.bookDetail(book.id)),
+                  );
+                },
               ),
-            );
-          }
-
-          return ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: quizzes.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final quiz = quizzes[index];
-              return SizedBox(
-                width: 252,
-                child: QuizCard(
-                  quiz: quiz,
-                  onTap: () {
-                    final signedIn =
-                        ref.read(authControllerProvider).isAuthenticated;
-                    final target = AppRoutes.quizAttempt(quiz.id);
-                    context.push(
-                      signedIn
-                          ? target
-                          : '${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}',
-                    );
-                  },
-                ),
-              );
-            },
+            ),
           );
         },
       ),
     );
   }
 }
+
+
 
 class _SupportBanner extends StatelessWidget {
   const _SupportBanner();

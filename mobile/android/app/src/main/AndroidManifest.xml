@@ -1,4 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:installLocation="auto">
     <!-- Every screen talks to the existing API; chat additionally holds a
          websocket open, and the reader streams audio and PDFs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -7,11 +9,38 @@
          firebase_messaging requests it at runtime on first launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!-- Hardware this app does not actually need.
+         Android infers a required hardware feature from certain permissions,
+         and Play then hides the app from every device that lacks it — the
+         "Your device isn't compatible with this version" message. Razorpay
+         pulls in NFC and READ_BASIC_PHONE_STATE (implying telephony, which
+         would exclude every Wi-Fi-only tablet) and Play services pulls in
+         USE_FINGERPRINT (implying a fingerprint sensor, which would exclude
+         most budget phones). Declaring each one required="false" here, with
+         tools:replace, overrides whatever a library says now or later: none of
+         these are load-bearing, the app runs fine without any of them. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false"
+        tools:replace="android:required"/>
+    <uses-feature android:name="android.hardware.fingerprint" android:required="false"
+        tools:replace="android:required"/>
+    <uses-feature android:name="android.hardware.nfc" android:required="false"
+        tools:replace="android:required"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"
+        tools:replace="android:required"/>
+    <uses-feature android:name="android.hardware.camera.any" android:required="false"
+        tools:replace="android:required"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"
+        tools:replace="android:required"/>
+    <!-- Lets the app reach Chromebooks and other pointer-driven Android
+         devices, which are otherwise filtered out by the touchscreen
+         requirement Android assumes by default. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false"
+        tools:replace="android:required"/>
+
     <application
         android:label="PSC Tips And Tricks"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="false">

@@ -11,6 +11,8 @@ import {
   Quiz,
   QuizSubmissionPayload,
   QuizResult,
+  QuizAttempt,
+  QuizAttemptReview,
   LeaderboardEntry,
   Order,
   OrderWithItems,
@@ -664,12 +666,16 @@ export const ApiClient = {
     fetcher<QuizResult>(`/quizzes/${id}/submit`, { method: 'POST', body: JSON.stringify(payload) }),
   startQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/start`, { method: 'POST' }),
   getActiveQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/active`),
+  /** Resolves to the persisted attempt — its `id` addresses the review page. */
   submitQuizAttempt: (quizId: string, payload: QuizSubmissionPayload, attemptId?: string) =>
-    fetcher<QuizResult>(`/quizzes/${quizId}/submit${attemptId ? `?attemptId=${attemptId}` : ''}`, {
+    fetcher<QuizAttempt>(`/quizzes/${quizId}/submit${attemptId ? `?attemptId=${attemptId}` : ''}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
   getStudentAttemptHistory: () => fetcher<any[]>('/quizzes/history/me'),
+  /** Question-by-question review of one submitted attempt — the shared result payload. */
+  getQuizAttemptReview: (attemptId: string) =>
+    fetcher<QuizAttemptReview>(`/quizzes/attempts/${attemptId}/review`),
   getMyDashboard: () => fetcher<StudentDashboard>('/analytics/me/dashboard'),
 
   getQuizFolders: (parentId?: string | null) => {

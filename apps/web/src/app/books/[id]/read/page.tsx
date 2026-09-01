@@ -564,19 +564,19 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
         {/* Main Content & PDF Area taking all remaining width */}
         <div className="flex-1 min-w-0 w-full space-y-4 sm:space-y-6">
           {/* Sticky header aligned with reading content column at the top of the viewport */}
-          <div className="sticky top-0 z-30 px-3 sm:px-5 py-2 sm:py-2.5 bg-white/95 dark:bg-[#050a17]/95 backdrop-blur-md border-b sm:border border-slate-200/80 dark:border-[#1e2e56] rounded-none sm:rounded-2xl shadow-sm">
-            <div className="flex items-center justify-between gap-2 sm:gap-3">
-              <div className="flex items-center gap-1.5 shrink-0">
+          <div className="sticky top-1 sm:top-3 z-30 px-2.5 sm:px-4 py-1.5 sm:py-2 bg-white/95 dark:bg-[#050a17]/95 backdrop-blur-xl border border-slate-200/90 dark:border-[#1e2e56] rounded-2xl shadow-md">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-3">
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                 <Link
                   href={`/books/${bookId}`}
-                  className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold text-slate-700 hover:text-slate-950 dark:text-slate-200 dark:hover:text-white transition-all cursor-pointer px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100/90 hover:bg-slate-200 dark:bg-slate-800/90 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 active:scale-95 shadow-xs"
+                  className="inline-flex items-center gap-1 text-xs sm:text-sm font-extrabold text-white transition-all cursor-pointer p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 border border-cyan-500/40 active:scale-95 shadow-sm shadow-cyan-500/25"
                   title="Back to Book Details"
                 >
-                  <ArrowLeft className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                  <span>Back</span>
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline">Back</span>
                 </Link>
 
-                <div className="flex items-center gap-0.5 ml-0.5 sm:ml-1">
+                <div className="flex items-center gap-0.5 ml-0.5">
                   <button
                     type="button"
                     disabled={activeUnitIndex <= 0}
@@ -599,7 +599,7 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
               </div>
 
               <div className="min-w-0 flex-1 text-center px-1 sm:px-2">
-                <div className="flex items-center justify-center gap-1 text-[10px] sm:text-[11px] font-extrabold text-cyan-600 dark:text-cyan-400 truncate">
+                <div className="hidden sm:flex items-center justify-center gap-1 text-[10px] sm:text-[11px] font-extrabold text-cyan-600 dark:text-cyan-400 truncate">
                   <BookOpen className="w-3 h-3 shrink-0" />
                   <span className="truncate">{content.book.title}</span>
                 </div>
@@ -612,14 +612,14 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                 {isFinished && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-                <span className="text-[11px] font-mono font-extrabold px-2 py-0.5 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 tabular-nums">
+                <span className="text-[10px] sm:text-[11px] font-mono font-extrabold px-1.5 sm:px-2 py-0.5 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 tabular-nums">
                   {overallPercent}%
                 </span>
               </div>
             </div>
-            <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div className="mt-1 sm:mt-1.5 h-1 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   isFinished ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-cyan-500 to-blue-500'

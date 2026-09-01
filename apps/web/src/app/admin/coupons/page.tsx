@@ -111,13 +111,13 @@ export default function AdminCouponsPage() {
           setEditingCoupon(null);
           resetForm();
           await ApiClient.updateCoupon(editingCoupon.id, payload);
-          await fetchCoupons(true);
+          await fetchCoupons();
         } else {
           setIsDialogOpen(false);
           setEditingCoupon(null);
           resetForm();
           await ApiClient.createCoupon(payload);
-          await fetchCoupons(true);
+          await fetchCoupons();
         }
       } catch (err: any) {
         setFieldError('code', err.message || `Failed to ${editingCoupon ? 'update' : 'create'} coupon.`);
@@ -153,7 +153,7 @@ export default function AdminCouponsPage() {
     setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: nextActive } : c)));
     try {
       await ApiClient.setCouponActive(coupon.id, nextActive);
-      await fetchCoupons(true);
+      await fetchCoupons();
     } catch (err: any) {
       setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: coupon.isActive } : c)));
       alert(err.message || 'Failed to update coupon status.');
@@ -165,7 +165,7 @@ export default function AdminCouponsPage() {
     setCoupons((prev) => prev.filter((c) => c.id !== id));
     try {
       await ApiClient.deleteCoupon(id);
-      await fetchCoupons(true);
+      await fetchCoupons();
     } catch (err: any) {
       setCoupons(previousCoupons);
       alert(err.message || 'Failed to delete coupon.');

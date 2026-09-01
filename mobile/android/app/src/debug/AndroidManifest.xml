@@ -4,4 +4,11 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- AppConfig points debug builds at http://10.0.2.2:4000, the emulator's
+         route to a backend running on the developer's machine. Release builds
+         deliberately do not get this: they only ever talk to the production API
+         over https, and Android's default for targetSdk 28+ is to refuse
+         cleartext outright. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

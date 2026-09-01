@@ -28,8 +28,8 @@ class SkeletonBox extends StatelessWidget {
     return Shimmer.fromColors(
       baseColor: palette.elevated,
       highlightColor: palette.isDark
-          ? AppColors.darkBorder
-          : const Color(0xFFEDF2F7),
+          ? AppColors.darkBorder.withValues(alpha: 0.6)
+          : const Color(0xFFE2E8F0),
       child: Container(
         width: width,
         height: height,
@@ -66,9 +66,14 @@ class ListSkeleton extends StatelessWidget {
 }
 
 /// Failure state with a retry affordance. Network failures get a different
-/// icon and wording from server rejections, because the fix is different.
+/// icon and wording from server rejections.
 class ErrorView extends StatelessWidget {
-  const ErrorView({super.key, required this.error, this.onRetry, this.compact = false});
+  const ErrorView({
+    super.key,
+    required this.error,
+    this.onRetry,
+    this.compact = false,
+  });
 
   final Object error;
   final VoidCallback? onRetry;
@@ -77,7 +82,8 @@ class ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final isNetwork = error is ApiException && (error as ApiException).isNetwork;
+    final isNetwork =
+        error is ApiException && (error as ApiException).isNetwork;
     final message = error is ApiException
         ? (error as ApiException).message
         : 'Something went wrong. Please try again.';
@@ -89,10 +95,14 @@ class ErrorView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: AppColors.rose.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.rose.withValues(alpha: 0.25),
+                  width: 1,
+                ),
               ),
               child: Icon(
                 isNetwork ? Icons.wifi_off_rounded : Icons.error_outline_rounded,
@@ -102,9 +112,16 @@ class ErrorView extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
+              isNetwork ? 'Connection Problem' : 'Unable to Load',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
               message,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: palette.textSecondary,
                     height: 1.45,
                   ),
@@ -113,7 +130,7 @@ class ErrorView extends StatelessWidget {
               const SizedBox(height: 18),
               OutlinedButton.icon(
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
                 label: const Text('Try again'),
               ),
             ],
@@ -149,12 +166,16 @@ class EmptyView extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: AppColors.cyan.withValues(alpha: 0.10),
                 shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.cyan.withValues(alpha: 0.22),
+                  width: 1,
+                ),
               ),
-              child: Icon(icon, size: 30, color: AppColors.cyan),
+              child: Icon(icon, size: 32, color: AppColors.cyan),
             ),
             const SizedBox(height: 18),
             Text(
@@ -162,6 +183,7 @@ class EmptyView extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
+                    fontSize: 16,
                   ),
             ),
             if (message != null) ...[
@@ -169,9 +191,10 @@ class EmptyView extends StatelessWidget {
               Text(
                 message!,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: palette.textSecondary,
                       height: 1.5,
+                      fontSize: 13,
                     ),
               ),
             ],
@@ -183,9 +206,7 @@ class EmptyView extends StatelessWidget {
   }
 }
 
-/// Renders the three states of an [AsyncValue] with the app's shared visuals,
-/// keeping stale data on screen during a background refresh instead of
-/// flashing a spinner over content the student is already reading.
+/// Renders the three states of an [AsyncValue] with the app's shared visuals.
 class AsyncView<T> extends StatelessWidget {
   const AsyncView({
     super.key,
@@ -226,7 +247,14 @@ class LockedNotice extends StatelessWidget {
       borderColor: AppColors.amber.withValues(alpha: 0.4),
       child: Row(
         children: [
-          const Icon(Icons.lock_rounded, color: AppColors.amber, size: 20),
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppColors.amber.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.lock_rounded, color: AppColors.amber, size: 18),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(

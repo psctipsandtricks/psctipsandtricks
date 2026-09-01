@@ -23,6 +23,7 @@ import '../../features/profile/account_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/quizzes/quiz_attempt_screen.dart';
 import '../../features/quizzes/quiz_history_screen.dart';
+import '../../features/quizzes/quiz_review_screen.dart';
 import '../../features/quizzes/quizzes_screen.dart';
 import '../../features/shell/library_screen.dart';
 import '../../features/shell/shell_scaffold.dart';
@@ -54,6 +55,9 @@ class AppRoutes {
   static String bookReader(String id, {bool resume = false}) =>
       '/books/$id/read${resume ? '?resume=1' : ''}';
   static String quizAttempt(String id) => '/attempt/$id';
+
+  /// The detailed result of one submitted attempt, keyed by attempt id.
+  static String quizResult(String attemptId) => '/attempt-result/$attemptId';
   static String mockTest(String id) => '/mock-tests/$id';
   static String groupChat(String id) => '/community/$id';
 }
@@ -76,6 +80,7 @@ bool _isProtected(String location) {
   // Reading a book and attempting a quiz both require a session.
   if (RegExp(r'^/books/[^/]+/read').hasMatch(location)) return true;
   if (location.startsWith('/attempt/')) return true;
+  if (location.startsWith('/attempt-result/')) return true;
   if (RegExp(r'^/mock-tests/[^/]+$').hasMatch(location)) return true;
   return false;
 }
@@ -145,6 +150,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) =>
             QuizAttemptScreen(quizId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/attempt-result/:attemptId',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) =>
+            QuizReviewScreen(attemptId: state.pathParameters['attemptId']!),
       ),
       GoRoute(
         path: '/mock-tests/:id',
