@@ -8,14 +8,18 @@ import { useAuth } from './auth-provider';
 import { AnnouncementPopup as Announcement } from '@psc/shared-types';
 
 /**
- * Announcements are shown once and then never again.
+ * Announcements are a signed-in, Home-page feature: a guest never sees one,
+ * and neither does a signed-in student anywhere else in the site — only on
+ * arriving at `/`. Once shown, a card is shown once and then never again.
  *
  * `localStorage`, not `sessionStorage`: a dismissal has to outlive the tab, or
  * every visit re-runs the same queue. Namespaced per account, so signing in on
- * a shared machine does not inherit whatever the previous person dismissed —
- * and so a visitor who reads an announcement as a guest and then signs up is
- * not shown it a second time under their new id, which is why the guest bucket
- * is merged in rather than replaced.
+ * a shared machine does not inherit whatever the previous person dismissed.
+ *
+ * The guest bucket below is read-only backward compatibility: earlier
+ * versions of this component did show announcements to guests, so a visitor
+ * who saw one then and has since signed up must not be shown it again under
+ * their new id. Nothing writes to that bucket anymore.
  *
  * The one thing this cannot do is follow a student to a second device; that
  * needs the server to record who has seen what.
@@ -27,25 +31,8 @@ const MAX_REMEMBERED = 300;
 
 const GUEST_BUCKET = `${DISMISSED_STORAGE_PREFIX}:guest`;
 
-function bucketFor(userId?: string | null): string {
-  return userId ? `${DISMISSED_STORAGE_PREFIX}:${userId}` : GUEST_BUCKET;
-}
-
-/** Routes an announcement must never cover. */
-const SUPPRESSED_PREFIXES = ['/admin', '/login', '/signup', '/auth'];
-
-/**
- * Full-screen tasks: a modal dropped on top of a running quiz or an open book
- * costs the reader more than the notice is worth. The popup simply waits — the
- * queue is still there when they navigate away.
- */
-function isFullScreenTask(pathname: string): boolean {
-  if (pathname.includes('/read')) return true;
-  // `/quizzes/<id>` and `/mock-tests/<id>` are the attempt screens themselves;
-  // their listing and history pages are not.
-  return /^\/(quizzes|mock-tests)\/[^/]+$/.test(pathname) &&
-    !pathname.endsWith('/history') &&
-    !pathname.endsWith('/completed');
+function bucketFor(userId: string): string {
+  return `${DISMISSED_STORAGE_PREFIX}:${userId}`;
 }
 
 function readBucket(key: string): string[] {
@@ -58,13 +45,13 @@ function readBucket(key: string): string[] {
   }
 }
 
-/** Everything this viewer has already seen, whoever they were at the time. */
-function readDismissed(userId?: string | null): Set<string> {
-  const own = readBucket(bucketFor(userId));
-  return new Set(userId ? [...readBucket(GUEST_BUCKET), ...own] : own);
+/** Everything this account has already seen, including — for backward
+ * compatibility — whatever it saw as a guest before it existed. */
+function readDismissed(userId: string): Set<string> {
+  return new Set([...readBucket(GUEST_BUCKET), ...readBucket(bucketFor(userId))]);
 }
 
-function rememberDismissed(id: string, userId?: string | null) {
+function rememberDismissed(id: string, userId: string) {
   try {
     const key = bucketFor(userId);
     const next = readBucket(key).filter((seen) => seen !== id);
@@ -110,12 +97,14 @@ function accentColor(raw?: string | null): string {
 }
 
 /**
- * Puts the active announcements in front of the visitor, one modal at a time.
+ * Puts the active announcements in front of the student, one modal at a time
+ * — but only once signed in, and only on arriving at the Home page.
  *
  * Mounted in the root layout, so it survives client-side navigation: following
  * an announcement's link does not remount this component, which is what keeps
  * the queue from restarting and showing the same notice twice on the way to
- * the destination.
+ * the destination. It simply stays quiet on every other route, and for a
+ * visitor who has not signed in.
  */
 export function AnnouncementPopupHost() {
   const pathname = usePathname();
@@ -131,11 +120,15 @@ export function AnnouncementPopupHost() {
   const userIdRef = useRef<string | null>(userId);
   userIdRef.current = userId;
 
-  // Deliberately waits for the session to resolve. Reading storage while auth
-  // is still loading would check the guest bucket for a signed-in student and
-  // replay announcements they have already closed.
+  // Waits for the session to resolve, and fetches nothing at all for a guest
+  // — there is no id to key a dismissal against, and nothing this component
+  // will ever show them anyway.
   useEffect(() => {
     if (authLoading) return;
+    if (!userId) {
+      setQueue([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -152,17 +145,15 @@ export function AnnouncementPopupHost() {
     };
   }, [authLoading, userId]);
 
-  const suppressed =
-    SUPPRESSED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
-    isFullScreenTask(pathname);
-
-  const current = suppressed ? undefined : queue[0];
+  const isHome = pathname === '/';
+  const current = userId && isHome ? queue[0] : undefined;
 
   /** Drops the head of the queue; whatever is behind it opens next. */
   const dismissCurrent = useCallback(() => {
     setQueue((pending) => {
       if (pending.length === 0) return pending;
-      rememberDismissed(pending[0].id, userIdRef.current);
+      const seenBy = userIdRef.current;
+      if (seenBy) rememberDismissed(pending[0].id, seenBy);
       return pending.slice(1);
     });
   }, []);

@@ -6,7 +6,11 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/pdf_downloader.dart';
+import '../../core/utils/performance_band.dart';
+import '../../core/utils/quiz_pdf_generator.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/quiz.dart';
 import 'quizzes_providers.dart';
@@ -33,7 +37,7 @@ class _QuizReviewScreenState extends ConsumerState<QuizReviewScreen> {
     final reviewAsync = ref.watch(attemptReviewProvider(widget.attemptId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Your result')),
+      appBar: const GlassAppBar(title: Text('Your result')),
       body: RefreshIndicator(
         onRefresh: () async =>
             ref.refresh(attemptReviewProvider(widget.attemptId).future),
@@ -70,15 +74,75 @@ class _QuizReviewScreenState extends ConsumerState<QuizReviewScreen> {
   }
 }
 
-class _Summary extends StatelessWidget {
+class _Summary extends StatefulWidget {
   const _Summary({required this.review});
 
   final AttemptReview review;
 
   @override
+  State<_Summary> createState() => _SummaryState();
+}
+
+class _SummaryState extends State<_Summary> {
+  bool _downloadingPdf = false;
+
+  /// Builds and saves the same "solutions PDF" the website offers on a
+  /// premium quiz — every question, its correct answer, what was picked, and
+  /// any explanation. Only reachable from here, a submitted attempt's own
+  /// result, so it can never be pulled before the attempt is locked in.
+  Future<void> _downloadSolutionsPdf() async {
+    if (_downloadingPdf) return;
+    final review = widget.review;
+    setState(() => _downloadingPdf = true);
+    try {
+      final bytes = await QuizPdfGenerator.generate(
+        quizTitle: review.quizTitle,
+        score: review.score,
+        totalMarks: review.totalMarks,
+        questions: [
+          for (final question in review.questions)
+            QuizPdfQuestion(
+              text: question.text,
+              options: [
+                for (final option in question.options)
+                  QuizPdfOption(text: option.text, explanation: option.explanation),
+              ],
+              // An edited quiz can leave a review question with no correct
+              // index that still lines up with its (now different) options —
+              // -1 simply marks nothing as correct rather than the wrong one.
+              correctIndex: question.correctOptionIndex ?? -1,
+              explanation: question.explanation,
+              marks: question.marks,
+              userSelection: question.selectedOptionIndex,
+            ),
+        ],
+      );
+      if (!mounted) return;
+      await PdfDownloader.saveBytes(
+        context,
+        bytes: bytes,
+        title: '${review.quizTitle} - Solutions',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not generate the solutions PDF: $e'),
+          backgroundColor: AppColors.rose,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _downloadingPdf = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final review = widget.review;
     final palette = context.palette;
     final accent = review.passed ? AppColors.emerald : AppColors.amber;
+    final band = performanceBandFor(review.percentage);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -111,6 +175,10 @@ class _Summary extends StatelessWidget {
                               review.passed ? 'PASSED' : 'NOT PASSED',
                               color: accent,
                               filled: true,
+                            ),
+                            AppBadge(
+                              band.label.toUpperCase(),
+                              color: band.color,
                             ),
                             AppBadge('ATTEMPT #${review.attemptNumber}'),
                           ],
@@ -208,11 +276,38 @@ class _Summary extends StatelessWidget {
                 isLast: true,
               ),
               const SizedBox(height: 14),
-              OutlinedButton.icon(
-                onPressed: () =>
-                    context.push(AppRoutes.quizAttempt(review.quizId)),
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Retake this quiz'),
+              Row(
+                children: [
+                  // Premium-only, and only offered once the attempt is
+                  // submitted — this screen is the one place that is true.
+                  if (review.isPremium) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _downloadingPdf ? null : _downloadSolutionsPdf,
+                        icon: _downloadingPdf
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.download_rounded, size: 18),
+                        label: Text(
+                          _downloadingPdf ? 'Preparing…' : 'Solutions PDF',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          context.push(AppRoutes.quizAttempt(review.quizId)),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Retake this quiz'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -1,6 +1,7 @@
 import '../../core/network/api_client.dart';
 import '../../core/utils/json.dart';
 import '../models/order.dart';
+import '../models/paginated.dart';
 
 class OrdersRepository {
   OrdersRepository(this._api);
@@ -13,6 +14,18 @@ class OrdersRepository {
         .whereType<Map>()
         .map((e) => Order.fromJson(Map<String, dynamic>.from(e)))
         .toList();
+  }
+
+  /// One numbered page of the student's own orders, newest first.
+  Future<Paginated<Order>> fetchMyOrdersPage({
+    required int page,
+    int limit = 10,
+  }) async {
+    final res = await _api.get<dynamic>(
+      '/orders/me',
+      query: {'page': page, 'limit': limit},
+    );
+    return Paginated.fromJson(res, Order.fromJson);
   }
 
   /// Opens a payment intent. The server recomputes the price from the item and

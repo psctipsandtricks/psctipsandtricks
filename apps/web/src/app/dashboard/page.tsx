@@ -253,7 +253,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <span className="px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-mono text-[11px] font-bold flex items-center gap-1.5">
+          <span className="px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-mono text-[11px] font-bold flex items-center gap-1.5 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
             <span>{lastUpdated ? `Live • ${formatRelative(lastUpdated, now)}` : 'Live'}</span>
           </span>
@@ -262,7 +262,7 @@ export default function DashboardPage() {
             size="sm"
             onClick={() => load(true)}
             disabled={refreshing}
-            className="p-2 rounded-xl border-cyan-500/40 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/10"
+            className="p-2 rounded-xl border-slate-200 dark:border-cyan-500/40 text-slate-700 dark:text-cyan-300 hover:bg-slate-100 dark:hover:bg-cyan-500/10 bg-white/80 dark:bg-transparent shadow-2xs"
             aria-label="Refresh dashboard"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -302,6 +302,109 @@ export default function DashboardPage() {
         />
       </div>
 
+      {!hasAttempts ? (
+        <Card className="text-center space-y-3 border-dashed py-10">
+          <BarChart3 className="w-12 h-12 text-slate-400 dark:text-slate-500 mx-auto" />
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">Your dashboard is waiting for data</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+            Attempt a quiz or join a live mock test and your scores, ranks, accuracy, and study hours will appear here
+            automatically.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <Link href="/quizzes">
+              <Button variant="gold" size="sm" className="font-bold">
+                Explore Quiz Hub
+              </Button>
+            </Link>
+            <Link href="/mock-tests">
+              <Button variant="outline" size="sm" className="font-bold">
+                Browse Mock Tests
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      ) : (
+        /* Trend + accuracy */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+          <Card className="lg:col-span-2 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-cyan-500 dark:text-cyan-400" />
+                <span>Performance Trend</span>
+              </CardTitle>
+              <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider">
+                <span className="flex items-center gap-1.5 text-cyan-600 dark:text-cyan-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" /> Score
+                </span>
+                <span className="flex items-center gap-1.5 text-violet-600 dark:text-violet-400">
+                  <span className="w-2.5 h-2.5 rounded-full bg-violet-500" /> Accuracy
+                </span>
+              </div>
+            </div>
+
+            <PerformanceTrendChart trend={trend} />
+          </Card>
+
+          <Card className="space-y-4">
+            <CardTitle className="text-base sm:text-lg">Overall Accuracy</CardTitle>
+            <div className="flex items-center gap-4">
+              <AccuracyRing value={stats.accuracyPercent} />
+              <div className="space-y-3 min-w-0">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                    Pass Rate
+                  </span>
+                  <span className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
+                    {passRate}%
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 ml-1">
+                    ({stats.passedCount}/{stats.totalAttempts})
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                    Study Streak
+                  </span>
+                  <span className="text-lg font-black font-mono text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <Flame className="w-4 h-4" />
+                    {stats.streakDays} {stats.streakDays === 1 ? 'day' : 'days'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {subjects.length > 0 && (
+              <div className="space-y-2.5 pt-2 border-t border-slate-200/80 dark:border-[#1e2e56]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
+                  Strongest Subjects
+                </span>
+                {subjects.slice(0, 4).map((subject) => (
+                  <div key={subject.category} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="font-bold text-slate-700 dark:text-slate-200 truncate">
+                        {subject.category}
+                      </span>
+                      <span className={`font-mono font-bold shrink-0 ${scoreTone(subject.averagePercent)}`}>
+                        {subject.averagePercent}%
+                        <span className="text-slate-400 dark:text-slate-500 font-medium ml-1">
+                          ({subject.attempts})
+                        </span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-slate-100 dark:bg-[#1e2e56] overflow-hidden border border-slate-200/50 dark:border-transparent">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-[width] duration-700"
+                        style={{ width: `${Math.min(100, Math.max(2, subject.averagePercent))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
       {/* Continue reading — books the student has already opened in the reader */}
       {booksInProgress.length > 0 && (
         <Card className="space-y-4">
@@ -323,10 +426,10 @@ export default function DashboardPage() {
             {booksInProgress.map((book) => (
               <div
                 key={book.bookId}
-                className={`flex items-center gap-3 p-3 rounded-2xl border transition-colors ${
+                className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
                   book.isCompleted
-                    ? 'border-emerald-500/30 bg-emerald-500/[0.06]'
-                    : 'border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/60 dark:bg-[#0c152e]/60'
+                    ? 'border-emerald-500/30 bg-emerald-50/70 dark:bg-emerald-500/[0.06]'
+                    : 'border-slate-200/90 dark:border-[#1e2e56] bg-slate-50/90 hover:bg-white dark:bg-[#0c152e]/60 shadow-2xs hover:shadow-xs'
                 }`}
               >
                 {book.coverUrl ? (
@@ -334,7 +437,7 @@ export default function DashboardPage() {
                   <img
                     src={book.coverUrl}
                     alt={book.title}
-                    className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl object-cover object-center border border-slate-200/90 dark:border-[#1e2e56] shadow-sm shrink-0"
+                    className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl object-cover object-center border border-slate-200/90 dark:border-[#1e2e56] shadow-2xs shrink-0"
                   />
                 ) : (
                   <div className="w-24 h-16 sm:w-28 sm:h-18 rounded-xl bg-slate-100 dark:bg-[#091124] border border-slate-200 dark:border-[#1e2e56] flex flex-col items-center justify-center text-cyan-400 shrink-0">
@@ -361,7 +464,7 @@ export default function DashboardPage() {
                   )}
 
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-200/90 dark:bg-slate-800 overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${
                           book.isCompleted
@@ -392,112 +495,9 @@ export default function DashboardPage() {
           </div>
         </Card>
       )}
-
-      {!hasAttempts ? (
-        <Card className="text-center space-y-3 border-dashed py-10">
-          <BarChart3 className="w-12 h-12 text-slate-400 dark:text-slate-500 mx-auto" />
-          <h3 className="text-base font-bold text-slate-900 dark:text-white">Your dashboard is waiting for data</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-            Attempt a quiz or join a live mock test and your scores, ranks, accuracy, and study hours will appear here
-            automatically.
-          </p>
-          <div className="flex items-center justify-center gap-2 pt-1">
-            <Link href="/quizzes">
-              <Button variant="gold" size="sm" className="font-bold">
-                Explore Quiz Hub
-              </Button>
-            </Link>
-            <Link href="/mock-tests">
-              <Button variant="outline" size="sm" className="font-bold">
-                Browse Mock Tests
-              </Button>
-            </Link>
-          </div>
-        </Card>
-      ) : (
-        <>
-          {/* Trend + accuracy */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-            <Card className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-cyan-500 dark:text-cyan-400" />
-                  <span>Performance Trend</span>
-                </CardTitle>
-                <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider">
-                  <span className="flex items-center gap-1.5 text-cyan-600 dark:text-cyan-400">
-                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" /> Score
-                  </span>
-                  <span className="flex items-center gap-1.5 text-violet-600 dark:text-violet-400">
-                    <span className="w-2.5 h-2.5 rounded-full bg-violet-500" /> Accuracy
-                  </span>
-                </div>
-              </div>
-
-              <PerformanceTrendChart trend={trend} />
-            </Card>
-
-            <Card className="space-y-4">
-              <CardTitle className="text-base sm:text-lg">Overall Accuracy</CardTitle>
-              <div className="flex items-center gap-4">
-                <AccuracyRing value={stats.accuracyPercent} />
-                <div className="space-y-3 min-w-0">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-                      Pass Rate
-                    </span>
-                    <span className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
-                      {passRate}%
-                    </span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 ml-1">
-                      ({stats.passedCount}/{stats.totalAttempts})
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-                      Study Streak
-                    </span>
-                    <span className="text-lg font-black font-mono text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                      <Flame className="w-4 h-4" />
-                      {stats.streakDays} {stats.streakDays === 1 ? 'day' : 'days'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {subjects.length > 0 && (
-                <div className="space-y-2.5 pt-2 border-t border-slate-200/80 dark:border-[#1e2e56]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-                    Strongest Subjects
-                  </span>
-                  {subjects.slice(0, 4).map((subject) => (
-                    <div key={subject.category} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="font-bold text-slate-700 dark:text-slate-200 truncate">
-                          {subject.category}
-                        </span>
-                        <span className={`font-mono font-bold shrink-0 ${scoreTone(subject.averagePercent)}`}>
-                          {subject.averagePercent}%
-                          <span className="text-slate-400 dark:text-slate-500 font-medium ml-1">
-                            ({subject.attempts})
-                          </span>
-                        </span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-slate-200 dark:bg-[#1e2e56] overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-[width] duration-700"
-                          style={{ width: `${Math.min(100, Math.max(2, subject.averagePercent))}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-
-          {/* Recent performances */}
-          <Card className="space-y-4">
+      {/* Recent performances */}
+      {hasAttempts && (
+        <Card className="space-y-4">
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base sm:text-lg">Recent Performances</CardTitle>
               <Link
@@ -623,7 +623,6 @@ export default function DashboardPage() {
               ))}
             </div>
           </Card>
-        </>
       )}
 
       {/* Upcoming & live mock tests */}

@@ -58,7 +58,24 @@ import {
   Image as ImageIcon,
   Upload,
   AlertCircle,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
+import {
+  DndContext,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableTableRow, stopDragActivationProps } from '../../sortable-row';
 import { validateQuizCover } from '@/lib/image-validation';
 import { AdminSkeletonHeader, AdminSkeletonTable } from '../../../admin-skeleton';
 
@@ -90,6 +107,8 @@ export interface QuizItem {
   isLiveMock: boolean;
   accessType: 'FREE' | 'PAID';
   price?: number;
+  discountPercent?: number;
+  finalPrice?: number;
   imageUrl?: string | null;
   createdAt?: string;
   negativeMarkingEnabled?: boolean;
@@ -114,6 +133,7 @@ interface QuizFormValues {
   selectedFolder: string;
   accessType: 'FREE' | 'PAID' | '';
   price: string;
+  discountPercent: string;
   imageUrl?: string | null;
   negativeMarkingEnabled: boolean;
   negativeMarkingEvery: string;
@@ -136,12 +156,19 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   selectedFolder: 'Root',
   accessType: 'FREE',
   price: '99',
+  discountPercent: '0',
   imageUrl: '',
   negativeMarkingEnabled: false,
   negativeMarkingEvery: '3',
   negativeMarkingDeduct: '1',
   allowNegativeScore: false,
 };
+
+function computeFinalPrice(price: string, discountPercent: string) {
+  const p = Math.max(0, Number(price) || 0);
+  const d = Math.min(100, Math.max(0, Number(discountPercent) || 0));
+  return Math.round(p - (p * d) / 100);
+}
 
 const RELEASE_GRACE_MS = 60_000;
 const NEW_QUIZ_WINDOW_DAYS = 7;
@@ -226,6 +253,15 @@ const makeQuizSchema = (originalReleaseIso?: string) =>
     price: Yup.number().when('accessType', {
       is: 'PAID',
       then: (schema) => schema.typeError('Price must be a number').positive('Price must be greater than 0.').required('Price is required for paid quizzes.'),
+      otherwise: (schema) => schema.notRequired(),
+    }),
+    discountPercent: Yup.number().when('accessType', {
+      is: 'PAID',
+      then: (schema) =>
+        schema
+          .typeError('Discount must be a number')
+          .min(0, 'Discount cannot be negative.')
+          .max(100, 'Discount cannot exceed 100%.'),
       otherwise: (schema) => schema.notRequired(),
     }),
     negativeMarkingEvery: Yup.number().when('negativeMarkingEnabled', {
@@ -329,6 +365,11 @@ export default function AdminFolderQuizzesPage() {
   const [updatingStatusQuizId, setUpdatingStatusQuizId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
+  // ── Drag-to-reorder ──────────────────────────────────────────────────
+  const [moveTargetQuiz, setMoveTargetQuiz] = useState<QuizItem | null>(null);
+  const [movePositionInput, setMovePositionInput] = useState('');
+  const dragStartOrderRef = useRef<QuizItem[] | null>(null);
+
   // Image Upload State
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isValidatingQuizImage, setIsValidatingQuizImage] = useState(false);
@@ -356,6 +397,8 @@ export default function AdminFolderQuizzesPage() {
       isLiveMock: apiQuiz.isLiveMock,
       accessType: apiQuiz.accessType === 'PAID' ? 'PAID' : 'FREE',
       price: apiQuiz.price > 0 ? apiQuiz.price : undefined,
+      discountPercent: apiQuiz.discountPercent !== undefined ? apiQuiz.discountPercent : 0,
+      finalPrice: apiQuiz.finalPrice !== undefined && apiQuiz.finalPrice > 0 ? apiQuiz.finalPrice : (apiQuiz.price > 0 ? apiQuiz.price : undefined),
       imageUrl: apiQuiz.imageUrl || null,
       createdAt: apiQuiz.createdAt,
       negativeMarkingEnabled: apiQuiz.negativeMarkingEnabled ?? false,
@@ -460,6 +503,115 @@ export default function AdminFolderQuizzesPage() {
     fetchQuizzes();
     fetchMockTests();
   }, [fetchSubFolders, fetchQuizzes, fetchMockTests]);
+
+  // Reordering is only meaningful while the table shows the folder's real
+  // sequence. Under a search or a filter the rows on screen are a subset, so a
+  // drag would write positions derived from gaps the admin cannot see.
+  const canReorder =
+    !searchTerm.trim() && selectedAccessFilter === 'ALL' && selectedStatusFilter === 'ALL';
+
+  /** Absolute position of a row in the folder, not its index on this page. */
+  const pageOffset = (currentPage - 1) * pageSize;
+
+  const persistOrder = useCallback(
+    async (ordered: QuizItem[]) => {
+      try {
+        await ApiClient.reorderQuizzes(
+          ordered.map((quiz, index) => ({ id: quiz.id, orderIndex: pageOffset + index })),
+        );
+        setToastMsg({ type: 'success', text: 'Quiz order updated. Students see this order too.' });
+        await fetchQuizzes(true);
+      } catch (err) {
+        console.error('Failed to save quiz order:', err);
+        setToastMsg({ type: 'error', text: 'Could not save the new order. The list has been put back.' });
+        await fetchQuizzes(true);
+      }
+    },
+    [pageOffset, fetchQuizzes],
+  );
+
+  const resetDragUiState = () => {
+    document.body.style.cursor = '';
+    document.body.classList.remove('select-none');
+  };
+
+  const dragSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
+
+  const handleDragStart = (_event: DragStartEvent) => {
+    dragStartOrderRef.current = quizzes;
+    document.body.style.cursor = 'grabbing';
+    document.body.classList.add('select-none');
+  };
+
+  // Swap semantics, matching the Questions table: hovering the dragged quiz
+  // over another exchanges just those two, leaving every other row put.
+  const handleDragOverSort = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setQuizzes((prev) => {
+      const fromIndex = prev.findIndex((q) => q.id === active.id);
+      const toIndex = prev.findIndex((q) => q.id === over.id);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+      return next;
+    });
+  };
+
+  const handleDragEndSort = async (_event: DragEndEvent) => {
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    resetDragUiState();
+
+    if (!startOrder) return;
+    const changed = startOrder.some((q, idx) => q.id !== quizzes[idx]?.id);
+    if (!changed) return;
+
+    await persistOrder(quizzes);
+  };
+
+  const handleDragCancel = () => {
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    resetDragUiState();
+    if (startOrder) setQuizzes(startOrder);
+  };
+
+  /**
+   * Single-quiz jumps go through the server rather than being computed here:
+   * the target may sit on a page this table has not loaded, so only the API
+   * can shift everything in between.
+   */
+  const moveQuizTo = useCallback(
+    async (quiz: QuizItem, absolutePosition: number) => {
+      const clamped = Math.max(0, Math.min(totalCount - 1, absolutePosition));
+      try {
+        await ApiClient.moveQuiz(quiz.id, clamped);
+        setToastMsg({ type: 'success', text: `Moved "${quiz.title}" to position ${clamped + 1}.` });
+        // Follow the quiz to whichever page it landed on, so the admin can see
+        // the move actually happened.
+        const destinationPage = Math.floor(clamped / pageSize) + 1;
+        if (destinationPage !== currentPage) setCurrentPage(destinationPage);
+        else await fetchQuizzes(true);
+      } catch (err) {
+        console.error('Failed to move quiz:', err);
+        setToastMsg({ type: 'error', text: 'Could not move the quiz. Nothing was changed.' });
+      }
+    },
+    [totalCount, pageSize, currentPage, fetchQuizzes],
+  );
+
+  const handleConfirmMove = async () => {
+    if (!moveTargetQuiz) return;
+    const requested = Number(movePositionInput);
+    const target = moveTargetQuiz;
+    setMoveTargetQuiz(null);
+    if (!Number.isFinite(requested)) return;
+    await moveQuizTo(target, Math.trunc(requested) - 1);
+  };
 
   const handleOpenCreateSubFolder = (parentFolder?: QuizFolder) => {
     setEditingSubFolder(null);
@@ -652,6 +804,8 @@ export default function AdminFolderQuizzesPage() {
       );
 
       const numericPrice = values.accessType === 'PAID' ? Number(values.price) || 0 : 0;
+      const numericDiscount = values.accessType === 'PAID' ? Number(values.discountPercent) || 0 : 0;
+      const numericFinalPrice = values.accessType === 'PAID' ? computeFinalPrice(values.price, values.discountPercent) : 0;
       const fullReleaseIso = isAlreadyReleased
         ? (currentEditingQuiz?.releaseDate || undefined)
         : (isReleaseScheduled && values.releaseDate ? resolveReleaseIso(values.releaseDate, values.releaseTime) : null);
@@ -667,6 +821,8 @@ export default function AdminFolderQuizzesPage() {
         isLiveMock: values.isLive,
         isPremium: values.accessType === 'PAID',
         price: numericPrice,
+        discountPercent: numericDiscount,
+        finalPrice: numericFinalPrice,
         imageUrl: values.imageUrl?.trim() || null,
         negativeMarkingEnabled: values.negativeMarkingEnabled,
         negativeMarkingEvery: values.negativeMarkingEnabled ? Number(values.negativeMarkingEvery) || 3 : 3,
@@ -691,6 +847,8 @@ export default function AdminFolderQuizzesPage() {
                     durationMinutes: apiPayload.durationMinutes,
                     isLiveMock: apiPayload.isLiveMock,
                     price: apiPayload.price,
+                    discountPercent: apiPayload.discountPercent,
+                    finalPrice: apiPayload.finalPrice,
                     imageUrl: apiPayload.imageUrl,
                   }
                 : q,
@@ -812,6 +970,7 @@ export default function AdminFolderQuizzesPage() {
         selectedFolder: currentFolder,
         accessType: quiz.accessType,
         price: quiz.price ? String(quiz.price) : '99',
+        discountPercent: quiz.discountPercent !== undefined ? String(quiz.discountPercent) : '0',
         imageUrl: quiz.imageUrl || '',
         negativeMarkingEnabled: quiz.negativeMarkingEnabled ?? false,
         negativeMarkingEvery: String(quiz.negativeMarkingEvery ?? 3),
@@ -1050,6 +1209,14 @@ export default function AdminFolderQuizzesPage() {
               </div>
             </div>
           ) : (
+            <DndContext
+              sensors={dragSensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOverSort}
+              onDragEnd={handleDragEndSort}
+              onDragCancel={handleDragCancel}
+            >
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
@@ -1336,7 +1503,16 @@ export default function AdminFolderQuizzesPage() {
                                   </TableCell>
                                   <TableCell className="py-2.5">
                                     {innerQuiz.accessType === 'PAID' ? (
-                                      <Badge variant="gold" className="text-[10px]">₹{innerQuiz.price || 0}</Badge>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <Badge variant="gold" className="text-[10px]">
+                                          ₹{innerQuiz.finalPrice && innerQuiz.finalPrice > 0 ? innerQuiz.finalPrice : (innerQuiz.price || 0)}
+                                        </Badge>
+                                        {Boolean(innerQuiz.discountPercent && innerQuiz.discountPercent > 0) && (
+                                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                                            {innerQuiz.discountPercent}% OFF
+                                          </span>
+                                        )}
+                                      </div>
                                     ) : (
                                       <Badge variant="success" className="text-[10px]">FREE</Badge>
                                     )}
@@ -1415,18 +1591,42 @@ export default function AdminFolderQuizzesPage() {
                 ))}
 
                 {/* Quizzes Rows */}
-                {quizzes.map((quiz) => {
+                <SortableContext items={quizzes.map((q) => q.id)} strategy={verticalListSortingStrategy}>
+                {quizzes.map((quiz, pageIndex) => {
                   const rel = formatReleaseDateTime(quiz.releaseDate, quiz.createdAt);
                   const isPaid = quiz.accessType === 'PAID';
+                  const position = pageOffset + pageIndex;
 
                   return (
-                    <TableRow
-                      key={quiz.id}
-                      className="border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-slate-50/60 dark:hover:bg-[#0c152e]/40 transition-colors"
-                    >
+                    <SortableTableRow key={quiz.id} id={quiz.id} canReorder={canReorder}>
                       {/* Quiz Details */}
                       <TableCell className="py-3">
                         <div className="flex items-center gap-3 min-w-[220px] max-w-xs">
+                          <div className="flex flex-col items-center gap-0.5 shrink-0">
+                            <span
+                              title={canReorder ? 'Drag to reorder' : 'Clear search and filters to reorder'}
+                              className={
+                                canReorder
+                                  ? 'text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none'
+                                  : 'text-slate-200 dark:text-slate-700 cursor-not-allowed'
+                              }
+                            >
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </span>
+                            <button
+                              type="button"
+                              {...stopDragActivationProps}
+                              disabled={!canReorder}
+                              onClick={() => {
+                                setMoveTargetQuiz(quiz);
+                                setMovePositionInput(String(position + 1));
+                              }}
+                              className="font-mono text-[10px] font-extrabold text-slate-400 hover:text-cyan-500 disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer tabular-nums"
+                              title="Move this quiz to a specific position"
+                            >
+                              {position + 1}
+                            </button>
+                          </div>
                           <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-slate-200 dark:border-slate-800 bg-slate-900">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -1458,10 +1658,17 @@ export default function AdminFolderQuizzesPage() {
                       {/* Access Type */}
                       <TableCell className="py-3">
                         {isPaid ? (
-                          <Badge variant="gold" className="font-bold text-xs flex items-center gap-1">
-                            <Lock className="w-3 h-3" />
-                            <span>₹{quiz.price || 0}</span>
-                          </Badge>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge variant="gold" className="font-bold text-xs flex items-center gap-1">
+                              <Lock className="w-3 h-3" />
+                              <span>₹{quiz.finalPrice && quiz.finalPrice > 0 ? quiz.finalPrice : (quiz.price || 0)}</span>
+                            </Badge>
+                            {Boolean(quiz.discountPercent && quiz.discountPercent > 0) && (
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                                {quiz.discountPercent}% OFF
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <Badge variant="success" className="font-bold text-xs flex items-center gap-1">
                             <Unlock className="w-3 h-3" />
@@ -1531,7 +1738,29 @@ export default function AdminFolderQuizzesPage() {
 
                       {/* Actions */}
                       <TableCell className="py-3 text-right">
-                        <div className="flex items-center justify-end space-x-1.5">
+                        <div className="flex items-center justify-end space-x-1.5" {...stopDragActivationProps}>
+                          <div className="flex flex-col -space-y-1 mr-0.5">
+                            <button
+                              type="button"
+                              disabled={!canReorder || position === 0}
+                              onClick={() => moveQuizTo(quiz, position - 1)}
+                              className="p-0.5 text-slate-400 hover:text-cyan-500 disabled:opacity-25 disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+                              title="Move up"
+                              aria-label={`Move ${quiz.title} up`}
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canReorder || position >= totalCount - 1}
+                              onClick={() => moveQuizTo(quiz, position + 1)}
+                              className="p-0.5 text-slate-400 hover:text-cyan-500 disabled:opacity-25 disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+                              title="Move down"
+                              aria-label={`Move ${quiz.title} down`}
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
                           <Link href={`/admin/quizzes/${quiz.id}/questions`}>
                             <Button variant="outline" size="sm" className="font-bold text-xs h-7 px-2 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 cursor-pointer">
                               <ListChecks className="w-3.5 h-3.5 mr-1" />
@@ -1558,11 +1787,13 @@ export default function AdminFolderQuizzesPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </SortableTableRow>
                   );
                 })}
+                </SortableContext>
               </TableBody>
             </Table>
+            </DndContext>
           )}
         </div>
 
@@ -1584,6 +1815,47 @@ export default function AdminFolderQuizzesPage() {
           </div>
         )}
       </Card>
+
+      {/* Move to Position — for hops the drag can't make, because the
+          destination is on a page this table isn't showing. */}
+      <Dialog
+        isOpen={!!moveTargetQuiz}
+        onClose={() => setMoveTargetQuiz(null)}
+        title="Move Quiz to Position"
+        className="max-w-sm"
+      >
+        <div className="space-y-4 pt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Move <span className="font-bold text-slate-900 dark:text-white">{moveTargetQuiz?.title}</span> to a
+            new position in <span className="font-bold">{currentFolder}</span>. Everything in between shifts to
+            make room, and students see the same order.
+          </p>
+          <Input
+            type="number"
+            min={1}
+            max={totalCount}
+            label={`Position (1 – ${totalCount})`}
+            value={movePositionInput}
+            onChange={(e) => setMovePositionInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleConfirmMove();
+              }
+            }}
+            autoFocus
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setMoveTargetQuiz(null)} className="cursor-pointer">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmMove} className="font-bold cursor-pointer">
+              <ArrowUpDown className="w-4 h-4 mr-1.5" />
+              Move
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       {/* Quiz Builder Dialog */}
       <Dialog
@@ -1678,16 +1950,45 @@ export default function AdminFolderQuizzesPage() {
             </div>
 
             {formik.values.accessType === 'PAID' && (
-              <div className="pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-start pt-2">
                 <Input
-                  label="Price (INR ₹)"
+                  label="Price (INR)"
                   name="price"
                   type="number"
-                  placeholder="e.g. 99"
+                  placeholder="e.g. 1000"
                   value={formik.values.price}
                   onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
                   error={formik.touched.price && formik.errors.price ? formik.errors.price : undefined}
                 />
+                <Input
+                  label="Discount %"
+                  name="discountPercent"
+                  type="number"
+                  placeholder="e.g. 20"
+                  value={formik.values.discountPercent}
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  error={formik.touched.discountPercent && formik.errors.discountPercent ? formik.errors.discountPercent : undefined}
+                />
+                <div className="w-full space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    Final Student Price
+                  </label>
+                  <div
+                    title="Calculated automatically from Price and Discount %"
+                    className="flex h-11 w-full items-center justify-between rounded-xl border border-cyan-500/40 bg-cyan-500/[0.08] dark:bg-cyan-500/[0.05] px-3.5 text-sm font-mono font-black text-cyan-600 dark:text-cyan-400 shadow-2xs"
+                  >
+                    <span className="text-base font-black">
+                      ₹{computeFinalPrice(formik.values.price, formik.values.discountPercent)}
+                    </span>
+                    {Number(formik.values.discountPercent) > 0 && (
+                      <span className="text-[11px] font-sans font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-md">
+                        {formik.values.discountPercent}% OFF
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

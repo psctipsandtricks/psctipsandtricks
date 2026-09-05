@@ -707,13 +707,16 @@ export async function generateQuizSolutionsPDF({
   // Direct Download without triggering browser File System Access API picker modal
   const fileName = buildFileName(quizTitle);
 
-  const blob = doc.output('blob');
-  const blobUrl = URL.createObjectURL(blob);
+  const rawBlob = doc.output('blob');
+  const pdfBlob = new Blob([rawBlob], { type: 'application/pdf' });
+  const blobUrl = URL.createObjectURL(pdfBlob);
   const link = document.createElement('a');
+  link.style.display = 'none';
   link.href = blobUrl;
   link.download = fileName;
+  link.setAttribute('download', fileName);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
 }

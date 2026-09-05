@@ -8,6 +8,8 @@ import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/responsive.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/quiz.dart';
@@ -15,6 +17,7 @@ import 'quizzes_providers.dart';
 import 'widgets/premium_quiz_carousel.dart';
 import 'widgets/quiz_card.dart';
 import 'widgets/quiz_category_card.dart';
+import '../shell/shell_scaffold.dart';
 
 /// The Quiz Hub: displays the top 10 newest premium quiz carousel, followed by
 /// the two primary categories (Free Quiz & Premium Quiz), with full folder drill-down.
@@ -30,6 +33,12 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
   Timer? _debounce;
 
   @override
+  void initState() {
+    super.initState();
+    _searchController.text = ref.read(quizSearchProvider);
+  }
+
+  @override
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
@@ -38,23 +47,19 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
+    _debounce = Timer(const Duration(milliseconds: 300), () {
       ref.read(quizSearchProvider.notifier).state = value.trim();
     });
     setState(() {});
   }
 
-  void _openQuiz(Quiz quiz) {
-    final signedIn = ref.read(authControllerProvider).isAuthenticated;
-    final target = AppRoutes.quizAttempt(quiz.id);
-    if (!signedIn) {
-      context.push('${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}');
+  void _popNavigation() {
+    final search = ref.read(quizSearchProvider);
+    if (search.isNotEmpty) {
+      _searchController.clear();
+      ref.read(quizSearchProvider.notifier).state = '';
       return;
     }
-    context.push(target);
-  }
-
-  void _popNavigation() {
     final path = ref.read(folderPathProvider);
     if (!path.isRoot) {
       ref.read(folderPathProvider.notifier).update((p) => p.pop());
@@ -63,42 +68,51 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
     }
   }
 
+  void _openQuiz(Quiz quiz) {
+    final signedIn = ref.read(authControllerProvider).isAuthenticated;
+    final target = AppRoutes.quizAttempt(quiz.id);
+    if (!signedIn && quiz.isPaid) {
+      context.push('${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}');
+      return;
+    }
+    context.push(target);
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen(quizSearchProvider, (prev, next) {
+      if (next.isEmpty && _searchController.text.isNotEmpty) {
+        _searchController.clear();
+      }
+    });
+
     final tier = ref.watch(quizAccessTierProvider);
     final path = ref.watch(folderPathProvider);
     final search = ref.watch(quizSearchProvider);
+    final isSearching = search.isNotEmpty;
+    final isTablet = Responsive.isTablet(context);
 
-    final publishedAsync = ref.watch(publishedQuizzesProvider);
-    final allFoldersAsync = ref.watch(allQuizFoldersProvider);
-    final foldersAsync = ref.watch(quizFoldersProvider);
     final quizzesAsync = ref.watch(quizzesProvider);
-
-    final allQuizzes = publishedAsync.valueOrNull ?? const <Quiz>[];
-    final allFolders = allFoldersAsync.valueOrNull ?? const <QuizFolder>[];
-    final folders = foldersAsync.valueOrNull ?? const <QuizFolder>[];
-    final quizzes = quizzesAsync.valueOrNull ?? const <Quiz>[];
+    final foldersAsync = ref.watch(quizFoldersProvider);
+    final allQuizzes = ref.watch(publishedQuizzesProvider).valueOrNull ?? [];
+    final allFolders = ref.watch(allQuizFoldersProvider).valueOrNull ?? [];
 
     final freeCount = allQuizzes.where((q) => !q.isPaid).length;
     final premiumCount = allQuizzes.where((q) => q.isPaid).length;
 
+    final folders = foldersAsync.valueOrNull ?? [];
+    final quizzes = quizzesAsync.valueOrNull ?? [];
+
     final isRootHome = tier == null && path.isRoot && search.isEmpty;
-    final isSearching = search.isNotEmpty;
 
     return PopScope(
-      canPop: isRootHome,
+      canPop: isRootHome && !isSearching,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          if (isSearching) {
-            _searchController.clear();
-            ref.read(quizSearchProvider.notifier).state = '';
-          } else {
-            _popNavigation();
-          }
-        }
+        if (didPop) return;
+        _popNavigation();
       },
       child: Scaffold(
-        appBar: AppBar(
+        appBar: GlassAppBar(
           title: Text(
             tier == null
                 ? 'Quiz Hub'
@@ -106,17 +120,10 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                     ? 'Premium Quizzes'
                     : 'Free Quizzes'),
           ),
-          leading: !isRootHome
+          leading: !isRootHome || isSearching
               ? IconButton(
                   icon: const Icon(Icons.arrow_back_rounded),
-                  onPressed: () {
-                    if (isSearching) {
-                      _searchController.clear();
-                      ref.read(quizSearchProvider.notifier).state = '';
-                    } else {
-                      _popNavigation();
-                    }
-                  },
+                  onPressed: _popNavigation,
                 )
               : null,
           actions: [
@@ -128,34 +135,42 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
           ],
           bottom: PreferredSize(
             preferredSize: Size.fromHeight(isRootHome ? 64 : 98),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: AppSearchField(
-                    controller: _searchController,
-                    hintText: 'Search all question banks…',
-                    onChanged: _onSearchChanged,
+            child: Responsive.centered(
+              maxWidth: Responsive.maxContentWidth,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      Responsive.horizontalPadding(context),
+                      0,
+                      Responsive.horizontalPadding(context),
+                      12,
+                    ),
+                    child: AppSearchField(
+                      controller: _searchController,
+                      hintText: 'Search all question banks…',
+                      onChanged: _onSearchChanged,
+                    ),
                   ),
-                ),
-                if (!isRootHome && !isSearching)
-                  _Breadcrumbs(
-                    tier: tier,
-                    path: path,
-                    onTapAll: () {
-                      ref.read(quizAccessTierProvider.notifier).state = null;
-                      ref.read(folderPathProvider.notifier).state = FolderPath.root;
-                    },
-                    onTapTier: () {
-                      ref.read(folderPathProvider.notifier).state = FolderPath.root;
-                    },
-                    onTapFolder: (index) {
-                      ref
-                          .read(folderPathProvider.notifier)
-                          .update((p) => p.popTo(index));
-                    },
-                  ),
-              ],
+                  if (!isRootHome && !isSearching)
+                    _Breadcrumbs(
+                      tier: tier,
+                      path: path,
+                      onTapAll: () {
+                        ref.read(quizAccessTierProvider.notifier).state = null;
+                        ref.read(folderPathProvider.notifier).state = FolderPath.root;
+                      },
+                      onTapTier: () {
+                        ref.read(folderPathProvider.notifier).state = FolderPath.root;
+                      },
+                      onTapFolder: (index) {
+                        ref
+                            .read(folderPathProvider.notifier)
+                            .update((p) => p.popTo(index));
+                      },
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -176,90 +191,136 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                 }
                 if (quizzes.isEmpty) {
                   return ListView(
-                    children: [
-                      const SizedBox(height: 60),
+                    children: const [
+                      SizedBox(height: 60),
                       EmptyView(
                         icon: Icons.search_off_rounded,
-                        title: 'No quizzes match "$search"',
-                        message: 'Try a different keyword or topic.',
+                        title: 'No quizzes found',
+                        message: 'Try adjusting your search terms.',
                       ),
                     ],
                   );
                 }
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                  children: [
-                    SectionHeader(
-                      title: 'Search results',
-                      subtitle: '${quizzes.length} matches found',
-                      icon: Icons.search_rounded,
-                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+                return Responsive.centered(
+                  maxWidth: Responsive.maxContentWidth,
+                  child: ListView.separated(
+                    padding: EdgeInsets.fromLTRB(
+                      Responsive.horizontalPadding(context),
+                      8,
+                      Responsive.horizontalPadding(context),
+                      24 + ShellScaffold.dockExtent,
                     ),
-                    for (final quiz in quizzes)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: QuizCard(
-                          quiz: quiz,
-                          width: double.infinity,
-                          onTap: () => _openQuiz(quiz),
-                        ),
-                      ),
-                  ],
+                    itemCount: quizzes.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final quiz = quizzes[index];
+                      return QuizCard(
+                        quiz: quiz,
+                        width: double.infinity,
+                        onTap: () => _openQuiz(quiz),
+                      );
+                    },
+                  ),
                 );
               }
 
               // Top level (Categories & Carousel)
               if (tier == null) {
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
-                  children: [
-                    // Premium Quiz Carousel
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: SectionHeader(
-                        title: 'Premium Quizzes',
-                        subtitle: 'Top 10 newest question banks',
-                        icon: Icons.workspace_premium_rounded,
-                        actionLabel: 'View all',
-                        onAction: () => ref
-                            .read(quizAccessTierProvider.notifier)
-                            .state = QuizAccessTier.premium,
+                return Responsive.centered(
+                  maxWidth: Responsive.maxContentWidth,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(
+                        0, 8, 0, 24 + ShellScaffold.dockExtent),
+                    children: [
+                      // Premium Quiz Carousel
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          Responsive.horizontalPadding(context),
+                          0,
+                          Responsive.horizontalPadding(context),
+                          12,
+                        ),
+                        child: SectionHeader(
+                          title: 'Premium Quizzes',
+                          subtitle: 'Top 10 newest question banks',
+                          icon: Icons.workspace_premium_rounded,
+                          actionLabel: 'View all',
+                          onAction: () => ref
+                              .read(quizAccessTierProvider.notifier)
+                              .state = QuizAccessTier.premium,
+                        ),
                       ),
-                    ),
-                    const PremiumQuizCarousel(),
-                    const SizedBox(height: 24),
+                      const PremiumQuizCarousel(),
+                      const SizedBox(height: 24),
 
-                    // Main Categories
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: SectionHeader(
-                        title: 'Question Bank Categories',
-                        subtitle: 'Explore question banks by access level',
-                        icon: Icons.folder_open_rounded,
+                      // Main Categories
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          Responsive.horizontalPadding(context),
+                          0,
+                          Responsive.horizontalPadding(context),
+                          12,
+                        ),
+                        child: const SectionHeader(
+                          title: 'Question Bank Categories',
+                          subtitle: 'Explore question banks by access level',
+                          icon: Icons.folder_open_rounded,
+                        ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: QuizCategoryCard(
-                        type: QuizCategoryType.free,
-                        count: freeCount,
-                        onTap: () => ref
-                            .read(quizAccessTierProvider.notifier)
-                            .state = QuizAccessTier.free,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: QuizCategoryCard(
-                        type: QuizCategoryType.premium,
-                        count: premiumCount,
-                        onTap: () => ref
-                            .read(quizAccessTierProvider.notifier)
-                            .state = QuizAccessTier.premium,
-                      ),
-                    ),
-                  ],
+                      if (isTablet)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: Responsive.horizontalPadding(context),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: QuizCategoryCard(
+                                  type: QuizCategoryType.free,
+                                  count: freeCount,
+                                  onTap: () => ref
+                                      .read(quizAccessTierProvider.notifier)
+                                      .state = QuizAccessTier.free,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: QuizCategoryCard(
+                                  type: QuizCategoryType.premium,
+                                  count: premiumCount,
+                                  onTap: () => ref
+                                      .read(quizAccessTierProvider.notifier)
+                                      .state = QuizAccessTier.premium,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else ...[
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: QuizCategoryCard(
+                            type: QuizCategoryType.free,
+                            count: freeCount,
+                            onTap: () => ref
+                                .read(quizAccessTierProvider.notifier)
+                                .state = QuizAccessTier.free,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: QuizCategoryCard(
+                            type: QuizCategoryType.premium,
+                            count: premiumCount,
+                            onTap: () => ref
+                                .read(quizAccessTierProvider.notifier)
+                                .state = QuizAccessTier.premium,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 );
               }
 
@@ -287,8 +348,15 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                   ? AppColors.amber
                   : AppColors.emerald;
 
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              return Responsive.centered(
+                maxWidth: Responsive.maxContentWidth,
+                child: ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.horizontalPadding(context),
+                    8,
+                    Responsive.horizontalPadding(context),
+                    24 + ShellScaffold.dockExtent,
+                  ),
                 children: [
                   if (folders.isNotEmpty) ...[
                     SectionHeader(
@@ -336,7 +404,8 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                       ),
                   ],
                 ],
-              );
+              ),
+            );
             },
           ),
         ),

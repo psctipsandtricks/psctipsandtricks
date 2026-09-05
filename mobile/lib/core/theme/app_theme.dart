@@ -56,6 +56,8 @@ class AppTheme {
       splashFactory: InkSparkle.splashFactory,
       extensions: <ThemeExtension<dynamic>>[p],
       appBarTheme: AppBarTheme(
+        // `GlassAppBar` paints the surface; a plain `AppBar` still gets the
+        // page colour so nothing shows through it.
         backgroundColor: p.background,
         surfaceTintColor: Colors.transparent,
         foregroundColor: p.textPrimary,
@@ -92,7 +94,7 @@ class AppTheme {
       dividerTheme: DividerThemeData(color: p.border, thickness: 1, space: 1),
       iconTheme: IconThemeData(color: p.textSecondary, size: 22),
       chipTheme: ChipThemeData(
-        backgroundColor: p.elevated,
+        backgroundColor: p.elevated.withValues(alpha: 0.75),
         side: BorderSide(color: p.border),
         labelStyle: textTheme.labelMedium?.copyWith(color: p.textSecondary),
         shape: RoundedRectangleBorder(
@@ -101,7 +103,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: p.input,
+        fillColor: p.input.withValues(alpha: p.isDark ? 0.72 : 0.80),
         hintStyle: textTheme.bodyMedium?.copyWith(color: p.textMuted),
         labelStyle: textTheme.bodyMedium?.copyWith(color: p.textSecondary),
         contentPadding: const EdgeInsets.symmetric(
@@ -175,10 +177,13 @@ class AppTheme {
         type: BottomNavigationBarType.fixed,
         elevation: 0,
       ),
-      bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: p.card,
+      bottomSheetTheme: const BottomSheetThemeData(
+        // Sheets are drawn on a `GlassSheetSurface`; the theme only has to get
+        // out of its way.
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
-        shape: const RoundedRectangleBorder(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(radiusXl)),
         ),
       ),

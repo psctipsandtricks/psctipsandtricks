@@ -20,4 +20,14 @@ export class SubmitQuizDto {
   @IsInt()
   @Min(0)
   timeTakenSeconds?: number;
+
+  /**
+   * Same duration as `timeTakenSeconds`, to millisecond precision. Mock
+   * tests rank ties on this — two participants can easily land on the same
+   * whole second, and only the finer value can tell who was actually faster.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  timeTakenMs?: number;
 }

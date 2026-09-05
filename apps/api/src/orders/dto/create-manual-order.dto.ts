@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateManualOrderDto {
   @IsString()
@@ -21,4 +21,12 @@ export class CreateManualOrderDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  /**
+   * The date the purchase should be recorded against (YYYY-MM-DD or full ISO).
+   * Defaults to now when omitted. Used as the order's created/paid timestamp.
+   */
+  @IsOptional()
+  @IsDateString()
+  purchaseDate?: string;
 }

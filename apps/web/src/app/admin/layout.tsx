@@ -29,6 +29,7 @@ import {
   Compass,
   Calendar,
   Clock,
+  Smartphone,
 } from 'lucide-react';
 import { useTheme } from '../theme-provider';
 import { AdminAuthProvider, useAdminAuth } from './admin-auth-provider';
@@ -128,6 +129,7 @@ function AdminPanelShell({
     { id: 'announcements', label: 'Announcements', href: '/admin/announcements', icon: <Megaphone className="w-4 h-4" />, perm: 'manageAnnouncements' },
     { id: 'reviews', label: 'Customer Reviews', href: '/admin/reviews', icon: <Star className="w-4 h-4" />, perm: 'manageReviews' },
     { id: 'social-links', label: 'Social Media Links', href: '/admin/social-links', icon: <Share2 className="w-4 h-4" />, perm: 'manageSocialLinks' },
+    { id: 'app-update', label: 'App Update Settings', href: '/admin/app-update', icon: <Smartphone className="w-4 h-4" />, perm: 'manageAppUpdate' },
   ];
 
   useEffect(() => {

@@ -37,8 +37,15 @@ export class OrdersController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async findMine(@Request() req: any) {
-    return this.ordersService.findMyOrders(req.user.id);
+  async findMine(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.ordersService.findMyOrders(req.user.id, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @ApiOperation({ summary: 'Razorpay webhook callback' })

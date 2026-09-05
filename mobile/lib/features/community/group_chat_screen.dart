@@ -11,6 +11,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/app_image.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/chat.dart';
 import '../pdfs/pdf_viewer_screen.dart';
@@ -352,14 +353,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   }
 
   void _showGroupDetails(ChatGroup group) {
-    final palette = context.palette;
-    showModalBottomSheet<void>(
+    showGlassSheet<void>(
       context: context,
-      backgroundColor: palette.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      isScrollControlled: false,
+      handle: false,
       builder: (context) {
+        final palette = context.palette;
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -454,10 +453,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF070C18) : const Color(0xFFF8FAFC),
-      appBar: AppBar(
+      appBar: GlassAppBar(
         titleSpacing: 0,
-        elevation: 0.5,
-        backgroundColor: palette.card.withValues(alpha: 0.95),
         title: InkWell(
           onTap: group == null ? null : () => _showGroupDetails(group),
           borderRadius: BorderRadius.circular(8),

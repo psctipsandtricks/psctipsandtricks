@@ -155,7 +155,7 @@ export class AnalyticsService {
     const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const twoWeeksAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
 
-    const [submissions, participants, upcoming, readingRows] = await Promise.all([
+    const [submissions, participants, upcoming, readingRows, user, userOrders] = await Promise.all([
       this.prisma.quizSubmission.findMany({
         where: { userId, attemptStatus: 'COMPLETED' },
         include: {
@@ -182,14 +182,47 @@ export class AnalyticsService {
       this.prisma.readingProgress.findMany({
         where: { userId, book: { isPublished: true } },
         include: {
-          book: { select: { id: true, title: true, author: true, coverUrl: true, heroCoverUrl: true, category: true } },
+          book: {
+            select: {
+              id: true,
+              title: true,
+              author: true,
+              coverUrl: true,
+              heroCoverUrl: true,
+              category: true,
+              isPremium: true,
+              price: true,
+              finalPrice: true,
+            },
+          },
           chapter: { select: { id: true, title: true } },
           topic: { select: { id: true, title: true } },
         },
         orderBy: { lastReadAt: 'desc' },
-        take: 12,
+        take: 20,
+      }),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+      this.prisma.order.findMany({
+        where: {
+          userId,
+          status: 'SUCCESS',
+          bookId: { not: null },
+          OR: [{ validTill: null }, { validTill: { gt: new Date() } }],
+        },
+        select: { bookId: true },
       }),
     ]);
+
+    const isStaffOrAdmin = user?.role === 'ADMIN' || user?.role === 'STAFF';
+    const purchasedBookIds = new Set(userOrders.map((o) => o.bookId!));
+    const accessibleReadingRows = readingRows
+      .filter((row) => {
+        if (isStaffOrAdmin) return true;
+        const b = row.book;
+        const isFree = !b.isPremium && (b.price ?? 0) <= 0 && (b.finalPrice ?? 0) <= 0;
+        return isFree || purchasedBookIds.has(row.bookId);
+      })
+      .slice(0, 12);
 
     const submittedAtOf = (s: (typeof submissions)[number]) => (s.submittedAt ?? s.createdAt).getTime();
 
@@ -333,7 +366,7 @@ export class AnalyticsService {
       })),
       // Books the student has opened in the reader — drives the dashboard's
       // "Continue Reading" list. A row only exists once they've actually read.
-      booksInProgress: readingRows.map((row) => {
+      booksInProgress: accessibleReadingRows.map((row) => {
         const percent = Math.max(0, Math.min(100, Math.round(row.progressPercent)));
         return {
           bookId: row.bookId,

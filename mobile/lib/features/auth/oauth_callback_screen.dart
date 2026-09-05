@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
+import 'auth_scaffold.dart';
 
 /// Handles an OAuth result that arrives as a route rather than through the
 /// in-app browser — a deep link back into the app. The common path is
@@ -46,7 +47,7 @@ class _OAuthCallbackScreenState extends ConsumerState<OAuthCallbackScreen> {
             accessToken: access,
             refreshToken: refresh,
           );
-      if (mounted) context.go(widget.redirect ?? AppRoutes.home);
+      if (mounted) goAfterAuth(context, widget.redirect);
     } catch (_) {
       if (mounted) {
         setState(() => _error = 'Could not complete sign-in. Please try again.');

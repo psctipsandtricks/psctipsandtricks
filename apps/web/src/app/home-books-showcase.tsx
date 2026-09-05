@@ -15,8 +15,10 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Calendar,
 } from 'lucide-react';
-import { Book } from '@psc/shared-types';
+import { Book, formatSubscriptionDuration } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from './auth-provider';
 
@@ -30,6 +32,17 @@ function isRecentlyUploaded(createdAt?: string): boolean {
   return Date.now() - created <= NEW_BOOK_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 }
 
+function formatValidTillDate(isoString?: string | null): string {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function BookCardSkeleton() {
   return (
     <div className="shrink-0 snap-start w-[280px] sm:w-[320px] rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] shadow-lg flex flex-col overflow-hidden animate-pulse">
@@ -40,9 +53,12 @@ function BookCardSkeleton() {
           <div className="h-5 w-full rounded bg-slate-200 dark:bg-slate-800" />
           <div className="h-4 w-3/4 rounded bg-slate-200 dark:bg-slate-800" />
         </div>
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-          <div className="h-6 w-16 rounded bg-slate-200 dark:bg-slate-800" />
-          <div className="h-8 w-20 rounded-xl bg-slate-200 dark:bg-slate-800" />
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+          <div className="h-8 w-24 rounded bg-slate-200 dark:bg-slate-800" />
+          <div className="flex items-center gap-1.5">
+            <div className="h-8 w-16 rounded-xl bg-slate-200 dark:bg-slate-800" />
+            <div className="h-8 w-20 rounded-xl bg-slate-200 dark:bg-slate-800" />
+          </div>
         </div>
       </div>
     </div>
@@ -95,9 +111,8 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
   // Helper to determine if a book is purchased / owned by the current user
   const isBookPurchased = (b: Book) => {
     if (!user) return false;
-    return (
+    return Boolean(
       b.access?.reason === 'PURCHASED' ||
-      b.access?.reason === 'STAFF' ||
       (b.access?.hasAccess && (b.isPremium || (b.finalPrice ?? b.price ?? 0) > 0))
     );
   };
@@ -297,7 +312,7 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
               const originalPrice = book.price || 0;
               const discount = book.discountPercent || 0;
               const effectivePrice = book.finalPrice ?? (discount > 0 ? Math.round(originalPrice * (1 - discount / 100)) : originalPrice);
-              const isFree = !book.isPremium || effectivePrice === 0;
+              const isFree = !book.isPremium && effectivePrice === 0 && originalPrice === 0;
               const isPurchased = !isFree && isBookPurchased(book);
               const isNew = isRecentlyUploaded(book.createdAt);
 
@@ -338,34 +353,44 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
                           {book.category || 'PSC Special'}
                         </span>
                       </div>
-                      {isPurchased ? (
-                        <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black bg-emerald-500 text-white shadow-md flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> PURCHASED
-                        </span>
-                      ) : isFree ? (
-                        <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black bg-emerald-500 text-white shadow-md">
-                          FREE
-                        </span>
-                      ) : discount > 0 ? (
-                        <span className="px-2 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-black bg-rose-500 text-white shadow-md">
-                          {discount}% OFF
-                        </span>
-                      ) : null}
+
+                      <div className="flex items-center gap-1.5">
+                        {isPurchased && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black text-emerald-50 bg-emerald-400/20 backdrop-blur-md border border-emerald-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-emerald-950/30">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>{book.subscriptionType === 'SUBSCRIPTION' ? 'Subscribed' : 'Purchased'}</span>
+                          </span>
+                        )}
+                        {isFree && (
+                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-black text-emerald-50 bg-emerald-400/20 backdrop-blur-md border border-emerald-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-emerald-950/30">
+                            FREE
+                          </span>
+                        )}
+                        {!isPurchased && !isFree && book.access?.subscription?.isExpired && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black text-rose-50 bg-rose-400/20 backdrop-blur-md border border-rose-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-rose-950/30">
+                            <Clock className="w-3 h-3" />
+                            <span>Expired</span>
+                          </span>
+                        )}
+                        {discount > 0 && !isFree && !isPurchased && !book.access?.subscription?.isExpired && (
+                          <span className="px-2 py-1 rounded-lg text-[10px] font-black text-rose-50 bg-rose-400/20 backdrop-blur-md border border-rose-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-rose-950/30">
+                            {discount}% OFF
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Multimedia Feature Pill Overlay */}
-                    <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-white/10 text-[9px] sm:text-[10px] text-white">
-                      <span className="flex items-center gap-1 font-bold text-cyan-400">
-                        <Music className="w-3 h-3" /> Audio
-                      </span>
-                      <span className="text-slate-500">·</span>
-                      <span className="flex items-center gap-1 font-bold text-amber-400">
-                        <FileText className="w-3 h-3" /> Notes
-                      </span>
-                      <span className="text-slate-500">·</span>
-                      <span className="flex items-center gap-1 font-bold text-rose-400">
-                        <Youtube className="w-3 h-3" /> Video
-                      </span>
+                    {/* Multimedia Feature Icons — one grouped glass chip, icons only */}
+                    <div
+                      className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-3 inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-slate-950/50 px-3 py-1.5 shadow-lg shadow-black/30 ring-1 ring-inset ring-white/10 backdrop-blur-xl"
+                      role="group"
+                      aria-label="Includes audio lessons, notes and video classes"
+                    >
+                      <Music className="w-3.5 h-3.5 text-cyan-400" aria-label="Audio lessons" />
+                      <span className="h-3 w-px bg-white/15" aria-hidden="true" />
+                      <FileText className="w-3.5 h-3.5 text-amber-400" aria-label="Notes" />
+                      <span className="h-3 w-px bg-white/15" aria-hidden="true" />
+                      <Youtube className="w-3.5 h-3.5 text-rose-400" aria-label="Video classes" />
                     </div>
                   </div>
 
@@ -386,47 +411,98 @@ export function HomeBooksShowcase({ initialBooks }: { initialBooks?: Book[] }) {
 
                     {/* Pricing & CTA */}
                     <div className="pt-2.5 sm:pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         {isPurchased ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Purchased
-                          </span>
-                        ) : isFree ? (
-                          <span className="text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400">Free Access</span>
-                        ) : (
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white font-mono">
-                              ₹{effectivePrice}
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>{book.subscriptionType === 'SUBSCRIPTION' || book.access?.subscription?.isSubscription ? 'Active Subscription' : 'Purchased'}</span>
                             </span>
-                            {originalPrice > effectivePrice && (
-                              <span className="text-[11px] sm:text-xs text-slate-400 line-through font-mono">
-                                ₹{originalPrice}
+                            {(book.subscriptionType === 'SUBSCRIPTION' || book.access?.subscription?.isSubscription) && (
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold border border-emerald-500/20 whitespace-nowrap">
+                                <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <span>
+                                  Valid Till: {book.access?.subscription?.validTill
+                                    ? formatValidTillDate(book.access.subscription.validTill)
+                                    : formatSubscriptionDuration(book.subscriptionDuration)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : !isPurchased && !isFree && book.access?.subscription?.isExpired ? (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 text-xs font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>Subscription Expired</span>
+                            </span>
+                            {book.access?.subscription?.validTill && (
+                              <p className="text-[10px] font-bold text-slate-400 whitespace-nowrap">
+                                Expired on {formatValidTillDate(book.access.subscription.validTill)}
+                              </p>
+                            )}
+                          </div>
+                        ) : isFree ? (
+                          <span className="text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">Free Access</span>
+                        ) : (
+                          <div className="space-y-0.5">
+                            <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                              <span className="text-base sm:text-lg font-black text-slate-900 dark:text-white font-mono">
+                                ₹{effectivePrice}
+                              </span>
+                              {originalPrice > effectivePrice && (
+                                <span className="text-[11px] sm:text-xs text-slate-400 line-through font-mono">
+                                  ₹{originalPrice}
+                                </span>
+                              )}
+                            </div>
+                            {book.subscriptionType === 'SUBSCRIPTION' && (
+                              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 block whitespace-nowrap">
+                                {formatSubscriptionDuration(book.subscriptionDuration)} sub
                               </span>
                             )}
                           </div>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDetails(book.id, isPurchased || isFree)}
+                          className="font-bold text-xs cursor-pointer whitespace-nowrap shrink-0 px-2.5 sm:px-3"
+                        >
+                          Details
+                        </Button>
+
                         {isPurchased || isFree ? (
                           <Button
                             size="sm"
                             variant="gold"
                             onClick={() => handleOpenBook(book.id)}
-                            className="font-bold text-xs shadow-md shadow-amber-500/10 cursor-pointer flex items-center"
+                            className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 px-3"
                           >
-                            <BookOpen className="w-3.5 h-3.5 mr-1" />
-                            <span>Read</span>
+                            <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                            <span className="whitespace-nowrap">Read Now</span>
+                          </Button>
+                        ) : book.access?.subscription?.isExpired ? (
+                          <Button
+                            size="sm"
+                            variant="gold"
+                            onClick={() => handleBuyBook(book.id)}
+                            className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 px-3"
+                          >
+                            <Clock className="w-3.5 h-3.5 shrink-0" />
+                            <span className="whitespace-nowrap">Renew</span>
                           </Button>
                         ) : (
                           <Button
                             size="sm"
                             variant="gold"
                             onClick={() => handleBuyBook(book.id)}
-                            className="font-bold text-xs shadow-md shadow-amber-500/10 cursor-pointer flex items-center"
+                            className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 px-3"
                           >
-                            <ShoppingBag className="w-3.5 h-3.5 mr-1" />
-                            <span>Buy Now</span>
+                            <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+                            <span className="whitespace-nowrap">Buy Now</span>
                           </Button>
                         )}
                       </div>

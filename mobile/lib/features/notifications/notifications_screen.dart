@@ -10,10 +10,12 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../core/router/notification_destination.dart';
 import '../../data/models/notification.dart';
 import 'read_notifications.dart';
+import '../shell/shell_scaffold.dart';
 
 final notificationsProvider =
     FutureProvider.autoDispose<List<AppNotification>>((ref) async {
@@ -80,7 +82,7 @@ class NotificationsScreen extends ConsumerWidget {
     final notificationsAsync = ref.watch(notificationsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications')),
+      appBar: const GlassAppBar(title: Text('Notifications')),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(notificationsProvider.future),
         child: AsyncView(
@@ -124,7 +126,8 @@ class NotificationsScreen extends ConsumerWidget {
             }
 
             return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              padding: const EdgeInsets.fromLTRB(
+                16, 14, 16, 24 + ShellScaffold.dockExtent),
               itemCount: visible.length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) => _NotificationCard(

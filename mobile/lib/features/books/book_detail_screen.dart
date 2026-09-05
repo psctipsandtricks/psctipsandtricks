@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_glass.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/responsive.dart';
 import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/state_views.dart';
@@ -19,6 +22,8 @@ import 'reader_audio_controller.dart';
 import 'widgets/reader_audio_player.dart';
 import '../offline/widgets/download_button.dart';
 import 'books_providers.dart';
+import '../home/home_providers.dart';
+import '../shell/shell_scaffold.dart';
 
 class BookDetailScreen extends ConsumerStatefulWidget {
   const BookDetailScreen({super.key, required this.bookId});
@@ -73,10 +78,12 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
     );
     if (!purchased || !context.mounted) return;
 
-    // The purchase changes the access verdict on both the detail record and the
-    // catalog row, so drop both.
+    // The purchase changes the access verdict on the detail record, the
+    // catalog row, and the home screen's own featured rail — three separate
+    // fetches of the same book, each cached under a different provider.
     ref.invalidate(bookDetailProvider(book.id));
     ref.invalidate(booksProvider);
+    ref.invalidate(featuredBooksProvider);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Unlocked — happy studying!')),
     );
@@ -111,113 +118,147 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
             slivers: [
               _CoverHeader(book: book),
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          if (book.category.isNotEmpty)
-                            AppBadge(book.category.toUpperCase()),
-                          const SizedBox(width: 8),
-                          if (book.isPremium)
-                            const AppBadge(
-                              'PREMIUM',
-                              color: AppColors.amber,
-                              icon: Icons.workspace_premium_rounded,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        book.title,
-                        style:
-                            Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.2,
-                                  letterSpacing: -0.5,
-                                ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'by ${book.author}'
-                        '${book.publicationYear != null ? ' · ${book.publicationYear}' : ''}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: context.palette.textSecondary,
-                            ),
-                      ),
-                      const SizedBox(height: 18),
-                      _StatsStrip(book: book),
-                      const SizedBox(height: 20),
-
-                      if (progress != null && progress.progressPercent > 0) ...[
-                        _ResumeCard(bookId: book.id, progress: progress),
-                        const SizedBox(height: 16),
-                      ],
-
-                      _PrimaryAction(
-                        book: book,
-                        onBuy: () => _buy(context, ref, book),
-                      ),
-
-                      // Samples are for deciding whether to buy; once the book
-                      // is unlocked the real thing is one tap away and a
-                      // sample would only be in the way.
-                      if (!book.isUnlocked)
-                        _PreviewSection(
-                          book: book,
-                          onPlayAudio: () => _previewStarted = true,
+                child: Responsive.centered(
+                  maxWidth: Responsive.maxContentWidth,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      Responsive.horizontalPadding(context),
+                      18,
+                      Responsive.horizontalPadding(context),
+                      // Clear of the floating tab dock: the page ends in body
+                      // copy, and without this the last lines of it sit under
+                      // the glass with no way to read them.
+                      28 + ShellScaffold.dockExtent,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            if (book.category.isNotEmpty)
+                              AppBadge(book.category.toUpperCase()),
+                            const SizedBox(width: 8),
+                            if (book.isPremium)
+                              const AppBadge(
+                                'PREMIUM',
+                                color: AppColors.amber,
+                                icon: Icons.workspace_premium_rounded,
+                              ),
+                          ],
                         ),
-
-                      // Offered only once the API says this student currently has
-                      // access; the download call re-checks server-side anyway.
-                      if (book.isUnlocked) ...[
-                        const SizedBox(height: 14),
-                        BookDownloadPanel(book: book),
-                      ],
-                      const SizedBox(height: 24),
-
-                      if (book.description.trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
                         Text(
-                          'About this book',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                          book.title,
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                height: 1.2,
+                                letterSpacing: -0.5,
+                              ),
                         ),
-                        const SizedBox(height: 9),
+                        const SizedBox(height: 6),
                         Text(
-                          book.description,
+                          'by ${book.author}'
+                          '${book.publicationYear != null ? ' · ${book.publicationYear}' : ''}',
                           style:
                               Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     color: context.palette.textSecondary,
-                                    height: 1.6,
                                   ),
                         ),
-                        const SizedBox(height: 24),
-                      ],
+                        const SizedBox(height: 18),
+                        _StatsStrip(book: book),
+                        const SizedBox(height: 20),
 
-                      if (book.chapters.isNotEmpty) ...[
-                        Text(
-                          'Contents',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                        if (book.isUnlocked &&
+                            progress != null &&
+                            progress.progressPercent > 0) ...[
+                          _ResumeCard(bookId: book.id, progress: progress),
+                          const SizedBox(height: 16),
+                        ],
+
+                        _PrimaryAction(
+                          book: book,
+                          onBuy: () => _buy(context, ref, book),
                         ),
-                        const SizedBox(height: 12),
-                        ...book.chapters.asMap().entries.map(
-                              (entry) => Padding(
-                                padding: const EdgeInsets.only(bottom: 9),
-                                child: _ChapterRow(
-                                  index: entry.key + 1,
-                                  chapter: entry.value,
+
+                        // Samples are for deciding whether to buy; once the book
+                        // is unlocked the real thing is one tap away and a
+                        // sample would only be in the way.
+                        if (!book.isUnlocked)
+                          _PreviewSection(
+                            book: book,
+                            onPlayAudio: () => _previewStarted = true,
+                          ),
+
+                        // Offered only once the API says this student currently has
+                        // access; the download call re-checks server-side anyway.
+                        if (book.isUnlocked) ...[
+                          const SizedBox(height: 14),
+                          BookDownloadPanel(book: book),
+                        ],
+                        const SizedBox(height: 24),
+
+                        if (book.description.trim().isNotEmpty) ...[
+                          Text(
+                            'About this book',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
                                 ),
+                          ),
+                          const SizedBox(height: 9),
+                          Text(
+                            book.description.trim(),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: context.palette.textSecondary,
+                                  height: 1.6,
+                                ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+
+                        if (book.chapters.isNotEmpty) ...[
+                          Row(
+                            children: [
+                              Text(
+                                'Table of contents',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                Fmt.count(book.chapters.length, 'chapter'),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                        color: context.palette.textMuted),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          for (final entry in book.chapters.asMap().entries)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _ChapterRow(
+                                index: entry.key + 1,
+                                chapter: entry.value,
                               ),
                             ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -263,24 +304,11 @@ class _CoverHeader extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.45),
+                    Colors.black.withValues(alpha: 0.50),
                     Colors.black.withValues(alpha: 0.15),
                     context.palette.background,
                   ],
                   stops: const [0, 0.45, 1],
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: 18,
-              left: 16,
-              child: Hero(
-                tag: 'book-cover-${book.id}',
-                child: Material(
-                  color: Colors.transparent,
-                  elevation: 10,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                  child: BookCover(url: book.coverUrl, width: 96),
                 ),
               ),
             ),
@@ -293,26 +321,64 @@ class _CoverHeader extends StatelessWidget {
 
 /// The cover header's back affordance.
 ///
-/// A white glyph on a translucent disc rather than a bare icon: it has to stay
-/// legible over dark cover art, over pale cover art, and over the plain
-/// background the pinned bar collapses to once the cover has scrolled away.
+/// A frosted glass disc — a white glyph over a blurred, dark-tinted circle with
+/// a bright hairline rim. It has to stay legible over dark cover art, over pale
+/// cover art, and over the plain background the pinned bar collapses to once the
+/// cover has scrolled away; the rim and blur give it an edge on every one.
 class _CoverBackButton extends StatelessWidget {
   const _CoverBackButton();
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: 'Back',
-      icon: const Icon(Icons.arrow_back_rounded),
-      color: Colors.white,
-      style: IconButton.styleFrom(
-        backgroundColor: Colors.black.withValues(alpha: 0.45),
+    // A push has something to pop; arriving from a deep link or a notification
+    // tap does not, and popping there would leave the student on a blank route.
+    void goBack() {
+      HapticFeedback.selectionClick();
+      context.canPop() ? context.pop() : context.go(AppRoutes.books);
+    }
+
+    Widget disc = Material(
+      color: Colors.black.withValues(alpha: 0.34),
+      shape: CircleBorder(
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.30)),
       ),
-      // A push has something to pop; arriving from a deep link or a
-      // notification tap does not, and popping there would leave the student
-      // staring at a blank route.
-      onPressed: () =>
-          context.canPop() ? context.pop() : context.go(AppRoutes.books),
+      child: InkWell(
+        onTap: goBack,
+        customBorder: const CircleBorder(),
+        child: const SizedBox.square(
+          dimension: 40,
+          child: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
+        ),
+      ),
+    );
+
+    if (AppGlass.blursIn(context)) {
+      disc = BackdropFilter(
+        filter: AppGlass.filter(AppGlass.blurRaised),
+        child: disc,
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: Tooltip(
+          message: 'Back',
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.30),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipOval(child: disc),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -384,45 +450,92 @@ class _PrimaryAction extends StatelessWidget {
       return GradientButton(
         label: 'Start reading',
         icon: Icons.auto_stories_rounded,
+        gradient: AppColors.brandGradient,
         onPressed: () => context.push(AppRoutes.bookReader(book.id)),
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Text(
-              Fmt.price(book.finalPrice),
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.amber,
-                  ),
-            ),
-            if (book.hasDiscount) ...[
-              const SizedBox(width: 10),
-              Text(
-                Fmt.price(book.price),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: context.palette.textMuted,
-                      decoration: TextDecoration.lineThrough,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(
+          color: AppColors.amber.withValues(alpha: 0.22),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      Fmt.price(book.finalPrice),
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.amber,
+                            letterSpacing: -0.5,
+                          ),
                     ),
+                    if (book.hasDiscount) ...[
+                      Text(
+                        Fmt.price(book.price),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: context.palette.textMuted,
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                      ),
+                      AppBadge(
+                        '${book.discountPercent}% OFF',
+                        color: AppColors.emerald,
+                      ),
+                    ],
+                  ],
+                ),
               ),
               const SizedBox(width: 8),
-              AppBadge('${book.discountPercent}% OFF',
-                  color: AppColors.emerald),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.amber.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_outlined,
+                        size: 13, color: AppColors.amber),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Lifetime access',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AppColors.amber,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
             ],
-          ],
-        ),
-        const SizedBox(height: 14),
-        GradientButton(
-          label: 'Unlock full access',
-          icon: Icons.lock_open_rounded,
-          gradient: AppColors.goldGradient,
-          onPressed: onBuy,
-        ),
-      ],
+          ),
+          const SizedBox(height: 14),
+          GradientButton(
+            label: 'Unlock full access',
+            icon: Icons.lock_outline_rounded,
+            gradient: AppColors.goldGradient,
+            onPressed: onBuy,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -487,6 +600,7 @@ class _PreviewSection extends ConsumerWidget {
               context,
               url: pdfUrl,
               title: '${book.title} — preview',
+              minimal: true,
             ),
             icon: const Icon(Icons.menu_book_outlined, size: 18),
             label: const Text('Read sample pages'),

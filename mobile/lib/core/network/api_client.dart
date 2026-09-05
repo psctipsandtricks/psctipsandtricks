@@ -201,13 +201,33 @@ class ApiClient {
   }
 
   /// Streams a remote file to disk — used to hand PDFs to the native viewer.
+  ///
+  /// A fully-qualified URL (every PDF, cover and media file is a public Supabase
+  /// Storage URL) is fetched with [_fileClient] — no bearer token, a long
+  /// receive window. Sending the session token to third-party storage is
+  /// pointless, a slow phone connection needs longer than the API's 60s
+  /// receive timeout to pull a multi-MB PDF, and — worst of all — a stray 401
+  /// from that host would otherwise hit the refresh-or-sign-out path below and
+  /// log the student out. Only a path served by our own API keeps the
+  /// authenticated client.
   Future<void> download(
     String url,
     String savePath, {
     void Function(int received, int total)? onProgress,
     CancelToken? cancelToken,
   }) async {
+    final isAbsolute =
+        url.startsWith('http://') || url.startsWith('https://');
     try {
+      if (isAbsolute) {
+        await _fileClient.download(
+          url,
+          savePath,
+          onReceiveProgress: onProgress,
+          cancelToken: cancelToken,
+        );
+        return;
+      }
       await _dio.download(
         url,
         savePath,
@@ -219,6 +239,17 @@ class ApiClient {
       throw ApiException.fromDio(e);
     }
   }
+
+  /// Bare transport for public file URLs — no interceptors, no session token,
+  /// and a receive window sized for a large download on a weak connection.
+  Dio? _fileDio;
+  Dio get _fileClient => _fileDio ??= Dio(
+        BaseOptions(
+          connectTimeout: AppConfig.connectTimeout,
+          receiveTimeout: const Duration(minutes: 5),
+          followRedirects: true,
+        ),
+      );
 
   Map<String, String> _authHeader() {
     final token = _tokenStore.accessToken;
@@ -257,5 +288,6 @@ class ApiClient {
   void dispose() {
     _sessionExpired.close();
     _dio.close(force: true);
+    _fileDio?.close(force: true);
   }
 }

@@ -8,12 +8,13 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/glass_card.dart';
-import '../../core/widgets/state_views.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../data/models/offline.dart';
 import 'download_manager.dart';
 import 'offline_providers.dart';
 import 'widgets/download_button.dart';
 import 'widgets/offline_cover.dart';
+import '../shell/shell_scaffold.dart';
 
 /// Everything saved to this device, and the state of each copy.
 class DownloadsScreen extends ConsumerWidget {
@@ -21,18 +22,45 @@ class DownloadsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isOffline = ref.watch(connectivityProvider).valueOrNull == false;
+
     return Scaffold(
-      appBar: AppBar(
+      appBar: GlassAppBar(
         title: const Text('Downloaded books'),
+        automaticallyImplyLeading: !isOffline,
+        leading: isOffline ? const SizedBox.shrink() : null,
         actions: [
           IconButton(
             tooltip: 'Verify access',
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () async {
               final messenger = ScaffoldMessenger.of(context);
-              await ref.read(downloadManagerProvider.notifier).revalidateStale();
+              // Re-checking is a server call; saying "re-checked" with no
+              // connection would be a lie, and an alarming one on a screen
+              // where a locked book is the thing being explained.
+              if (isOffline) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      "You're offline — connect to re-check your access.",
+                    ),
+                  ),
+                );
+                return;
+              }
+              final removed = await ref
+                  .read(downloadManagerProvider.notifier)
+                  .revalidateStale();
               messenger.showSnackBar(
-                const SnackBar(content: Text('Offline access re-checked.')),
+                SnackBar(
+                  content: Text(
+                    removed.isEmpty
+                        ? 'Offline access re-checked.'
+                        : removed.length == 1
+                            ? '"${removed.first}" was removed — your access has ended.'
+                            : '${removed.length} downloads were removed — access has ended.',
+                  ),
+                ),
               );
             },
           ),
@@ -57,30 +85,12 @@ class DownloadsList extends ConsumerWidget {
     final isOffline = ref.watch(connectivityProvider).valueOrNull == false;
 
     if (books.isEmpty) {
-      return ListView(
-        children: [
-          const SizedBox(height: 60),
-          EmptyView(
-            icon: isOffline
-                ? Icons.cloud_off_rounded
-                : Icons.download_for_offline_outlined,
-            title: isOffline ? "You're offline" : 'No downloads yet',
-            message: isOffline
-                ? 'Nothing is saved to this device yet. Reconnect to '
-                    'browse and download books for offline reading.'
-                : 'Open a book you own and tap Download to keep it on '
-                    'this device for reading without a connection.',
-            action: FilledButton(
-              onPressed: () => context.go(AppRoutes.books),
-              child: const Text('Browse your books'),
-            ),
-          ),
-        ],
-      );
+      return _DownloadsEmptyView(isOffline: isOffline);
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+      padding: const EdgeInsets.fromLTRB(
+          16, 16, 16, 24 + ShellScaffold.dockExtent),
       itemCount: books.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
@@ -91,12 +101,273 @@ class DownloadsList extends ConsumerWidget {
                 const _OfflineBanner(),
                 const SizedBox(height: 12),
               ],
-              _StorageSummary(count: books.length, totalBytes: totalSize),
+              _StorageSummary(
+                count: books.length,
+                totalBytes: totalSize,
+                onRevalidate: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  if (isOffline) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text("You're offline — connect to re-check your access."),
+                      ),
+                    );
+                    return;
+                  }
+                  final removed = await ref
+                      .read(downloadManagerProvider.notifier)
+                      .revalidateStale();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        removed.isEmpty
+                            ? 'Offline access re-checked.'
+                            : '${removed.length} expired downloads removed.',
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           );
         }
-        return _DownloadRow(book: books[index - 1]);
+        return _DownloadRow(book: books[index - 1], isOffline: isOffline);
       },
+    );
+  }
+}
+
+/// Premium empty state for the downloads vault with glowing illustration and benefit cards.
+class _DownloadsEmptyView extends StatelessWidget {
+  const _DownloadsEmptyView({required this.isOffline});
+
+  final bool isOffline;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final theme = Theme.of(context);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32 + ShellScaffold.dockExtent),
+      children: [
+        const SizedBox(height: 12),
+        // Luminous Hero Illustration
+        Center(
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Ambient soft glow
+              Container(
+                width: 140,
+                height: 140,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      (isOffline ? AppColors.amber : AppColors.cyan)
+                          .withValues(alpha: palette.isDark ? 0.24 : 0.14),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+              // Outer glass ring
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: (isOffline ? AppColors.amber : AppColors.cyan)
+                      .withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: (isOffline ? AppColors.amber : AppColors.cyan)
+                        .withValues(alpha: 0.28),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isOffline ? AppColors.amber : AppColors.cyan)
+                          .withValues(alpha: 0.18),
+                      blurRadius: 20,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: palette.isDark
+                            ? [
+                                const Color(0xFF132842),
+                                const Color(0xFF091424),
+                              ]
+                            : [
+                                Colors.white,
+                                const Color(0xFFE2E8F0),
+                              ],
+                      ),
+                      border: Border.all(
+                        color: (isOffline ? AppColors.amber : AppColors.cyan)
+                            .withValues(alpha: 0.4),
+                        width: 1,
+                      ),
+                    ),
+                    child: Icon(
+                      isOffline
+                          ? Icons.cloud_off_rounded
+                          : Icons.cloud_download_rounded,
+                      size: 34,
+                      color: isOffline ? AppColors.amber : AppColors.cyan,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Title & Description
+        Text(
+          isOffline ? "You're Offline" : 'Your Offline Study Vault',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          isOffline
+              ? 'Connect to the internet to download PSC books, chapter notes, and video materials for offline reading.'
+              : 'Keep your books and study notes saved on this device to study anytime with zero mobile data.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: palette.textSecondary,
+            height: 1.45,
+            fontSize: 13.5,
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Frosted Glass Benefits Card
+        const GlassCard(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Column(
+            children: [
+              _BenefitRow(
+                icon: Icons.bolt_rounded,
+                iconColor: AppColors.cyan,
+                title: 'Zero Data Needed',
+                subtitle: 'Instant reading with no buffering or network lag',
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(height: 1, thickness: 0.6),
+              ),
+              _BenefitRow(
+                icon: Icons.headphones_rounded,
+                iconColor: AppColors.indigo,
+                title: 'Offline Audio Lessons',
+                subtitle: 'Listen to chapter summaries anywhere on the go',
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(height: 1, thickness: 0.6),
+              ),
+              _BenefitRow(
+                icon: Icons.lock_outline_rounded,
+                iconColor: AppColors.emerald,
+                title: 'Encrypted & Fast',
+                subtitle: 'Direct local access with ultra-fast page flips',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Action CTA
+        if (!isOffline)
+          GradientButton(
+            label: 'Browse PSC Books',
+            icon: Icons.auto_stories_rounded,
+            onPressed: () => context.go(AppRoutes.books),
+          )
+        else
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: () => context.go(AppRoutes.books),
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Try Reconnecting'),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _BenefitRow extends StatelessWidget {
+  const _BenefitRow({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+            border: Border.all(
+              color: iconColor.withValues(alpha: 0.25),
+              width: 0.8,
+            ),
+          ),
+          child: Icon(icon, color: iconColor, size: 18),
+        ),
+        const SizedBox(width: 13),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.1,
+                    ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: palette.textMuted,
+                      height: 1.3,
+                      fontSize: 11.5,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -135,10 +406,15 @@ class _OfflineBanner extends StatelessWidget {
 }
 
 class _StorageSummary extends StatelessWidget {
-  const _StorageSummary({required this.count, required this.totalBytes});
+  const _StorageSummary({
+    required this.count,
+    required this.totalBytes,
+    this.onRevalidate,
+  });
 
   final int count;
   final int totalBytes;
+  final VoidCallback? onRevalidate;
 
   @override
   Widget build(BuildContext context) {
@@ -149,27 +425,53 @@ class _StorageSummary extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(9),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.emerald.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+              color: AppColors.emerald.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              border: Border.all(
+                color: AppColors.emerald.withValues(alpha: 0.3),
+                width: 1,
+              ),
             ),
             child: const Icon(Icons.sd_storage_rounded,
-                color: AppColors.emerald, size: 18),
+                color: AppColors.emerald, size: 20),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  Fmt.count(count, 'book'),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+                Row(
+                  children: [
+                    Text(
+                      Fmt.count(count, 'book'),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: AppColors.emerald.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
                       ),
+                      child: Text(
+                        'Ready',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: AppColors.emerald,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 10,
+                            ),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  'Stored encrypted on this device',
+                  'Encrypted offline vault',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: palette.textMuted,
                       ),
@@ -177,11 +479,31 @@ class _StorageSummary extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            formatBytes(totalBytes),
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                formatBytes(totalBytes),
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              if (onRevalidate != null)
+                GestureDetector(
+                  onTap: onRevalidate,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      'Re-verify',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AppColors.cyan,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                    ),
+                  ),
                 ),
+            ],
           ),
         ],
       ),
@@ -190,9 +512,10 @@ class _StorageSummary extends StatelessWidget {
 }
 
 class _DownloadRow extends ConsumerWidget {
-  const _DownloadRow({required this.book});
+  const _DownloadRow({required this.book, required this.isOffline});
 
   final OfflineBook book;
+  final bool isOffline;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -206,9 +529,14 @@ class _DownloadRow extends ConsumerWidget {
 
     return GlassCard(
       padding: const EdgeInsets.all(12),
-      // A locked copy still opens its detail screen, where the reason and the
-      // way out are explained — tapping through to a dead end would be worse.
-      onTap: () => context.push(AppRoutes.bookDetail(book.bookId)),
+      // A readable copy opens straight into the reader — that is the whole
+      // point of the row, and offline it is the only destination that works
+      // at all. Anything else goes to the detail screen, where the reason and
+      // the way out are explained, unless there is no connection to load it
+      // with; then the row says so instead of dead-ending on a retry button.
+      onTap: () => readable
+          ? context.push(AppRoutes.bookReader(book.bookId))
+          : _openDetail(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -284,9 +612,7 @@ class _DownloadRow extends ConsumerWidget {
                             context.push(AppRoutes.bookReader(book.bookId)),
                       )
                     : OutlinedButton.icon(
-                        onPressed: () => context.push(
-                          AppRoutes.bookDetail(book.bookId),
-                        ),
+                        onPressed: () => _openDetail(context),
                         icon: const Icon(Icons.info_outline_rounded, size: 16),
                         label: Text(_actionLabel(status)),
                       ),
@@ -310,6 +636,24 @@ class _DownloadRow extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// The book's detail screen, which is where every fix for a paused, expired
+  /// or unverified copy lives. It is loaded from the server, so offline it is
+  /// replaced by an explanation rather than a spinner that never resolves.
+  void _openDetail(BuildContext context) {
+    if (isOffline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "You're offline. Connect to the internet to finish or renew "
+            'this download.',
+          ),
+        ),
+      );
+      return;
+    }
+    context.push(AppRoutes.bookDetail(book.bookId));
   }
 
   String _detail(OfflineStatus status, int savedBytes) {
@@ -346,27 +690,15 @@ class _DownloadRow extends ConsumerWidget {
     BuildContext context,
     DownloadManager manager,
   ) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete "${book.title}"?'),
-        content: const Text(
-          'The offline files will be removed from this device. You can download '
-          'the book again while your access is valid.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.rose),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final ok = await showGlassConfirm(
+      context,
+      title: 'Delete "${book.title}"?',
+      message: 'The offline files will be removed from this device. You can '
+          'download the book again while your access is valid.',
+      cancelLabel: 'Keep',
+      confirmLabel: 'Delete',
+      destructive: true,
     );
-    if (ok == true) await manager.remove(book.bookId);
+    if (ok) await manager.remove(book.bookId);
   }
 }

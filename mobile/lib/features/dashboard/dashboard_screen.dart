@@ -7,12 +7,15 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/responsive.dart';
 import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/dashboard.dart';
 import 'dashboard_providers.dart';
+import '../shell/shell_scaffold.dart';
 
 /// The student's progress dashboard: streaks, score trend, subject strengths,
 /// recent attempts and books in progress.
@@ -24,7 +27,7 @@ class DashboardScreen extends ConsumerWidget {
     final dashboardAsync = ref.watch(dashboardProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('My progress')),
+      appBar: const GlassAppBar(title: Text('My progress')),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(dashboardProvider.future),
         child: AsyncView(
@@ -50,77 +53,76 @@ class DashboardScreen extends ConsumerWidget {
               );
             }
 
-            return ListView(
-              padding: const EdgeInsets.only(bottom: 28),
-              children: [
-                const SizedBox(height: 8),
-                _StatsGrid(stats: dashboard.stats),
-
-                if (dashboard.trend.length > 1) ...[
-                  const SizedBox(height: 26),
-                  const SectionHeader(
-                    title: 'Score trend',
-                    subtitle: 'Your last few attempts',
-                    icon: Icons.show_chart_rounded,
-                  ),
-                  _TrendChart(trend: dashboard.trend),
-                ],
-
-                if (dashboard.subjects.isNotEmpty) ...[
-                  const SizedBox(height: 26),
-                  const SectionHeader(
-                    title: 'Subject strengths',
-                    subtitle: 'Average score by category',
-                    icon: Icons.category_rounded,
-                  ),
-                  _Subjects(subjects: dashboard.subjects),
-                ],
-
-                if (dashboard.booksInProgress.isNotEmpty) ...[
-                  const SizedBox(height: 26),
-                  SectionHeader(
-                    title: 'Books in progress',
-                    icon: Icons.auto_stories_rounded,
-                    actionLabel: 'All books',
-                    onAction: () => context.go(AppRoutes.books),
-                  ),
-                  for (final book in dashboard.booksInProgress)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: _BookProgressCard(book: book),
+            return Responsive.centered(
+              maxWidth: Responsive.maxContentWidth,
+              child: ListView(
+                padding: const EdgeInsets.only(
+                    bottom: 28 + ShellScaffold.dockExtent),
+                children: [
+                  const SizedBox(height: 8),
+                  _StatsGrid(stats: dashboard.stats),
+                  if (dashboard.trend.length > 1) ...[
+                    const SizedBox(height: 26),
+                    const SectionHeader(
+                      title: 'Score trend',
+                      subtitle: 'Your last few attempts',
+                      icon: Icons.show_chart_rounded,
                     ),
-                ],
-
-                if (dashboard.upcomingMockTests.isNotEmpty) ...[
-                  const SizedBox(height: 26),
-                  SectionHeader(
-                    title: 'Upcoming mock tests',
-                    icon: Icons.emoji_events_rounded,
-                    actionLabel: 'All',
-                    onAction: () => context.push(AppRoutes.mockTests),
-                  ),
-                  for (final mock in dashboard.upcomingMockTests)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: _MockTestRow(mock: mock),
+                    _TrendChart(trend: dashboard.trend),
+                  ],
+                  if (dashboard.subjects.isNotEmpty) ...[
+                    const SizedBox(height: 26),
+                    const SectionHeader(
+                      title: 'Subject strengths',
+                      subtitle: 'Average score by category',
+                      icon: Icons.category_rounded,
                     ),
-                ],
-
-                if (dashboard.recentAttempts.isNotEmpty) ...[
-                  const SizedBox(height: 26),
-                  SectionHeader(
-                    title: 'Recent attempts',
-                    icon: Icons.history_rounded,
-                    actionLabel: 'Full history',
-                    onAction: () => context.push(AppRoutes.quizHistory),
-                  ),
-                  for (final attempt in dashboard.recentAttempts.take(5))
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                      child: _AttemptRow(attempt: attempt),
+                    _Subjects(subjects: dashboard.subjects),
+                  ],
+                  if (dashboard.booksInProgress.isNotEmpty) ...[
+                    const SizedBox(height: 26),
+                    SectionHeader(
+                      title: 'Books in progress',
+                      icon: Icons.auto_stories_rounded,
+                      actionLabel: 'All books',
+                      onAction: () => context.go(AppRoutes.books),
                     ),
+                    for (final book in dashboard.booksInProgress)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _BookProgressCard(book: book),
+                      ),
+                  ],
+                  if (dashboard.upcomingMockTests.isNotEmpty) ...[
+                    const SizedBox(height: 26),
+                    SectionHeader(
+                      title: 'Upcoming mock tests',
+                      icon: Icons.emoji_events_rounded,
+                      actionLabel: 'All',
+                      onAction: () => context.push(AppRoutes.mockTests),
+                    ),
+                    for (final mock in dashboard.upcomingMockTests)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _MockTestRow(mock: mock),
+                      ),
+                  ],
+                  if (dashboard.recentAttempts.isNotEmpty) ...[
+                    const SizedBox(height: 26),
+                    SectionHeader(
+                      title: 'Recent attempts',
+                      icon: Icons.history_rounded,
+                      actionLabel: 'Full history',
+                      onAction: () => context.push(AppRoutes.quizHistory),
+                    ),
+                    for (final attempt in dashboard.recentAttempts.take(5))
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _AttemptRow(attempt: attempt),
+                      ),
+                  ],
                 ],
-              ],
+              ),
             );
           },
         ),
@@ -137,57 +139,72 @@ class _StatsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final delta = stats.weeklyDelta;
+    final isTablet = Responsive.isTablet(context);
+
+    final card1 = _StatCard(
+      icon: Icons.percent_rounded,
+      label: 'Average score',
+      value: Fmt.percent(stats.averagePercent),
+      color: AppColors.cyan,
+      delta: delta.abs() >= 1 ? delta : null,
+    );
+
+    final card2 = _StatCard(
+      icon: Icons.my_location_rounded,
+      label: 'Accuracy',
+      value: Fmt.percent(stats.accuracyPercent),
+      color: AppColors.emerald,
+    );
+
+    final card3 = _StatCard(
+      icon: Icons.local_fire_department_rounded,
+      label: 'Day streak',
+      value: '${stats.streakDays}',
+      color: AppColors.amber,
+    );
+
+    final card4 = _StatCard(
+      icon: Icons.assignment_turned_in_rounded,
+      label: 'Attempts',
+      value: '${stats.totalAttempts}',
+      color: AppColors.indigo,
+    );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.horizontalPadding(context),
+      ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.percent_rounded,
-                  label: 'Average score',
-                  value: Fmt.percent(stats.averagePercent),
-                  color: AppColors.cyan,
-                  // Only surface the week-over-week move once it is meaningful;
-                  // a 0.2-point wobble is noise, not a trend.
-                  delta: delta.abs() >= 1 ? delta : null,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.my_location_rounded,
-                  label: 'Accuracy',
-                  value: Fmt.percent(stats.accuracyPercent),
-                  color: AppColors.emerald,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.local_fire_department_rounded,
-                  label: 'Day streak',
-                  value: '${stats.streakDays}',
-                  color: AppColors.amber,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.assignment_turned_in_rounded,
-                  label: 'Attempts',
-                  value: '${stats.totalAttempts}',
-                  color: AppColors.indigo,
-                ),
-              ),
-            ],
-          ),
+          if (isTablet)
+            Row(
+              children: [
+                Expanded(child: card1),
+                const SizedBox(width: 10),
+                Expanded(child: card2),
+                const SizedBox(width: 10),
+                Expanded(child: card3),
+                const SizedBox(width: 10),
+                Expanded(child: card4),
+              ],
+            )
+          else ...[
+            Row(
+              children: [
+                Expanded(child: card1),
+                const SizedBox(width: 10),
+                Expanded(child: card2),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: card3),
+                const SizedBox(width: 10),
+                Expanded(child: card4),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           GlassCard(
             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -316,8 +333,7 @@ class _StatCard extends StatelessWidget {
                     Text(
                       '${delta!.abs().toStringAsFixed(0)}%',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color:
-                                rising ? AppColors.emerald : AppColors.rose,
+                            color: rising ? AppColors.emerald : AppColors.rose,
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -354,9 +370,7 @@ class _TrendChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
     // Cap the series so a long history stays readable on a phone.
-    final points = trend.length > 10
-        ? trend.sublist(trend.length - 10)
-        : trend;
+    final points = trend.length > 10 ? trend.sublist(trend.length - 10) : trend;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -559,14 +573,15 @@ class _BookProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      onTap: () => context.push(AppRoutes.bookReader(book.bookId, resume: true)),
+      onTap: () =>
+          context.push(AppRoutes.bookReader(book.bookId, resume: true)),
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
           BookCover(
-            url: book.heroCoverUrl ?? book.coverUrl,
+            url: book.coverUrl.isNotEmpty ? book.coverUrl : (book.heroCoverUrl ?? ''),
             width: 48,
-            aspectRatio: book.heroCoverUrl != null ? (4 / 3) : (9 / 16),
+            aspectRatio: 9 / 16,
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -681,7 +696,8 @@ class _MockTestRow extends StatelessWidget {
                 ? 'DONE'
                 : mock.joined
                     ? 'JOINED'
-                    : Fmt.untilStart(mock.scheduledAt.difference(DateTime.now()))
+                    : Fmt.untilStart(
+                            mock.scheduledAt.difference(DateTime.now()))
                         .toUpperCase(),
             color: mock.submitted ? AppColors.emerald : AppColors.amber,
           ),
@@ -753,17 +769,21 @@ class _DashboardSkeleton extends StatelessWidget {
       children: const [
         Row(
           children: [
-            Expanded(child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
+            Expanded(
+                child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
             SizedBox(width: 10),
-            Expanded(child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
+            Expanded(
+                child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
           ],
         ),
         SizedBox(height: 10),
         Row(
           children: [
-            Expanded(child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
+            Expanded(
+                child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
             SizedBox(width: 10),
-            Expanded(child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
+            Expanded(
+                child: SkeletonBox(height: 108, radius: AppTheme.radiusLg)),
           ],
         ),
         SizedBox(height: 26),

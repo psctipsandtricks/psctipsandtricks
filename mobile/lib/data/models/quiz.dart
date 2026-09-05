@@ -104,6 +104,8 @@ class Quiz {
     required this.isLiveMock,
     required this.isPremium,
     required this.price,
+    this.discountPercent = 0,
+    double? finalPrice,
     required this.passingMarks,
     required this.totalMarks,
     required this.negativeMarking,
@@ -118,7 +120,7 @@ class Quiz {
     this.createdAt,
     this.releaseDate,
     this.isActive = true,
-  });
+  }) : finalPrice = finalPrice ?? price;
 
   final String id;
   final String title;
@@ -132,6 +134,8 @@ class Quiz {
   final bool isLiveMock;
   final bool isPremium;
   final double price;
+  final double discountPercent;
+  final double finalPrice;
   final double passingMarks;
   final double totalMarks;
   final NegativeMarking negativeMarking;
@@ -142,7 +146,8 @@ class Quiz {
   final DateTime? releaseDate;
   final bool isActive;
 
-  bool get isLocked => access != null && !access!.hasAccess;
+  bool get isLocked => access != null ? !access!.hasAccess : isPaid;
+  bool get isUnlocked => !isLocked;
 
   /// Mirrors the server's own predicate in `quiz-access.service.ts`.
   bool get isPaid =>
@@ -164,6 +169,8 @@ class Quiz {
         isLiveMock: J.boolVal(json['isLiveMock']),
         isPremium: J.boolVal(json['isPremium']),
         price: J.dbl(json['price']),
+        discountPercent: J.dbl(json['discountPercent']),
+        finalPrice: J.dbl(json['finalPrice'], J.dbl(json['price'])),
         passingMarks: J.dbl(json['passingMarks']),
         totalMarks: J.dbl(json['totalMarks']),
         negativeMarking: NegativeMarking.fromJson(json),
@@ -240,16 +247,22 @@ class QuizSubmission {
     required this.quizId,
     required this.answers,
     required this.timeTakenSeconds,
+    this.timeTakenMs,
   });
 
   final String quizId;
   final List<QuizAnswer> answers;
   final int timeTakenSeconds;
 
+  /// Same duration to millisecond precision. Mock tests rank a tied score on
+  /// this — two participants can easily finish within the same whole second.
+  final int? timeTakenMs;
+
   Map<String, dynamic> toJson() => {
         'quizId': quizId,
         'answers': answers.map((a) => a.toJson()).toList(),
         'timeTakenSeconds': timeTakenSeconds,
+        if (timeTakenMs != null) 'timeTakenMs': timeTakenMs,
       };
 }
 
@@ -272,6 +285,7 @@ class QuizAttempt {
     required this.timeTakenSeconds,
     this.quizTitle,
     this.quizCategory,
+    this.quizIsPremium = false,
     this.answers = const [],
     this.submittedAt,
     this.startedAt,
@@ -292,6 +306,10 @@ class QuizAttempt {
   final int timeTakenSeconds;
   final String? quizTitle;
   final String? quizCategory;
+
+  /// Whether the quiz behind this attempt is a paid one — drives the
+  /// Free/Premium chip and the Solutions PDF download on the history card.
+  final bool quizIsPremium;
   final List<QuizAnswer> answers;
   final DateTime? submittedAt;
   final DateTime? startedAt;
@@ -316,12 +334,69 @@ class QuizAttempt {
       correctAnswers: J.intVal(json['correctAnswers']),
       wrongAnswers: J.intVal(json['wrongAnswers']),
       unattempted: J.intVal(json['unattempted']),
+      quizIsPremium: J.boolVal(quiz['isPremium']) ||
+          J.str(quiz['accessType']).toUpperCase() == 'PAID' ||
+          J.dbl(quiz['price']) > 0,
       timeTakenSeconds: J.intVal(json['timeTakenSeconds']),
       quizTitle: J.strOrNull(quiz['title']) ?? J.strOrNull(json['title']),
       quizCategory: J.strOrNull(quiz['category']) ?? J.strOrNull(json['category']),
       answers: J.list(json['answers'], QuizAnswer.fromJson),
       submittedAt: J.dateOrNull(json['submittedAt']),
       startedAt: J.dateOrNull(json['startedAt']),
+    );
+  }
+}
+
+/// One numbered page of the student's completed attempts, with the lifetime
+/// summary (total attempts, passes, average score) the header card shows —
+/// those totals are computed server-side across *every* completed attempt, not
+/// just the visible page.
+class QuizHistoryPage {
+  const QuizHistoryPage({
+    required this.attempts,
+    required this.page,
+    required this.totalPages,
+    required this.totalAttempts,
+    required this.passed,
+    required this.avgPercentage,
+  });
+
+  final List<QuizAttempt> attempts;
+  final int page;
+  final int totalPages;
+  final int totalAttempts;
+  final int passed;
+  final double avgPercentage;
+
+  bool get isEmpty => attempts.isEmpty;
+
+  factory QuizHistoryPage.fromJson(dynamic json) {
+    final map = J.mapOrNull(json) ?? const {};
+    final summary = J.map(map['summary']);
+    final parsed = J.rows(json)
+        .whereType<Map>()
+        .map((e) => QuizAttempt.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+    // The pagination envelope already contains completed attempts only; a bare
+    // array (a server without the envelope) still carries in-progress ones, so
+    // filter and derive the summary from what is on the page.
+    final completed =
+        parsed.where((a) => a.status == AttemptStatus.completed).toList();
+    final attempts = json is List ? completed : parsed;
+    return QuizHistoryPage(
+      attempts: attempts,
+      page: J.intVal(map['page'], 1),
+      totalPages: J.intVal(map['totalPages'], 1),
+      totalAttempts:
+          J.intVal(summary['attempts'], J.intVal(map['total'], completed.length)),
+      passed: J.intVal(summary['passed'], completed.where((a) => a.passed).length),
+      avgPercentage: J.dbl(
+        summary['avgPercentage'],
+        completed.isEmpty
+            ? 0
+            : completed.fold<double>(0, (s, a) => s + a.percentage) /
+                completed.length,
+      ),
     );
   }
 }
@@ -401,6 +476,7 @@ class AttemptReview {
     required this.id,
     required this.quizId,
     required this.quizTitle,
+    required this.isPremium,
     required this.attemptNumber,
     required this.score,
     required this.totalMarks,
@@ -423,6 +499,10 @@ class AttemptReview {
   final String id;
   final String quizId;
   final String quizTitle;
+
+  /// Gates the "Download Solutions PDF" button — available once an attempt
+  /// is submitted, and only for a premium quiz.
+  final bool isPremium;
   final int attemptNumber;
   final double score;
   final double totalMarks;
@@ -455,6 +535,7 @@ class AttemptReview {
       id: J.str(json['id']),
       quizId: J.str(json['quizId']),
       quizTitle: J.str(json['quizTitle'], 'Quiz'),
+      isPremium: J.boolVal(json['isPremium']),
       attemptNumber: J.intVal(json['attemptNumber'], 1),
       score: J.dbl(json['score']),
       totalMarks: J.dbl(json['totalMarks']),

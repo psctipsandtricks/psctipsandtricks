@@ -53,17 +53,30 @@ final booksProvider = FutureProvider.autoDispose<List<Book>>((ref) async {
       );
 });
 
+String _canonicalCategory(String input) {
+  final trimmed = input.trim();
+  if (trimmed.isEmpty) return '';
+  if (trimmed.toLowerCase() == 'kerala psc') return 'Kerala PSC';
+  if (trimmed.toLowerCase() == 'general') return 'General';
+  return trimmed.split(' ').map((word) {
+    if (word.isEmpty) return '';
+    if (word.length == 1) return word.toUpperCase();
+    return word[0].toUpperCase() + word.substring(1).toLowerCase();
+  }).join(' ');
+}
+
 /// Categories present in the catalog, derived from what the API returned so the
 /// filter row never offers an option with no results behind it.
 final bookCategoriesProvider = Provider.autoDispose<List<String>>((ref) {
   final books = ref.watch(booksProvider).valueOrNull ?? const <Book>[];
-  final categories = books
-      .map((b) => b.category)
-      .where((c) => c.isNotEmpty)
-      .toSet()
-      .toList()
-    ..sort();
-  return ['All', ...categories];
+  final Set<String> categories = {};
+  for (final b in books) {
+    final cat = b.category.trim();
+    if (cat.isEmpty) continue;
+    categories.add(_canonicalCategory(cat));
+  }
+  final list = categories.toList()..sort();
+  return ['All', ...list];
 });
 
 final bookDetailProvider =

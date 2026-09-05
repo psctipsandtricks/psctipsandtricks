@@ -44,6 +44,7 @@ import {
   PushStatus,
   CustomerReview,
   SocialLinks,
+  AppUpdateConfig,
 } from '@psc/shared-types';
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
@@ -168,7 +169,9 @@ function isAdminContext(): boolean {
 /** The access token for whichever session (student or admin) is active on the current page. */
 export function getActiveAccessToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(isAdminContext() ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY);
+  const preferredKey = isAdminContext() ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY;
+  const fallbackKey = isAdminContext() ? STUDENT_ACCESS_TOKEN_KEY : ADMIN_ACCESS_TOKEN_KEY;
+  return localStorage.getItem(preferredKey) || localStorage.getItem(fallbackKey);
 }
 
 // Deduped in-flight refresh: concurrent 401s on the same session share one
@@ -178,14 +181,25 @@ let studentRefreshPromise: Promise<string | null> | null = null;
 let adminRefreshPromise: Promise<string | null> | null = null;
 
 async function tryRefreshAccessToken(admin: boolean): Promise<string | null> {
-  const accessKey = admin ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY;
-  const refreshKey = admin ? ADMIN_REFRESH_TOKEN_KEY : STUDENT_REFRESH_TOKEN_KEY;
+  let accessKey = admin ? ADMIN_ACCESS_TOKEN_KEY : STUDENT_ACCESS_TOKEN_KEY;
+  let refreshKey = admin ? ADMIN_REFRESH_TOKEN_KEY : STUDENT_REFRESH_TOKEN_KEY;
+  let refreshToken = typeof window !== 'undefined' ? localStorage.getItem(refreshKey) : null;
+  if (!refreshToken && typeof window !== 'undefined') {
+    const fallbackRefreshKey = admin ? STUDENT_REFRESH_TOKEN_KEY : ADMIN_REFRESH_TOKEN_KEY;
+    const fallbackAccessKey = admin ? STUDENT_ACCESS_TOKEN_KEY : ADMIN_ACCESS_TOKEN_KEY;
+    const fallbackToken = localStorage.getItem(fallbackRefreshKey);
+    if (fallbackToken) {
+      accessKey = fallbackAccessKey;
+      refreshKey = fallbackRefreshKey;
+      refreshToken = fallbackToken;
+    }
+  }
+
   const existing = admin ? adminRefreshPromise : studentRefreshPromise;
 
   const promise =
     existing ||
     (async () => {
-      const refreshToken = localStorage.getItem(refreshKey);
       if (!refreshToken) return null;
       try {
         const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
@@ -666,6 +680,15 @@ export const ApiClient = {
     fetcher<QuizResult>(`/quizzes/${id}/submit`, { method: 'POST', body: JSON.stringify(payload) }),
   startQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/start`, { method: 'POST' }),
   getActiveQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/active`),
+  pauseQuizAttempt: (
+    quizId: string,
+    payload: { timeTakenSeconds: number; answers: any[]; currentIndex?: number },
+    attemptId?: string
+  ) =>
+    fetcher<any>(`/quizzes/${quizId}/attempts/pause${attemptId ? `?attemptId=${attemptId}` : ''}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   /** Resolves to the persisted attempt — its `id` addresses the review page. */
   submitQuizAttempt: (quizId: string, payload: QuizSubmissionPayload, attemptId?: string) =>
     fetcher<QuizAttempt>(`/quizzes/${quizId}/submit${attemptId ? `?attemptId=${attemptId}` : ''}`, {
@@ -689,6 +712,28 @@ export const ApiClient = {
   deleteQuizFolder: (id: string) => fetcher<any>(`/quizzes/folders/${id}`, { method: 'DELETE' }),
   reorderQuizFolders: (items: ReorderEntry[]) =>
     fetcher<QuizFolder[]>('/quizzes/folders/reorder', { method: 'PATCH', body: JSON.stringify({ items }) }),
+
+  /**
+   * Positions are absolute within the folder, not indices on the current page:
+   * the admin quiz table is paginated server-side, so the client is the only
+   * side that knows the page offset to add.
+   */
+  reorderQuizzes: (items: ReorderEntry[]) =>
+    fetcher<{ success: boolean; updated: number }>('/quizzes/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify({ items }),
+    }),
+
+  /**
+   * Moves one quiz to a zero-based position in its folder, shifting the rest.
+   * Used by "Move to Position" and the Up/Down buttons, which can send a quiz
+   * to a page the admin isn't currently looking at.
+   */
+  moveQuiz: (id: string, position: number) =>
+    fetcher<{ success: boolean; position: number }>(`/quizzes/${id}/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ position }),
+    }),
 
   getAdminAttemptHistory: (quizId?: string, userId?: string) =>
     fetcher<any[]>(`/quizzes/admin/attempts?${quizId ? `quizId=${quizId}&` : ''}${userId ? `userId=${userId}` : ''}`),
@@ -742,9 +787,19 @@ export const ApiClient = {
     return fetcher<any>(`/orders${qs}`);
   },
   getUserOrders: (userId: string) => fetcher<any[]>(`/orders/user/${userId}`),
-  updateOrder: (id: string, payload: { status?: string; amount?: number; description?: string; razorpayPaymentId?: string }) =>
-    fetcher<Order>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  createManualOrder: (payload: { userId: string; bookId?: string; quizId?: string; amount?: number; note?: string }) =>
+  updateOrder: (
+    id: string,
+    payload: {
+      status?: string;
+      amount?: number;
+      description?: string;
+      razorpayPaymentId?: string;
+      purchaseDate?: string;
+      orderDate?: string;
+      createdAt?: string;
+    },
+  ) => fetcher<Order>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  createManualOrder: (payload: { userId: string; bookId?: string; quizId?: string; amount?: number; note?: string; purchaseDate?: string }) =>
     fetcher<Order>(`/orders/manual`, { method: 'POST', body: JSON.stringify(payload) }),
   /**
    * Checks a coupon before checkout. The server is still the authority — it
@@ -797,6 +852,18 @@ export const ApiClient = {
     twitterUrl?: string;
   }) =>
     fetcher<SocialLinks>('/social-links', { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  // App Update Settings
+  /** Public — same endpoint the mobile app calls on launch; the admin form uses it to prefill. Android-only for now. */
+  getAppUpdateConfig: () => fetcher<AppUpdateConfig>('/app/update-config?platform=android'),
+  updateAppUpdateConfig: (payload: {
+    enabled?: boolean;
+    updateMode?: AppUpdateConfig['updateMode'];
+    minimumVersion?: string;
+    latestVersion?: string;
+    forceUpdate?: boolean;
+    message?: string;
+  }) => fetcher<AppUpdateConfig>('/app/update-config', { method: 'PATCH', body: JSON.stringify({ platform: 'android', ...payload }) }),
 
   // Community Chat
   getChatGroups: () => fetcher<ChatGroupWithUserState[]>('/chat/groups/mine'),

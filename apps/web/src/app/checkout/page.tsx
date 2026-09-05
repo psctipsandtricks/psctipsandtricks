@@ -194,8 +194,6 @@ function CheckoutFormContent() {
 
             if (settled?.status === 'SUCCESS') {
               setPaymentSuccess(true);
-              const destination = itemType === 'quiz' ? `/quizzes/${itemId}` : `/books/${itemId}`;
-              setTimeout(() => router.push(destination), 1500);
             } else {
               throw new Error('Payment verification failed.');
             }
@@ -224,16 +222,64 @@ function CheckoutFormContent() {
     }
   };
 
+  const mockTestId = searchParams?.get('mockTestId') || '';
+  const quizDestination = mockTestId ? `/mock-tests/${mockTestId}` : `/quizzes/${itemId}`;
+
   if (paymentSuccess) {
     return (
-      <div className="max-w-xl mx-auto py-16 text-center space-y-4">
-        <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-500 flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-7 h-7" />
+      <div className="max-w-md mx-auto py-12 px-4 text-center animate-in fade-in zoom-in-95 duration-200">
+        <div className="rounded-3xl border border-emerald-500/40 bg-white dark:bg-[#0c152e] p-6 sm:p-8 space-y-5 shadow-2xl relative overflow-hidden">
+          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="w-16 h-16 rounded-3xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+            <CheckCircle2 className="w-9 h-9 text-emerald-500" />
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              Payment Verified
+            </span>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              Payment Successful!
+            </h1>
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-300 line-clamp-1">
+              {item.title}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {itemType === 'quiz'
+                ? 'Your test access is unlocked. Are you ready to begin?'
+                : 'Your e-book is unlocked and ready to read.'}
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#070e20] border border-slate-200/80 dark:border-[#1e2e56] flex items-center justify-between text-xs font-semibold">
+            <span className="text-slate-500 dark:text-slate-400">Total Paid:</span>
+            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">₹{finalPrice}</span>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <Button
+              variant="gold"
+              size="lg"
+              onClick={() => {
+                router.push(itemType === 'quiz' ? quizDestination : `/books/${itemId}`);
+              }}
+              className="w-full font-black py-3.5 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-lg shadow-emerald-500/25 cursor-pointer text-sm"
+            >
+              <span>{itemType === 'quiz' ? 'Start Quiz Now' : 'Open & Read Book'}</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                router.push(itemType === 'quiz' ? '/quizzes' : '/books');
+              }}
+              className="w-full text-xs font-bold text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              {itemType === 'quiz' ? 'Back to Quiz Hub' : 'Back to Books'}
+            </Button>
+          </div>
         </div>
-        <h1 className="text-xl font-black text-slate-900 dark:text-white">Payment Successful!</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          {itemType === 'quiz' ? 'Unlocking your quiz & taking you there now…' : 'Unlocking your book & taking you there now…'}
-        </p>
       </div>
     );
   }
@@ -347,7 +393,7 @@ function CheckoutFormContent() {
 
 export default function CheckoutPage() {
   return (
-    <Suspense fallback={<div className="py-20 text-center text-slate-500">Loading checkout portal...</div>}>
+    <Suspense fallback={<CheckoutSkeleton />}>
       <CheckoutFormContent />
     </Suspense>
   );

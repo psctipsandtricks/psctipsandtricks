@@ -7,12 +7,15 @@ import 'package:go_router/go_router.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/responsive.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../offline/offline_providers.dart';
 import 'books_providers.dart';
 import 'widgets/book_card.dart';
+import '../shell/shell_scaffold.dart';
 
 class BooksScreen extends ConsumerStatefulWidget {
   const BooksScreen({super.key});
@@ -55,34 +58,46 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
     final booksAsync = ref.watch(booksProvider);
     final categories = ref.watch(bookCategoriesProvider);
     final query = ref.watch(bookQueryProvider);
+    final isTablet = Responsive.isTablet(context);
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: GlassAppBar(
         title: const Text('E-Books'),
         actions: [
           _DownloadsAction(),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(104),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: AppSearchField(
-                  controller: _searchController,
-                  hintText: 'Search books, authors, subjects…',
-                  onChanged: _onSearchChanged,
+          child: Responsive.centered(
+            maxWidth: Responsive.maxContentWidth,
+            child: Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.horizontalPadding(context),
+                    0,
+                    Responsive.horizontalPadding(context),
+                    12,
+                  ),
+                  child: AppSearchField(
+                    controller: _searchController,
+                    hintText: 'Search books, authors, subjects…',
+                    onChanged: _onSearchChanged,
+                  ),
                 ),
-              ),
-              FilterChipsRow(
-                options: categories,
-                selected: query.category,
-                onSelected: (value) => ref
-                    .read(bookQueryProvider.notifier)
-                    .update((q) => q.copyWith(category: value)),
-              ),
-              const SizedBox(height: 12),
-            ],
+                FilterChipsRow(
+                  options: categories,
+                  selected: categories.firstWhere(
+                    (c) => c.toLowerCase() == query.category.toLowerCase(),
+                    orElse: () => 'All',
+                  ),
+                  onSelected: (value) => ref
+                      .read(bookQueryProvider.notifier)
+                      .update((q) => q.copyWith(category: value)),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
         ),
       ),
@@ -122,8 +137,42 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
               );
             }
 
+            if (isTablet) {
+              final cols = Responsive.gridColumns(
+                context,
+                tabletPortrait: 2,
+                tabletLandscape: 3,
+              );
+              return Responsive.centered(
+                maxWidth: Responsive.maxContentWidth,
+                child: GridView.builder(
+                  padding: EdgeInsets.fromLTRB(
+                    Responsive.horizontalPadding(context),
+                    8,
+                    Responsive.horizontalPadding(context),
+                    24 + ShellScaffold.dockExtent,
+                  ),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: cols,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    mainAxisExtent: 146,
+                  ),
+                  itemCount: books.length,
+                  itemBuilder: (context, index) {
+                    final book = books[index];
+                    return BookCard(
+                      book: book,
+                      onTap: () => context.push(AppRoutes.bookDetail(book.id)),
+                    );
+                  },
+                ),
+              );
+            }
+
             return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: const EdgeInsets.fromLTRB(
+                  16, 8, 16, 24 + ShellScaffold.dockExtent),
               itemCount: books.length,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
@@ -166,31 +215,39 @@ class _BooksSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: const EdgeInsets.fromLTRB(
+          16, 8, 16, 24 + ShellScaffold.dockExtent),
       itemCount: 6,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (_, __) => const GlassCard(
         padding: EdgeInsets.all(12),
-        child: Row(
+        borderRadius: AppTheme.radiusLg,
+        child: const Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SkeletonBox(
-              width: 76,
-              height: 110,
+              width: 84,
+              height: 122,
               radius: AppTheme.radiusMd,
             ),
-            SizedBox(width: 13),
+            SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SkeletonBox(width: 70, height: 18, radius: 6),
-                  SizedBox(height: 10),
+                  SkeletonBox(width: 80, height: 18, radius: 6),
+                  SizedBox(height: 8),
                   SkeletonBox(height: 15),
-                  SizedBox(height: 7),
-                  SkeletonBox(width: 150, height: 15),
+                  SizedBox(height: 6),
+                  SkeletonBox(width: 140, height: 14),
                   SizedBox(height: 16),
-                  SkeletonBox(width: 60, height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      SkeletonBox(width: 70, height: 18, radius: 4),
+                      SkeletonBox(width: 74, height: 28, radius: 8),
+                    ],
+                  ),
                 ],
               ),
             ),

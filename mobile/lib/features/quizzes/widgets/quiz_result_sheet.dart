@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/performance_band.dart';
 import '../../../core/widgets/glass_card.dart';
+import '../../../core/widgets/liquid_glass.dart';
 import '../../../data/models/quiz.dart';
 
 /// Presents the scored attempt, with an optional walk-through of every question.
@@ -15,12 +17,11 @@ Future<void> showQuizResultSheet(
   required Map<String, int> answers,
   bool autoSubmitted = false,
 }) {
-  return showModalBottomSheet<void>(
+  return showGlassSheet<void>(
     context: context,
-    isScrollControlled: true,
     isDismissible: false,
     enableDrag: false,
-    useSafeArea: true,
+    handle: false,
     builder: (_) => QuizResultSheet(
       quiz: quiz,
       result: result,
@@ -52,6 +53,7 @@ class QuizResultSheet extends StatelessWidget {
     final palette = context.palette;
     final passed = result.passed;
     final accent = passed ? AppColors.emerald : AppColors.amber;
+    final band = performanceBandFor(result.percentage);
 
     return DraggableScrollableSheet(
       expand: false,
@@ -149,13 +151,21 @@ class QuizResultSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Center(
-                  child: AppBadge(
-                    passed ? 'PASSED' : 'KEEP PRACTISING',
-                    color: accent,
-                    icon: passed
-                        ? Icons.emoji_events_rounded
-                        : Icons.trending_up_rounded,
-                    filled: true,
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      AppBadge(
+                        passed ? 'PASSED' : 'KEEP PRACTISING',
+                        color: accent,
+                        icon: passed
+                            ? Icons.emoji_events_rounded
+                            : Icons.trending_up_rounded,
+                        filled: true,
+                      ),
+                      AppBadge(band.label.toUpperCase(), color: band.color),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -261,6 +271,9 @@ class QuizResultSheet extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => _ReviewScreen(
           quizTitle: quiz.title,
+          // Explanations are a premium perk — a free quiz's review shows only
+          // right/wrong and the correct option.
+          isPremium: quiz.isPaid,
           questions: questions,
           answers: answers,
         ),
@@ -367,11 +380,13 @@ class _Line extends StatelessWidget {
 class _ReviewScreen extends StatelessWidget {
   const _ReviewScreen({
     required this.quizTitle,
+    required this.isPremium,
     required this.questions,
     required this.answers,
   });
 
   final String quizTitle;
+  final bool isPremium;
   final List<Question> questions;
   final Map<String, int> answers;
 
@@ -380,7 +395,7 @@ class _ReviewScreen extends StatelessWidget {
     final palette = context.palette;
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: GlassAppBar(
         title: const Text('Answer review'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(28),
@@ -445,7 +460,7 @@ class _ReviewScreen extends StatelessWidget {
                       isChosen: selected == i,
                     ),
                   ),
-                if ((question.explanation ?? '').isNotEmpty) ...[
+                if (isPremium && (question.explanation ?? '').isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(12),

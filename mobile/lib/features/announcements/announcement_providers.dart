@@ -77,6 +77,12 @@ final dismissedAnnouncementsProvider =
 /// student has not dismissed yet, in the order the API returned them.
 final pendingAnnouncementsProvider =
     Provider<List<AnnouncementPopup>>((ref) {
+  // Announcements are a signed-in feature: a guest browsing the catalogue
+  // never sees one, however new or unmissed. `currentUserProvider` is null
+  // both while signed out and while the stored session is still resolving —
+  // exactly the two cases this should stay quiet for.
+  if (ref.watch(currentUserProvider) == null) return const [];
+
   final active = ref.watch(activeAnnouncementsProvider).valueOrNull ?? const [];
   final dismissed = ref.watch(dismissedAnnouncementsProvider);
   return active.where((a) => !dismissed.contains(a.id)).toList();

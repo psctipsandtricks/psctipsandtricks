@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_glass.dart';
 import '../theme/app_theme.dart';
+import 'liquid_glass.dart';
 
-/// The app's primary surface — the native counterpart of the website's
-/// `.glass-card`: a soft panel with a hairline border, smooth micro-animation
-/// on press, and ambient glow.
-class GlassCard extends StatefulWidget {
+/// The app's primary surface — a Liquid Glass pane with a rim light, a short
+/// spring under the finger, and an optional accent bloom for the featured
+/// state. The name is kept from the first version of the app because it is
+/// used on every screen; the rendering now comes from [LiquidGlass].
+class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
     required this.child,
@@ -16,9 +19,11 @@ class GlassCard extends StatefulWidget {
     this.padding = const EdgeInsets.all(16),
     this.borderRadius = AppTheme.radiusLg,
     this.borderColor,
-    this.color,
+    this.accentColor,
     this.highlighted = false,
     this.enablePressScale = true,
+    this.blurSigma = AppGlass.blurCard,
+    this.intensity = 1.15,
   });
 
   final Widget child;
@@ -27,103 +32,62 @@ class GlassCard extends StatefulWidget {
   final EdgeInsetsGeometry padding;
   final double borderRadius;
   final Color? borderColor;
-  final Color? color;
 
-  /// Draws the cyan accent border used for the selected or featured state.
+  /// Washes the pane with a colour of the caller's choosing — how a card says
+  /// which category, tier or state it belongs to without a second badge.
+  /// [highlighted] is the cyan shorthand for the same thing.
+  final Color? accentColor;
+
+  /// Draws the cyan accent rim and bloom used for the selected or featured
+  /// state.
   final bool highlighted;
 
-  /// Enables subtle spring scale effect when tapped.
+  /// Enables the subtle spring scale effect when tapped.
   final bool enablePressScale;
 
-  @override
-  State<GlassCard> createState() => _GlassCardState();
-}
+  /// Backdrop blur for this pane; 0 keeps the tint and rim without the cost.
+  final double blurSigma;
 
-class _GlassCardState extends State<GlassCard> {
-  bool _isPressed = false;
-
-  void _handleTapDown(TapDownDetails _) {
-    if (widget.onTap != null && widget.enablePressScale) {
-      setState(() => _isPressed = true);
-    }
-  }
-
-  void _handleTapUp(TapUpDetails _) {
-    if (widget.enablePressScale && _isPressed) {
-      setState(() => _isPressed = false);
-    }
-  }
-
-  void _handleTapCancel() {
-    if (widget.enablePressScale && _isPressed) {
-      setState(() => _isPressed = false);
-    }
-  }
+  /// Opacity multiplier for the glass wash. The default already leans dense,
+  /// because a card is usually the thing being read rather than the thing
+  /// being looked through.
+  final double intensity;
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
-    final radius = BorderRadius.circular(widget.borderRadius);
-    final border = widget.borderColor ??
-        (widget.highlighted
-            ? AppColors.cyan.withValues(alpha: 0.60)
-            : palette.border);
+    final radius = BorderRadius.circular(borderRadius);
+    final accent = accentColor ?? (highlighted ? AppColors.cyan : null);
+    final border = borderColor ??
+        (highlighted ? AppColors.cyan.withValues(alpha: 0.60) : null);
 
-    return AnimatedScale(
-      duration: const Duration(milliseconds: 120),
-      scale: _isPressed ? 0.985 : 1.0,
-      curve: Curves.easeOutCubic,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: widget.color ?? palette.card,
-          borderRadius: radius,
-          border: Border.all(
-            color: border,
-            width: widget.highlighted ? 1.4 : 1.0,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: palette.isDark
-                  ? Colors.black.withValues(alpha: widget.highlighted ? 0.45 : 0.28)
-                  : const Color(0xFF0F172A).withValues(alpha: 0.05),
-              blurRadius: palette.isDark ? 16 : 12,
-              offset: const Offset(0, 4),
-            ),
-            if (widget.highlighted)
-              BoxShadow(
-                color: AppColors.cyan.withValues(alpha: 0.12),
-                blurRadius: 18,
-                spreadRadius: 1,
-              ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: radius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: widget.onTap != null
-                ? () {
-                    HapticFeedback.selectionClick();
-                    widget.onTap!();
-                  }
-                : null,
-            onLongPress: widget.onLongPress,
-            onTapDown: _handleTapDown,
-            onTapUp: _handleTapUp,
-            onTapCancel: _handleTapCancel,
-            splashColor: AppColors.cyan.withValues(alpha: 0.08),
-            highlightColor: AppColors.cyan.withValues(alpha: 0.04),
+    final pane = onTap == null && onLongPress == null
+        ? LiquidGlass(
             borderRadius: radius,
-            child: Padding(
-              padding: widget.padding,
-              child: widget.child,
-            ),
-          ),
-        ),
-      ),
-    );
+            blurSigma: blurSigma,
+            intensity: intensity,
+            accent: accent,
+            borderColor: border,
+            borderWidth: highlighted ? 1.4 : 1.0,
+            padding: padding,
+            child: child,
+          )
+        : LiquidGlassTappable(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            borderRadius: radius,
+            blurSigma: blurSigma,
+            intensity: intensity,
+            accent: accent,
+            borderColor: border,
+            borderWidth: highlighted ? 1.4 : 1.0,
+            padding: padding,
+            pressScale: enablePressScale ? 0.985 : 1.0,
+            child: child,
+          );
+
+    return pane;
   }
+
 }
 
 /// A short, uppercase eyebrow label — the site's `Badge` component.
@@ -186,7 +150,7 @@ class AppBadge extends StatelessWidget {
   }
 }
 
-/// Primary call to action, carrying the brand's cyan→indigo sweep.
+/// Primary call to action, carrying the brand's cyan→indigo sweep or gold sweep.
 class GradientButton extends StatefulWidget {
   const GradientButton({
     super.key,
@@ -195,8 +159,12 @@ class GradientButton extends StatefulWidget {
     this.icon,
     this.isLoading = false,
     this.gradient = AppColors.brandGradient,
+    this.textColor,
+    this.iconColor,
+    this.shadowColor,
     this.expand = true,
     this.compact = false,
+    this.height,
   });
 
   final String label;
@@ -204,8 +172,12 @@ class GradientButton extends StatefulWidget {
   final IconData? icon;
   final bool isLoading;
   final Gradient gradient;
+  final Color? textColor;
+  final Color? iconColor;
+  final Color? shadowColor;
   final bool expand;
   final bool compact;
+  final double? height;
 
   @override
   State<GradientButton> createState() => _GradientButtonState();
@@ -218,6 +190,16 @@ class _GradientButtonState extends State<GradientButton> {
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null && !widget.isLoading;
     final radius = BorderRadius.circular(AppTheme.radiusMd);
+    final isGold = widget.gradient == AppColors.goldGradient;
+
+    final resolvedTextColor = widget.textColor ??
+        (isGold ? const Color(0xFF090D16) : Colors.white);
+    final resolvedIconColor = widget.iconColor ??
+        (isGold ? const Color(0xFF090D16) : Colors.white);
+    final resolvedShadowColor = widget.shadowColor ??
+        (isGold
+            ? const Color(0xFFF59E0B).withValues(alpha: 0.40)
+            : AppColors.cyan.withValues(alpha: 0.28));
 
     return AnimatedScale(
       duration: const Duration(milliseconds: 100),
@@ -225,15 +207,20 @@ class _GradientButtonState extends State<GradientButton> {
       curve: Curves.easeOutCubic,
       child: Opacity(
         opacity: enabled ? 1.0 : 0.55,
-        child: DecoratedBox(
+        child: Container(
+          height: widget.height,
           decoration: BoxDecoration(
             gradient: widget.gradient,
             borderRadius: radius,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: isGold ? 0.35 : 0.22),
+              width: 1,
+            ),
             boxShadow: enabled
                 ? [
                     BoxShadow(
-                      color: AppColors.cyan.withValues(alpha: 0.28),
-                      blurRadius: 14,
+                      color: resolvedShadowColor,
+                      blurRadius: 16,
                       offset: const Offset(0, 5),
                     ),
                   ]
@@ -265,33 +252,38 @@ class _GradientButtonState extends State<GradientButton> {
                   vertical: widget.compact ? 10 : 14,
                 ),
                 child: Row(
-                  mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
+                  mainAxisSize:
+                      widget.expand ? MainAxisSize.max : MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     if (widget.isLoading)
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
+                      SizedBox(
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                          strokeWidth: 2.2,
+                          color: resolvedTextColor,
                         ),
                       )
                     else if (widget.icon != null)
-                      Icon(widget.icon,
-                          size: widget.compact ? 16 : 18, color: Colors.white),
+                      Icon(
+                        widget.icon,
+                        size: widget.compact ? 16 : 19,
+                        color: resolvedIconColor,
+                      ),
                     if (widget.isLoading || widget.icon != null)
                       const SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         widget.label,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: widget.compact ? 13 : 14.5,
-                              letterSpacing: -0.2,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  color: resolvedTextColor,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: widget.compact ? 13 : 15,
+                                  letterSpacing: -0.2,
+                                ),
                       ),
                     ),
                   ],
@@ -304,3 +296,4 @@ class _GradientButtonState extends State<GradientButton> {
     );
   }
 }
+

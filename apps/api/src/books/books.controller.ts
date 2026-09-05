@@ -200,9 +200,10 @@ export class BooksController {
   // --- Chapters ---
 
   @ApiOperation({ summary: 'List chapters for a book' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id/chapters')
-  async listChapters(@Param('id') id: string) {
-    return this.booksService.listChapters(id);
+  async listChapters(@Request() req: any, @Param('id') id: string) {
+    return this.booksService.listChapters(id, req?.user);
   }
 
   @ApiOperation({ summary: 'Add a chapter to a book (Admin / Staff with manage_books)' })
@@ -226,9 +227,10 @@ export class BooksController {
   }
 
   @ApiOperation({ summary: 'Get a single chapter, including its topics' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('chapters/:chapterId')
-  async getChapter(@Param('chapterId') chapterId: string) {
-    return this.booksService.findChapter(chapterId);
+  async getChapter(@Request() req: any, @Param('chapterId') chapterId: string) {
+    return this.booksService.findChapter(chapterId, req?.user);
   }
 
   @ApiOperation({ summary: 'Update a chapter (Admin / Staff with manage_books)' })
@@ -278,9 +280,10 @@ export class BooksController {
   // --- Topics ---
 
   @ApiOperation({ summary: 'List topics for a chapter' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('chapters/:chapterId/topics')
-  async listTopics(@Param('chapterId') chapterId: string) {
-    return this.booksService.listTopics(chapterId);
+  async listTopics(@Request() req: any, @Param('chapterId') chapterId: string) {
+    return this.booksService.listTopics(chapterId, req?.user);
   }
 
   @ApiOperation({ summary: 'Add a topic to a chapter (Admin / Staff with manage_books)' })
@@ -304,9 +307,10 @@ export class BooksController {
   }
 
   @ApiOperation({ summary: 'Get a single topic, including its subtopics' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('topics/:topicId')
-  async getTopic(@Param('topicId') topicId: string) {
-    return this.booksService.findTopic(topicId);
+  async getTopic(@Request() req: any, @Param('topicId') topicId: string) {
+    return this.booksService.findTopic(topicId, req?.user);
   }
 
   @ApiOperation({ summary: 'Update a topic (Admin / Staff with manage_books)' })
@@ -356,9 +360,10 @@ export class BooksController {
   // --- Subtopics ---
 
   @ApiOperation({ summary: 'List subtopics for a topic' })
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('topics/:topicId/subtopics')
-  async listSubtopics(@Param('topicId') topicId: string) {
-    return this.booksService.listSubtopics(topicId);
+  async listSubtopics(@Request() req: any, @Param('topicId') topicId: string) {
+    return this.booksService.listSubtopics(topicId, req?.user);
   }
 
   @ApiOperation({ summary: 'Add a subtopic to a topic (Admin / Staff with manage_books)' })

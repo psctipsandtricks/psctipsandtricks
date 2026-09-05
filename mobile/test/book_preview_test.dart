@@ -20,7 +20,12 @@ class _SilentAudio extends ReaderAudioController {
   String? loadedUrl;
 
   @override
-  Future<void> load(String url, {String? label, bool autoPlay = false}) async {
+  Future<void> load(
+    String url, {
+    String? label,
+    String? album,
+    bool autoPlay = false,
+  }) async {
     loadedUrl = url;
     title.value = label;
   }

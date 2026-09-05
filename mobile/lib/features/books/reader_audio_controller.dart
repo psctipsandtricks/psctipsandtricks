@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
 import '../../core/providers/app_providers.dart';
 
@@ -34,6 +35,17 @@ class ReaderAudioController {
     _stateSub = _player.playerStateStream.listen((state) {
       playing.value = state.playing &&
           state.processingState != ProcessingState.completed;
+
+      // The end of a clip is the cue to move on. Reported once per clip: the
+      // state stream repeats `completed` as the player settles, and a listener
+      // that acted on each one would skip several topics at a time.
+      if (state.processingState == ProcessingState.completed) {
+        final finished = _url;
+        if (finished != null && finished != _announcedComplete) {
+          _announcedComplete = finished;
+          onClipFinished?.call();
+        }
+      }
     });
 
     // A decode or network failure part-way through surfaces here, not from
@@ -71,6 +83,13 @@ class ReaderAudioController {
 
   String? _url;
 
+  /// The clip whose ending has already been announced, so it is announced once.
+  String? _announcedComplete;
+
+  /// Called when the loaded clip plays out. The reader uses it to walk on to
+  /// the next topic — and, at the end of a chapter, into the next one.
+  VoidCallback? onClipFinished;
+
   /// True once something is loaded — the PDF viewer uses this to decide whether
   /// an auto page-turn control makes any sense.
   bool get hasAudio => _url != null && !failed.value;
@@ -83,9 +102,15 @@ class ReaderAudioController {
   ///
   /// Re-loading the same url is a no-op, so rebuilding the player widget cannot
   /// restart a clip the student is already listening to.
-  Future<void> load(String url, {String? label, bool autoPlay = false}) async {
+  Future<void> load(
+    String url, {
+    String? label,
+    String? album,
+    bool autoPlay = false,
+  }) async {
     if (_url == url) return;
     _url = url;
+    _announcedComplete = null;
     title.value = label;
     failed.value = false;
     loading.value = true;
@@ -94,11 +119,19 @@ class ReaderAudioController {
     duration.value = null;
 
     try {
-      if (url.startsWith('http')) {
-        await _player.setUrl(url);
-      } else {
-        await _player.setFilePath(url);
-      }
+      // Every source carries a `MediaItem`: it is what the lock screen and the
+      // notification read, and `just_audio_background` refuses a source without
+      // one. The url doubles as the id — it is already unique per topic.
+      await _player.setAudioSource(
+        AudioSource.uri(
+          url.startsWith('http') ? Uri.parse(url) : Uri.file(url),
+          tag: MediaItem(
+            id: url,
+            title: label ?? 'Audio lesson',
+            album: album ?? 'PSC Tips And Tricks',
+          ),
+        ),
+      );
       loading.value = false;
       if (autoPlay) unawaited(_player.play());
     } catch (e) {
@@ -143,10 +176,16 @@ class ReaderAudioController {
     _player.setSpeed(_speed);
   }
 
+  void setSpeed(double speed) {
+    _speed = speed;
+    _player.setSpeed(_speed);
+  }
+
   /// Releases the current clip. Called when the reader closes, so narration
   /// does not follow the student out of the book.
   Future<void> stop() async {
     _url = null;
+    _announcedComplete = null;
     title.value = null;
     fraction.value = 0;
     position.value = Duration.zero;
@@ -196,3 +235,27 @@ class AutoScrollController extends StateNotifier<bool> {
 
 final autoScrollProvider =
     StateNotifierProvider<AutoScrollController, bool>(AutoScrollController.new);
+
+/// Whether the reader's audio UI is folded away — the docked transport shrinks
+/// to a single audio icon and the inline player drops its progress bar. Starts
+/// folded so narration never takes the strip until the student asks for it;
+/// toggled from the audio icon and the player's × button, and remembered across
+/// topics and app launches.
+class AudioBarCollapsedController extends StateNotifier<bool> {
+  AudioBarCollapsedController(this._ref)
+      : super(_ref.read(sharedPrefsProvider).getBool(_key) ?? true);
+
+  final Ref _ref;
+  static const _key = 'reader_audio_bar_collapsed';
+
+  void set(bool collapsed) {
+    state = collapsed;
+    _ref.read(sharedPrefsProvider).setBool(_key, collapsed);
+  }
+
+  void toggle() => set(!state);
+}
+
+final audioBarCollapsedProvider =
+    StateNotifierProvider<AudioBarCollapsedController, bool>(
+        AudioBarCollapsedController.new);

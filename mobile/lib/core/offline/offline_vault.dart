@@ -259,6 +259,39 @@ class OfflineVault {
     if (dir.existsSync()) await dir.delete(recursive: true);
   }
 
+  /// Removes one asset's encrypted file, e.g. a cover left behind after it was
+  /// swapped for a fresher one under a new URL.
+  Future<void> deleteAsset(String bookId, String assetId) async {
+    final file = await assetFile(bookId, assetId);
+    if (file.existsSync()) await file.delete();
+  }
+
+  /// Erases the whole vault — every downloaded book, every decrypted working
+  /// copy, and the encryption key itself.
+  ///
+  /// Called on sign-out: a downloaded book carries no record of who fetched it,
+  /// so the only way to stop one account's offline copies opening under the
+  /// next account on the same device is to remove them. Dropping the key too
+  /// means any ciphertext that somehow outlives the directory delete is left
+  /// unrecoverable, and a fresh key is minted on the next download.
+  Future<void> wipe() async {
+    try {
+      final support = await getApplicationSupportDirectory();
+      final dir = Directory('${support.path}/offline_library');
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    } catch (_) {
+      // A locked or already-gone directory is not worth failing sign-out over.
+    }
+    await purgePlaintextCache();
+    try {
+      await _storage.delete(key: _keyAlias);
+    } catch (_) {
+      // Keystore hiccup: the directory is already gone, which is what matters.
+    }
+    _key = null;
+    _root = null;
+  }
+
   /// Total bytes one book occupies on disk.
   Future<int> bookSize(String bookId) async {
     final dir = await bookDirectory(bookId);

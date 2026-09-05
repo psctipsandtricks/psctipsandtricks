@@ -53,6 +53,19 @@ enum OAuthProvider {
   APPLE
 }
 
+/// Extensible on purpose: only ANDROID is wired up today, but the config
+/// model, admin form and endpoint all key off this, so IOS needs a new enum
+/// value and a store-listing URL — not a redesign.
+enum AppPlatform {
+  ANDROID
+  IOS
+}
+
+enum AppUpdateMode {
+  IMMEDIATE
+  FLEXIBLE
+}
+
 model User {
   id                 String                @id @default(uuid())
   email              String                @unique
@@ -142,6 +155,10 @@ model StaffPermission {
   /// Customer testimonials shown on the public home page.
   manageReviews       Boolean  @default(false)
   manageSocialLinks   Boolean  @default(false)
+  /// Can force the entire install base onto a new version — deliberately its
+  /// own flag rather than folded into an existing one, since granting it is a
+  /// bigger trust step than any other row here.
+  manageAppUpdate     Boolean  @default(false)
   grantedById         String?
   grantedBy           User?    @relation("GrantedByAdmin", fields: [grantedById], references: [id])
   createdAt           DateTime @default(now())
@@ -308,6 +325,8 @@ model Quiz {
   isLiveMock                      Boolean          @default(false)
   isPremium                       Boolean          @default(false)
   price                           Float            @default(0)
+  discountPercent                 Float            @default(0)
+  finalPrice                      Float            @default(0)
   imageUrl                        String?
   // Negative marking is a "for every N wrong answers, deduct M marks" rule
   // (default: every 3 wrong answers costs 1 mark), not a flat per-question
@@ -322,6 +341,14 @@ model Quiz {
   allowNegativeScore              Boolean          @default(false)
   passingMarks                    Float            @default(40)
   totalMarks                      Float            @default(100)
+  /// Position within the folder, set by drag-to-reorder in the admin panel and
+  /// honoured by every consumer (admin table, website, mobile app).
+  ///
+  /// Ordering is always `[orderIndex asc, createdAt asc]`. That tie-breaker is
+  /// what lets this column ship without a backfill: rows that predate it all
+  /// hold the default 0, so they fall back to creation order — oldest first,
+  /// newest last, which is the intended default for a new quiz anyway.
+  orderIndex                      Int              @default(0)
   questions                       Question[]
   submissions                     QuizSubmission[]
   orders                          Order[]
@@ -331,6 +358,7 @@ model Quiz {
 
   @@index([isActive, createdAt(sort: Desc)])
   @@index([folderName])
+  @@index([folderName, orderIndex])
   @@index([accessType])
 }
 
@@ -430,6 +458,12 @@ model MockTestParticipant {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   score       Float?
   rank        Int?
+  /// Wall-clock time from starting the attempt to submitting it, in
+  /// milliseconds — the tiebreaker when two participants land on the same
+  /// score: the faster finish ranks higher. Second-granularity is not enough
+  /// to separate finishes that land in the same second, so this is captured
+  /// (and compared) in milliseconds throughout.
+  timeTakenMs Int?
   submittedAt DateTime?
   createdAt   DateTime  @default(now())
 
@@ -798,4 +832,27 @@ model SocialLinks {
   facebookUrl  String?
   twitterUrl   String?
   updatedAt    DateTime @updatedAt
+}
+
+/// One row per platform — today only ANDROID is ever read, but the unique key
+/// is on `platform` rather than a hard-coded singleton id so IOS can be added
+/// later as a second row instead of a schema change.
+///
+/// `minimumVersion` and `latestVersion` are validated app-side as three-part
+/// semantic versions (X.Y.Z) and compared numerically, never as strings — see
+/// `compareVersions` in the app-update module.
+model AppUpdateConfig {
+  id             String        @id @default(uuid())
+  platform       AppPlatform   @unique
+  enabled        Boolean       @default(true)
+  updateMode     AppUpdateMode @default(IMMEDIATE)
+  /// Below this, the app treats the update as mandatory regardless of
+  /// `updateMode` — there is no configuration that lets a build older than
+  /// this keep running.
+  minimumVersion String        @default("1.0.0")
+  latestVersion  String        @default("1.0.0")
+  forceUpdate    Boolean       @default(true)
+  updateMessage  String        @default("A new version of the app is available. Please update to continue.") @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 }

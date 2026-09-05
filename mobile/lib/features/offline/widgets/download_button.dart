@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/glass_card.dart';
+import '../../../core/widgets/liquid_glass.dart';
 import '../../../data/models/book.dart';
 import '../../../data/models/offline.dart';
 import '../offline_providers.dart';
@@ -137,28 +138,16 @@ class BookDownloadPanel extends ConsumerWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove offline copy?'),
-        content: const Text(
-          'The files will be deleted from this device. You can download the '
-          'book again at any time while your access is valid.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.rose),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final ok = await showGlassConfirm(
+      context,
+      title: 'Remove offline copy?',
+      message: 'The files will be deleted from this device. You can download '
+          'the book again at any time while your access is valid.',
+      cancelLabel: 'Keep',
+      confirmLabel: 'Remove',
+      destructive: true,
     );
-    if (ok != true) return;
+    if (!ok) return;
     await ref.read(downloadManagerProvider.notifier).remove(book.id);
   }
 }

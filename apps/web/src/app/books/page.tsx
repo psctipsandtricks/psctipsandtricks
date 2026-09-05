@@ -100,8 +100,10 @@ function BooksContent() {
 
   useEffect(() => {
     setMounted(true);
-    fetchBooks();
-  }, [fetchBooks]);
+    if (!authLoading) {
+      fetchBooks();
+    }
+  }, [fetchBooks, authLoading, user?.id]);
 
   const handleDetails = (bookId: string) => {
     const targetUrl = `/books/${bookId}`;
@@ -133,9 +135,8 @@ function BooksContent() {
   // Helper to determine if a book is purchased / owned by the current user
   const isBookPurchased = useCallback((b: Book) => {
     if (!user) return false;
-    return (
+    return Boolean(
       b.access?.reason === 'PURCHASED' ||
-      b.access?.reason === 'STAFF' ||
       (b.access?.hasAccess && (b.isPremium || (b.finalPrice ?? b.price ?? 0) > 0))
     );
   }, [user]);
@@ -388,7 +389,7 @@ function BooksContent() {
             const effectivePrice =
               book.finalPrice ??
               (discount > 0 ? Math.round(originalPrice * (1 - discount / 100)) : originalPrice);
-            const isFree = !book.isPremium || effectivePrice === 0;
+            const isFree = !book.isPremium && effectivePrice === 0 && originalPrice === 0;
             const isPurchased = !isFree && isBookPurchased(book);
 
             const isNew = isRecentlyUploaded(book.createdAt);
@@ -433,43 +434,41 @@ function BooksContent() {
 
                     <div className="flex items-center gap-1.5">
                       {isPurchased && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-500 text-white shadow-md">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black text-emerald-50 bg-emerald-400/20 backdrop-blur-md border border-emerald-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-emerald-950/30">
                           <CheckCircle2 className="w-3 h-3" />
                           <span>{book.subscriptionType === 'SUBSCRIPTION' ? 'Subscribed' : 'Purchased'}</span>
                         </span>
                       )}
                       {isFree && (
-                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-500 text-white shadow-md">
+                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black text-emerald-50 bg-emerald-400/20 backdrop-blur-md border border-emerald-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-emerald-950/30">
                           FREE
                         </span>
                       )}
                       {!isPurchased && !isFree && book.access?.subscription?.isExpired && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-rose-500 text-white shadow-md">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black text-rose-50 bg-rose-400/20 backdrop-blur-md border border-rose-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-rose-950/30">
                           <Clock className="w-3 h-3" />
                           <span>Expired</span>
                         </span>
                       )}
                       {discount > 0 && !isFree && !isPurchased && !book.access?.subscription?.isExpired && (
-                        <span className="px-2 py-1 rounded-lg text-[10px] font-black bg-rose-500 text-white shadow-md">
+                        <span className="px-2 py-1 rounded-lg text-[10px] font-black text-rose-50 bg-rose-400/20 backdrop-blur-md border border-rose-300/40 ring-1 ring-inset ring-white/15 shadow-lg shadow-rose-950/30">
                           {discount}% OFF
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Multimedia Feature Pill Overlay */}
-                  <div className="absolute bottom-3 left-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/10 text-[10px] text-white">
-                    <span className="flex items-center gap-1 font-bold text-cyan-400">
-                      <Music className="w-3 h-3" /> Audio
-                    </span>
-                    <span className="text-slate-500">·</span>
-                    <span className="flex items-center gap-1 font-bold text-amber-400">
-                      <FileText className="w-3 h-3" /> Notes
-                    </span>
-                    <span className="text-slate-500">·</span>
-                    <span className="flex items-center gap-1 font-bold text-rose-400">
-                      <Youtube className="w-3 h-3" /> Video
-                    </span>
+                  {/* Multimedia Feature Icons — one grouped glass chip, icons only */}
+                  <div
+                    className="absolute bottom-3 left-3 inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-slate-950/50 px-3 py-1.5 shadow-lg shadow-black/30 ring-1 ring-inset ring-white/10 backdrop-blur-xl"
+                    role="group"
+                    aria-label="Includes audio lessons, notes and video classes"
+                  >
+                    <Music className="w-3.5 h-3.5 text-cyan-400" aria-label="Audio lessons" />
+                    <span className="h-3 w-px bg-white/15" aria-hidden="true" />
+                    <FileText className="w-3.5 h-3.5 text-amber-400" aria-label="Notes" />
+                    <span className="h-3 w-px bg-white/15" aria-hidden="true" />
+                    <Youtube className="w-3.5 h-3.5 text-rose-400" aria-label="Video classes" />
                   </div>
                 </div>
 

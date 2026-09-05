@@ -172,7 +172,7 @@ export class PdfsService {
       updatedAt: f.updatedAt.toISOString(),
     }));
 
-    return isCurator ? mapped : mapped.filter((f) => (f.documentCount || 0) > 0);
+    return mapped;
   }
 
   async findFolder(folderId: string, actor?: AccessActor | null) {
@@ -237,22 +237,20 @@ export class PdfsService {
       curr = curr.parent;
     }
 
-    const mappedChildren = folder.children
-      .map((c) => ({
-        id: c.id,
-        name: c.name,
-        title: c.name,
-        parentId: c.parentId,
-        description: c.description,
-        orderIndex: c.orderIndex,
-        isActive: c.isActive,
-        subFolderCount: c._count.children,
-        documentCount: recursiveCounts[c.id] !== undefined ? recursiveCounts[c.id] : c._count.documents,
-        directDocumentCount: c._count.documents,
-        createdAt: c.createdAt.toISOString(),
-        updatedAt: c.updatedAt.toISOString(),
-      }))
-      .filter((c) => (isCurator ? true : (c.documentCount || 0) > 0));
+    const mappedChildren = folder.children.map((c) => ({
+      id: c.id,
+      name: c.name,
+      title: c.name,
+      parentId: c.parentId,
+      description: c.description,
+      orderIndex: c.orderIndex,
+      isActive: c.isActive,
+      subFolderCount: c._count.children,
+      documentCount: recursiveCounts[c.id] !== undefined ? recursiveCounts[c.id] : c._count.documents,
+      directDocumentCount: c._count.documents,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    }));
 
     return {
       ...folder,

@@ -7,6 +7,7 @@ import '../../data/models/user.dart';
 import '../auth/google_native_sign_in.dart';
 import '../network/api_exception.dart';
 import 'app_providers.dart';
+import 'session.dart';
 
 /// Where the session stands. The router keys its redirects off this, so it must
 /// distinguish "still checking" from "definitely signed out".
@@ -69,7 +70,7 @@ class AuthController extends StateNotifier<AuthState> {
           email: email,
           password: password,
         );
-    state = AuthState(status: AuthStatus.authenticated, user: user);
+    await _applySignIn(user);
   }
 
   Future<void> register({
@@ -82,7 +83,7 @@ class AuthController extends StateNotifier<AuthState> {
           email: email,
           password: password,
         );
-    state = AuthState(status: AuthStatus.authenticated, user: user);
+    await _applySignIn(user);
   }
 
   Future<void> completeOAuth({
@@ -93,7 +94,7 @@ class AuthController extends StateNotifier<AuthState> {
           accessToken: accessToken,
           refreshToken: refreshToken,
         );
-    state = AuthState(status: AuthStatus.authenticated, user: user);
+    await _applySignIn(user);
   }
 
   /// Signs in from Google tokens returned by the native account picker.
@@ -101,6 +102,19 @@ class AuthController extends StateNotifier<AuthState> {
     final user = await _ref
         .read(authRepositoryProvider)
         .loginWithGoogleNativeTokens(idToken: idToken, accessToken: accessToken);
+    await _applySignIn(user);
+  }
+
+  /// Moves the app into the signed-in state for [user], first scrubbing any
+  /// state left by a different account. Logging out normally clears this
+  /// already; the guard also covers a direct account switch and a session that
+  /// was replaced without a clean sign-out.
+  Future<void> _applySignIn(User user) async {
+    final previousId = state.user?.id;
+    if (previousId != null && previousId != user.id) {
+      await clearAccountScopedState(_ref);
+    }
+    if (!mounted) return;
     state = AuthState(status: AuthStatus.authenticated, user: user);
   }
 
@@ -118,6 +132,10 @@ class AuthController extends StateNotifier<AuthState> {
     await GoogleNativeSignIn.signOut();
     await _ref.read(authRepositoryProvider).logout();
     state = AuthState.signedOut;
+    // Tokens are gone; now take out everything that would otherwise outlive
+    // them — the offline library on disk and every cached API response — so the
+    // next account starts with access to nothing but its own purchases.
+    await clearAccountScopedState(_ref);
   }
 
   @override

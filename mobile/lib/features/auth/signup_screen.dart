@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../core/auth/google_native_sign_in.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers/auth_controller.dart';
-import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass_card.dart';
@@ -43,7 +42,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   void _goOnwards() {
     if (!mounted) return;
-    context.go(widget.redirect ?? AppRoutes.home);
+    goAfterAuth(context, widget.redirect);
   }
 
   Future<void> _submit() async {

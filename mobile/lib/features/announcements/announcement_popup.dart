@@ -14,13 +14,15 @@ import '../../core/widgets/glass_card.dart';
 import '../../data/models/notification.dart';
 import 'announcement_providers.dart';
 
-/// Puts the active announcements in front of the student, one modal at a time.
+/// Puts the active announcements in front of the student, one modal at a time
+/// — but only once they are signed in, and only on the Home tab.
 ///
-/// Wraps the whole app rather than living on the home screen, because the
-/// brief is "when the user opens the application" — not "when the user reaches
-/// a particular tab". The queue drains in order: closing a card marks it seen
-/// for the session and the next one opens behind it, until there is nothing
-/// left to show.
+/// Mounted above the router regardless, because it needs the router to know
+/// where the student is; it simply stays quiet everywhere except the one
+/// place it is allowed to open. A guest browsing the free catalogue, or a
+/// student mid-book or mid-quiz elsewhere in the app, never sees one. The
+/// queue drains in order: closing a card marks it seen for the session and
+/// the next one opens behind it, until there is nothing left to show.
 ///
 /// The dialog is a real route on the root navigator, so the system back button
 /// and the barrier dismiss it the way every other dialog in the app behaves,
@@ -38,16 +40,6 @@ class AnnouncementPopupHost extends ConsumerStatefulWidget {
 
 class _AnnouncementPopupHostState extends ConsumerState<AnnouncementPopupHost>
     with WidgetsBindingObserver {
-  /// Full-screen tasks and sign-in flows the popup must not cover. Dropping a
-  /// modal onto a student mid-question, or on top of the login form they were
-  /// sent to, is worse than showing the notice a moment later — so the popup
-  /// waits and the route listener brings it back when they leave.
-  static const _blockedPrefixes = <String>[
-    '/attempt/',
-    '/login',
-    '/signup',
-    '/auth/',
-  ];
 
   /// After this long in the background, the app re-asks what is active so a
   /// newly published announcement arrives without needing a restart. It does
@@ -137,12 +129,11 @@ class _AnnouncementPopupHostState extends ConsumerState<AnnouncementPopupHost>
     final router = ref.read(routerProvider);
     // The last match, not `currentConfiguration.uri`: the uri reports the last
     // declarative location, so it still says `/` while the student is inside a
-    // book that was pushed onto it.
+    // book that was pushed onto it — which is exactly the case this must not
+    // fire for, so the exact match matters.
     final location =
         router.routerDelegate.currentConfiguration.last.matchedLocation;
-    if (_blockedPrefixes.any(location.startsWith)) return;
-    // The reader is nested under a book, so it needs a suffix match too.
-    if (location.endsWith('/read')) return;
+    if (location != AppRoutes.home) return;
 
     final navigatorContext = router.routerDelegate.navigatorKey.currentContext;
     if (navigatorContext == null) return;

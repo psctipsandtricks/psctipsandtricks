@@ -8,10 +8,12 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/chat.dart';
 import 'community_providers.dart';
+import '../shell/shell_scaffold.dart';
 
 /// Study groups the student can join, pinned ones first.
 class CommunityScreen extends ConsumerWidget {
@@ -22,7 +24,7 @@ class CommunityScreen extends ConsumerWidget {
     final groupsAsync = ref.watch(chatGroupsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Community')),
+      appBar: const GlassAppBar(title: Text('Community')),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(chatGroupsProvider.future),
         child: AsyncView(
@@ -49,7 +51,8 @@ class CommunityScreen extends ConsumerWidget {
             final discover = groups.where((g) => !g.isJoined).toList();
 
             return ListView(
-              padding: const EdgeInsets.only(bottom: 28),
+              padding: const EdgeInsets.only(
+                  bottom: 28 + ShellScaffold.dockExtent),
               children: [
                 const SizedBox(height: 10),
                 if (pinned.isNotEmpty) ...[

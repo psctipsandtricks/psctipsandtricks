@@ -16,6 +16,7 @@ class AppImage extends StatelessWidget {
     this.fit = BoxFit.cover,
     this.radius = 0,
     this.fallbackIcon = Icons.image_rounded,
+    this.alignment = Alignment.center,
   });
 
   final String? url;
@@ -24,6 +25,11 @@ class AppImage extends StatelessWidget {
   final BoxFit fit;
   final double radius;
   final IconData fallbackIcon;
+
+  /// Which part of the picture survives a `BoxFit.cover` crop. Portrait
+  /// artwork in a landscape frame usually wants its top kept, because that is
+  /// where a book cover puts its title.
+  final Alignment alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +41,9 @@ class AppImage extends StatelessWidget {
     }
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
+    final isFiniteWidth = width != null && width!.isFinite && !width!.isNaN && width! > 0;
+    final memCacheW = isFiniteWidth ? (width! * dpr).round() : null;
+
     return ClipRRect(
       borderRadius: borderRadius,
       child: CachedNetworkImage(
@@ -42,10 +51,11 @@ class AppImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
+        alignment: alignment,
         fadeInDuration: const Duration(milliseconds: 220),
         // Decoding a 2000px cover into a 120px slot is the single biggest
         // avoidable memory cost in a catalog grid.
-        memCacheWidth: width == null ? null : (width! * dpr).round(),
+        memCacheWidth: memCacheW,
         placeholder: (_, __) => _placeholder(context),
         errorWidget: (_, __, ___) => _fallback(context),
       ),
@@ -66,7 +76,7 @@ class AppImage extends StatelessWidget {
         child: Icon(
           fallbackIcon,
           color: Colors.white.withValues(alpha: 0.75),
-          size: (height ?? 48) * 0.3,
+          size: (height != null && height!.isFinite ? height! : 48) * 0.3,
         ),
       );
 }

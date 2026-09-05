@@ -138,7 +138,7 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
         widget.quizzesAsync ?? ref.watch(premiumCarouselQuizzesProvider);
 
     return SizedBox(
-      height: 246,
+      height: 256,
       child: asyncData.when(
         skipLoadingOnRefresh: true,
         loading: () => ListView.separated(

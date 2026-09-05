@@ -191,10 +191,127 @@ final quizDetailProvider =
   return ref.watch(quizzesRepositoryProvider).fetchQuiz(id);
 });
 
-final quizHistoryProvider =
+/// Filter options available for the Quiz History / My Attempts screen.
+const quizHistoryFilterOptions = [
+  'All',
+  'Passed',
+  'Needs Work',
+  'In Progress',
+  'Free',
+  'Premium',
+];
+
+/// Search query on quiz history screen.
+final quizHistorySearchProvider = StateProvider.autoDispose<String>((ref) => '');
+
+/// Selected filter chip on quiz history screen.
+final quizHistoryFilterProvider =
+    StateProvider.autoDispose<String>((ref) => 'All');
+
+/// Which page of the attempt history is on screen. Resets to 1 when the route
+/// is left.
+final quizHistoryPageIndexProvider = StateProvider.autoDispose<int>((ref) => 1);
+
+/// All attempts for the current student.
+final allQuizAttemptsProvider =
     FutureProvider.autoDispose<List<QuizAttempt>>((ref) async {
-  ref.keepAlive();
-  return ref.watch(quizzesRepositoryProvider).fetchMyAttempts();
+  final repo = ref.watch(quizzesRepositoryProvider);
+  return repo.fetchMyAttempts();
+});
+
+/// Everything the Quiz History screen renders: lifetime stats header, plus the
+/// filtered and paginated attempt list.
+class QuizHistoryView {
+  const QuizHistoryView({
+    required this.attempts,
+    required this.page,
+    required this.totalPages,
+    required this.totalFiltered,
+    required this.lifetimeAttempts,
+    required this.lifetimePassed,
+    required this.lifetimeAvgPercentage,
+  });
+
+  final List<QuizAttempt> attempts;
+  final int page;
+  final int totalPages;
+  final int totalFiltered;
+  final int lifetimeAttempts;
+  final int lifetimePassed;
+  final double lifetimeAvgPercentage;
+
+  bool get isEmpty => attempts.isEmpty;
+}
+
+/// Provider that computes lifetime statistics and applies search, filter,
+/// and pagination.
+final quizHistoryViewProvider =
+    Provider.autoDispose<AsyncValue<QuizHistoryView>>((ref) {
+  final attemptsAsync = ref.watch(allQuizAttemptsProvider);
+  final search = ref.watch(quizHistorySearchProvider).trim().toLowerCase();
+  final filter = ref.watch(quizHistoryFilterProvider);
+  final page = ref.watch(quizHistoryPageIndexProvider);
+  const pageSize = 10;
+
+  return attemptsAsync.whenData((allAttempts) {
+    // Lifetime overall stats (computed from completed attempts)
+    final completedAttempts = allAttempts
+        .where((a) => a.status != AttemptStatus.inProgress)
+        .toList();
+    final lifetimeAttempts = allAttempts.length;
+    final lifetimePassed = completedAttempts.where((a) => a.passed).length;
+    final totalPercentage =
+        completedAttempts.fold<double>(0, (sum, a) => sum + a.percentage);
+    final lifetimeAvg = completedAttempts.isNotEmpty
+        ? totalPercentage / completedAttempts.length
+        : 0.0;
+
+    // Filter attempts
+    final filtered = allAttempts.where((attempt) {
+      if (search.isNotEmpty) {
+        final title = (attempt.quizTitle ?? '').toLowerCase();
+        if (!title.contains(search)) return false;
+      }
+
+      switch (filter) {
+        case 'Passed':
+          return attempt.passed && attempt.status != AttemptStatus.inProgress;
+        case 'Needs Work':
+          return !attempt.passed && attempt.status != AttemptStatus.inProgress;
+        case 'In Progress':
+          return attempt.status == AttemptStatus.inProgress;
+        case 'Free':
+          return !attempt.quizIsPremium;
+        case 'Premium':
+          return attempt.quizIsPremium;
+        case 'All':
+        default:
+          return true;
+      }
+    }).toList();
+
+    final totalPages = (filtered.length / pageSize).ceil().clamp(1, 9999);
+    final clampedPage = page.clamp(1, totalPages);
+    final startIndex = (clampedPage - 1) * pageSize;
+    final pagedItems = filtered.skip(startIndex).take(pageSize).toList();
+
+    return QuizHistoryView(
+      attempts: pagedItems,
+      page: clampedPage,
+      totalPages: totalPages,
+      totalFiltered: filtered.length,
+      lifetimeAttempts: lifetimeAttempts,
+      lifetimePassed: lifetimePassed,
+      lifetimeAvgPercentage: lifetimeAvg,
+    );
+  });
+});
+
+/// Kept for backwards compatibility with single-page fetches if needed.
+final quizHistoryPageProvider =
+    FutureProvider.autoDispose<QuizHistoryPage>((ref) async {
+  final page = ref.watch(quizHistoryPageIndexProvider);
+  return ref.watch(quizzesRepositoryProvider).fetchMyAttemptsPage(page: page);
 });
 
 /// One submitted attempt, questions and answer key included.
@@ -207,4 +324,5 @@ final quizLeaderboardProvider = FutureProvider.autoDispose
     .family<List<LeaderboardEntry>, String>((ref, quizId) {
   return ref.watch(quizzesRepositoryProvider).fetchLeaderboard(quizId);
 });
+
 

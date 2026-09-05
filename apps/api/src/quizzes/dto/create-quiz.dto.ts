@@ -55,6 +55,16 @@ export class CreateQuizDto {
   price?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  discountPercent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  finalPrice?: number;
+
+  @IsOptional()
   @IsBoolean()
   negativeMarkingEnabled?: boolean;
 

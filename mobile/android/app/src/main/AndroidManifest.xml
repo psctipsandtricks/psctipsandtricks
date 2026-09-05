@@ -5,9 +5,21 @@
          websocket open, and the reader streams audio and PDFs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Saving a study PDF into the phone's public Downloads folder so it stays
+         reachable from the Files app. Android 10+ writes there through
+         MediaStore with no permission; only 9 and below need this, and never
+         after install-time on 11+. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
     <!-- Android 13+ asks the student before any notification can be posted;
          firebase_messaging requests it at runtime on first launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Narration keeps playing with the screen off, which on Android means a
+         foreground service holding a media notification. Without these the
+         lesson stops the moment the phone locks. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 
     <!-- Hardware this app does not actually need.
          Android infers a required hardware feature from certain permissions,
@@ -41,9 +53,11 @@
         android:label="PSC Tips And Tricks"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="false">
+        android:fullBackupContent="false"
+        android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -65,6 +79,27 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- The player that survives the lock screen, plus the receiver that
+             carries the notification's play/pause and the headset buttons back
+             to it. Both come from just_audio_background. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON"/>
+            </intent-filter>
+        </receiver>
         <!-- Where FCM files a notification that arrives with the app closed.
              Must match the channel PushService creates and the channel_id the
              API sends, or Android 8+ uses an unconfigurable fallback. -->
@@ -82,6 +117,13 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
+        </intent>
+        <!-- Lets the forced-update screen open this app's own Play Store
+             listing through the Play Store app itself rather than falling
+             back to a browser tab. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="market" />
         </intent>
     </queries>
 </manifest>

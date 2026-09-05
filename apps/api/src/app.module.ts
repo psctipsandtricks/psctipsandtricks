@@ -22,6 +22,7 @@ import { VideosModule } from './videos/videos.module';
 import { PdfsModule } from './pdfs/pdfs.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { SocialLinksModule } from './social-links/social-links.module';
+import { AppUpdateModule } from './app-update/app-update.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { SocialLinksModule } from './social-links/social-links.module';
     PdfsModule,
     ReviewsModule,
     SocialLinksModule,
+    AppUpdateModule,
   ],
 })
 export class AppModule {}

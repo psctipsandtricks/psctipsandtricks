@@ -59,6 +59,10 @@ class OfflineRepository {
     await _vault.purgePlaintextCache();
   }
 
+  /// Erases every downloaded book and the vault key. Called on sign-out so an
+  /// account's offline copies never open under the next account on the device.
+  Future<void> wipeLibrary() => _vault.wipe();
+
   Future<int> sizeOnDisk(String bookId) => _vault.bookSize(bookId);
 
   // ── Entitlement ───────────────────────────────────────────────────────
@@ -69,31 +73,48 @@ class OfflineRepository {
       _api.post<dynamic>('/books/$bookId/download');
 
   /// Re-checks a downloaded book against the server and returns the refreshed
-  /// lease. Requires a connection; a network failure is surfaced so the caller
-  /// can leave the existing lease untouched rather than assuming the worst.
-  Future<OfflineLease> revalidate(String bookId, OfflineLease current) async {
+  /// lease, plus the book as the server sees it now. Requires a connection; a
+  /// network failure is surfaced so the caller can leave the existing lease
+  /// untouched rather than assuming the worst.
+  ///
+  /// The fresh [Book] is handed back alongside the lease so a caller can also
+  /// notice things like a cover swapped in the Admin Panel since the download,
+  /// without a second round trip for the same book.
+  Future<(OfflineLease, Book)> revalidate(
+    String bookId,
+    OfflineLease current,
+  ) async {
     final res = await _api.get<Map<String, dynamic>>('/books/$bookId');
     final book = Book.fromJson(res);
     final access = book.access;
 
     // No access block at all means the book is free — nothing to expire.
     if (access == null) {
-      return current.copyWith(
-        lastVerifiedAt: DateTime.now(),
-        revoked: false,
-        clearValidTill: true,
+      return (
+        current.copyWith(
+          lastVerifiedAt: DateTime.now(),
+          revoked: false,
+          clearValidTill: true,
+        ),
+        book,
       );
     }
 
     if (!access.hasAccess) {
-      return current.copyWith(lastVerifiedAt: DateTime.now(), revoked: true);
+      return (
+        current.copyWith(lastVerifiedAt: DateTime.now(), revoked: true),
+        book,
+      );
     }
 
-    return OfflineLease(
-      grantedAt: current.grantedAt,
-      lastVerifiedAt: DateTime.now(),
-      validTill: access.validTill,
-      revoked: false,
+    return (
+      OfflineLease(
+        grantedAt: current.grantedAt,
+        lastVerifiedAt: DateTime.now(),
+        validTill: access.validTill,
+        revoked: false,
+      ),
+      book,
     );
   }
 

@@ -65,6 +65,26 @@ class QuizzesRepository {
     return map == null || map.isEmpty ? null : QuizAttempt.fromJson(map);
   }
 
+  /// Pauses an active in-progress attempt, saving elapsed time and answers.
+  Future<QuizAttempt?> pauseAttempt(
+    String quizId, {
+    required int timeTakenSeconds,
+    required List<QuizAnswer> answers,
+    String? attemptId,
+    int? currentIndex,
+  }) async {
+    final res = await _api.post<dynamic>(
+      '/quizzes/$quizId/attempts/pause${attemptId != null ? '?attemptId=$attemptId' : ''}',
+      body: {
+        'timeTakenSeconds': timeTakenSeconds,
+        'answers': answers.map((a) => a.toJson()).toList(),
+        if (currentIndex != null) 'currentIndex': currentIndex,
+      },
+    );
+    final map = J.mapOrNull(res);
+    return map == null || map.isEmpty ? null : QuizAttempt.fromJson(map);
+  }
+
   /// Scores and persists the attempt. Resolves to the stored attempt, whose id
   /// addresses the review endpoint below.
   Future<QuizAttempt?> submitAttempt(
@@ -98,6 +118,19 @@ class QuizzesRepository {
         .whereType<Map>()
         .map((e) => QuizAttempt.fromJson(Map<String, dynamic>.from(e)))
         .toList();
+  }
+
+  /// One numbered page of the student's completed attempts, plus the lifetime
+  /// summary the history header shows.
+  Future<QuizHistoryPage> fetchMyAttemptsPage({
+    required int page,
+    int limit = 10,
+  }) async {
+    final res = await _api.get<dynamic>(
+      '/quizzes/history/me',
+      query: {'page': page, 'limit': limit},
+    );
+    return QuizHistoryPage.fromJson(res);
   }
 
   Future<List<LeaderboardEntry>> fetchLeaderboard(String quizId) async {

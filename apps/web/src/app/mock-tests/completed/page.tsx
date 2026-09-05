@@ -240,8 +240,9 @@ export default function CompletedMockTestsPage() {
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center space-x-2">
             <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-500 shrink-0" />
-            <span className="truncate">Completed Mock Tests</span>
+            <span className="truncate">All Mock Tests</span>
           </h1>
+
           <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-0.5 leading-relaxed">
             Your score and rank for every mock test that has finished.
           </p>

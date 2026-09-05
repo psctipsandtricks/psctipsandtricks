@@ -220,6 +220,7 @@ class OfflineBook {
   bool get isReadable => status == OfflineStatus.ready;
 
   OfflineBook copyWith({
+    String? coverAssetId,
     List<OfflineAsset>? assets,
     OfflineLease? lease,
     int? totalBytes,
@@ -230,7 +231,7 @@ class OfflineBook {
         title: title,
         author: author,
         category: category,
-        coverAssetId: coverAssetId,
+        coverAssetId: coverAssetId ?? this.coverAssetId,
         readerJson: readerJson,
         assets: assets ?? this.assets,
         lease: lease ?? this.lease,

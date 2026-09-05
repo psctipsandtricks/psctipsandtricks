@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/pdf_downloader.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../data/models/pdf_sync.dart';
 import '../books/reader_audio_controller.dart';
 import '../books/widgets/reader_audio_player.dart';
@@ -18,6 +20,7 @@ class PdfViewerArgs {
     this.localPath,
     this.initialPage,
     this.syncCues,
+    this.minimal = false,
   });
 
   final String url;
@@ -35,6 +38,12 @@ class PdfViewerArgs {
   /// exactly as authored; without one, the document is paced by how far
   /// through the clip the audio is.
   final PdfSyncMap? syncCues;
+
+  /// True for a standalone sample/preview PDF, which has no narration to
+  /// follow and nothing of the student's own to download or resume — just the
+  /// pages. Hides the download button, auto-turn chip, page counter, and the
+  /// audio mini-player, leaving the document and a way back.
+  final bool minimal;
 }
 
 /// Renders a remote PDF with the platform viewer.
@@ -75,53 +84,67 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final minimal = widget.args.minimal;
+
     return Scaffold(
-      backgroundColor: context.palette.background,
-      appBar: AppBar(
+      backgroundColor: Colors.white,
+      appBar: GlassAppBar(
         title: Text(
           widget.args.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        actions: [
-          // Watches the loaded clip rather than reading `hasAudio` once: the
-          // narration can finish loading, fail, or be swapped for another
-          // topic's while this screen is open.
-          ValueListenableBuilder<String?>(
-            valueListenable: ref.read(readerAudioProvider).title,
-            builder: (context, loaded, _) => loaded == null
-                ? const SizedBox.shrink()
-                : AutoTurnChip(
-                    enabled: ref.watch(autoScrollProvider),
-                    onTap: () {
-                      ref.read(autoScrollProvider.notifier).toggle();
-                      // Switching it back on should catch the document up
-                      // rather than wait for the next page boundary.
-                      _documentKey.currentState?.syncNow();
-                    },
-                  ),
-          ),
-          if (_state.isReady)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: context.palette.elevated,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                  ),
-                  child: Text(
-                    '${_state.currentPage + 1} / ${_state.pageCount}',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+        actions: minimal
+            ? null
+            : [
+                IconButton(
+                  icon: const Icon(Icons.download_rounded),
+                  tooltip: 'Download PDF',
+                  onPressed: () => PdfDownloader.download(
+                    context,
+                    url: widget.args.url,
+                    title: widget.args.title,
                   ),
                 ),
-              ),
-            ),
-        ],
+                // Watches the loaded clip rather than reading `hasAudio` once:
+                // the narration can finish loading, fail, or be swapped for
+                // another topic's while this screen is open.
+                ValueListenableBuilder<String?>(
+                  valueListenable: ref.read(readerAudioProvider).title,
+                  builder: (context, loaded, _) => loaded == null
+                      ? const SizedBox.shrink()
+                      : AutoTurnChip(
+                          enabled: ref.watch(autoScrollProvider),
+                          onTap: () {
+                            ref.read(autoScrollProvider.notifier).toggle();
+                            // Switching it back on should catch the document
+                            // up rather than wait for the next page boundary.
+                            _documentKey.currentState?.syncNow();
+                          },
+                        ),
+                ),
+                if (_state.isReady)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: context.palette.elevated,
+                          borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                        ),
+                        child: Text(
+                          '${_state.currentPage + 1} / ${_state.pageCount}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
       ),
       body: SafeArea(
         child: PdfDocumentView(
@@ -133,9 +156,10 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
           onStateChanged: (state) => setState(() => _state = state),
         ),
       ),
-      // The reader's own transport is two screens back once the notes are open;
-      // this keeps the narration controllable from where the student is.
-      bottomNavigationBar: const ReaderMiniPlayer(),
+      // The reader's own transport is two screens back once the notes are
+      // open; this keeps the narration controllable from where the student
+      // is. A sample preview has no narration of its own to control.
+      bottomNavigationBar: minimal ? null : const ReaderMiniPlayer(),
     );
   }
 }
@@ -209,8 +233,9 @@ Future<void> openPdf(
   String? localPath,
   int? initialPage,
   PdfSyncMap? syncCues,
+  bool minimal = false,
 }) {
-  return Navigator.of(context).push(
+  return Navigator.of(context, rootNavigator: true).push(
     MaterialPageRoute(
       builder: (_) => PdfViewerScreen(
         args: PdfViewerArgs(
@@ -219,6 +244,7 @@ Future<void> openPdf(
           localPath: localPath,
           initialPage: initialPage,
           syncCues: syncCues,
+          minimal: minimal,
         ),
       ),
     ),
@@ -232,62 +258,85 @@ class PdfAttachmentTile extends StatelessWidget {
     required this.title,
     required this.onTap,
     this.subtitle,
+    this.onDownload,
   });
 
   final String title;
   final String? subtitle;
   final VoidCallback onTap;
+  final VoidCallback? onDownload;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        decoration: BoxDecoration(
-          color: palette.elevated,
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.elevated,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(color: palette.border),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          border: Border.all(color: palette.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.rose.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.picture_as_pdf_rounded,
-                  color: AppColors.rose, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.rose.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  if (subtitle != null && subtitle!.isNotEmpty)
-                    Text(
-                      subtitle!,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: palette.textMuted,
-                          ),
-                    ),
+                  child: const Icon(Icons.picture_as_pdf_rounded,
+                      color: AppColors.rose, size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      if (subtitle != null && subtitle!.isNotEmpty)
+                        Text(
+                          subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: palette.textMuted,
+                              ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (onDownload != null) ...[
+                  const SizedBox(width: 6),
+                  IconButton(
+                    icon: const Icon(Icons.download_rounded, size: 21),
+                    color: AppColors.cyan,
+                    tooltip: 'Download PDF',
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    onPressed: onDownload,
+                  ),
+                ] else ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.chevron_right_rounded, color: palette.textMuted),
                 ],
-              ),
+              ],
             ),
-            Icon(Icons.chevron_right_rounded, color: palette.textMuted),
-          ],
+          ),
         ),
       ),
     );

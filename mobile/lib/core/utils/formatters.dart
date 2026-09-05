@@ -14,12 +14,17 @@ class Fmt {
   static final _dateTime = DateFormat('d MMM yyyy, h:mm a');
   static final _time = DateFormat('h:mm a');
 
-  static String price(num value) =>
-      value <= 0 ? 'Free' : _rupees.format(value);
+  static String price(num? value) =>
+      (value == null || value.isNaN || value.isInfinite || value <= 0)
+          ? 'Free'
+          : _rupees.format(value);
 
   /// Always shows the symbol, even at zero — for line items in an order summary
   /// where "Free" would read oddly next to a subtotal.
-  static String amount(num value) => _rupees.format(value);
+  static String amount(num? value) =>
+      (value == null || value.isNaN || value.isInfinite)
+          ? '₹0'
+          : _rupees.format(value);
 
   static String date(DateTime? value) =>
       value == null ? '—' : _dayMonthYear.format(value);
@@ -80,15 +85,18 @@ class Fmt {
   }
 
   /// Trims a score's trailing ".0" so whole marks read as integers.
-  static String marks(num value) {
+  static String marks(num? value) {
+    if (value == null || value.isNaN || value.isInfinite) return '0';
     final rounded = (value * 100).round() / 100;
     return rounded == rounded.roundToDouble()
         ? rounded.toInt().toString()
         : rounded.toStringAsFixed(2);
   }
 
-  static String percent(num value, {int decimals = 0}) =>
-      '${value.toStringAsFixed(decimals)}%';
+  static String percent(num? value, {int decimals = 0}) =>
+      (value == null || value.isNaN || value.isInfinite)
+          ? '0%'
+          : '${value.toStringAsFixed(decimals)}%';
 
   static String count(int value, String singular, [String? plural]) =>
       '$value ${value == 1 ? singular : (plural ?? '${singular}s')}';

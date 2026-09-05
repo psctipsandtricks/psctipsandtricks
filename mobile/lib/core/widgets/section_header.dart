@@ -134,25 +134,58 @@ class AppSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      onChanged: onChanged,
-      textInputAction: TextInputAction.search,
-      style: const TextStyle(fontSize: 14),
-      decoration: InputDecoration(
-        hintText: hintText,
-        prefixIcon: const Icon(Icons.search_rounded, size: 20),
-        suffixIcon: controller.text.isEmpty
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.close_rounded, size: 18),
-                onPressed: () {
-                  controller.clear();
-                  onClear?.call();
-                  onChanged?.call('');
-                },
-              ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    final palette = context.palette;
+    final isDark = palette.isDark;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF131D31).withValues(alpha: 0.8) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500),
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: TextStyle(
+            color: palette.textMuted,
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+          ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            size: 20,
+            color: isDark ? AppColors.cyan : const Color(0xFF0284C7),
+          ),
+          suffixIcon: controller.text.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () {
+                    controller.clear();
+                    onClear?.call();
+                    onChanged?.call('');
+                  },
+                ),
+          filled: false,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        ),
       ),
     );
   }
@@ -176,9 +209,10 @@ class FilterChipsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final isDark = palette.isDark;
 
     return SizedBox(
-      height: 38,
+      height: 36,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: padding,
@@ -186,7 +220,7 @@ class FilterChipsRow extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final option = options[index];
-          final isActive = option == selected;
+          final isActive = option.toLowerCase() == selected.toLowerCase();
 
           return GestureDetector(
             onTap: () {
@@ -196,26 +230,39 @@ class FilterChipsRow extends StatelessWidget {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOutCubic,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: isActive ? AppColors.brandGradient : null,
-                color: isActive ? null : palette.card,
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                color: isActive
+                    ? null
+                    : (isDark
+                        ? const Color(0xFF131D31).withValues(alpha: 0.7)
+                        : Colors.white),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(
                   color: isActive
                       ? Colors.transparent
-                      : palette.border,
+                      : (isDark
+                          ? const Color(0xFF1E293B)
+                          : const Color(0xFFE2E8F0)),
+                  width: 1,
                 ),
                 boxShadow: isActive
                     ? [
                         BoxShadow(
-                          color: AppColors.cyan.withValues(alpha: 0.25),
+                          color: AppColors.cyan.withValues(alpha: 0.35),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
                       ]
-                    : null,
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: isDark ? 0.15 : 0.03),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
               ),
               child: Text(
                 option,
@@ -223,6 +270,7 @@ class FilterChipsRow extends StatelessWidget {
                       color: isActive ? Colors.white : palette.textSecondary,
                       fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
                       fontSize: 12.5,
+                      letterSpacing: 0.1,
                     ),
               ),
             ),

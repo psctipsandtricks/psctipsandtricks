@@ -13,7 +13,20 @@ import 'package:psc_tips_tricks_mobile/data/models/notification.dart';
 import 'package:psc_tips_tricks_mobile/features/announcements/announcement_popup.dart';
 import 'package:psc_tips_tricks_mobile/features/announcements/announcement_providers.dart';
 
+/// Backs the `currentUserProvider` override — see `pump()` for why this
+/// indirection exists.
+final testUserProvider = StateProvider<User?>((ref) => null);
+
 void main() {
+  const buyer = User(
+    id: 'u1',
+    email: 'student@test.local',
+    name: 'Student',
+    role: UserRole.student,
+    isPremium: false,
+    isSuspended: false,
+  );
+
   const items = [
     AnnouncementPopup(
       id: 'a1',
@@ -54,14 +67,22 @@ void main() {
     List<AnnouncementPopup> announcements = items,
     String initialLocation = '/',
     Map<String, Object> storage = const {},
-    User? user,
+    // Signed in by default: that is the one situation any of this is ever
+    // visible, so it is what most of these tests are exercising. Pass
+    // `user: null` explicitly for the guest-facing tests.
+    User? user = buyer,
   }) async {
     SharedPreferences.setMockInitialValues(storage);
     final prefs = await SharedPreferences.getInstance();
 
     final container = ProviderContainer(overrides: [
       sharedPrefsProvider.overrideWithValue(prefs),
-      currentUserProvider.overrideWith((ref) => user),
+      // Indirected through a StateProvider, rather than overridden with the
+      // value directly, so a test can flip who is signed in mid-flight
+      // (`container.read(testUserProvider.notifier).state = ...`) without
+      // rebuilding the whole container.
+      testUserProvider.overrideWith((ref) => user),
+      currentUserProvider.overrideWith((ref) => ref.watch(testUserProvider)),
       routerProvider
           .overrideWith((ref) => buildRouter(initialLocation: initialLocation)),
       activeAnnouncementsProvider.overrideWith((ref) async => announcements),
@@ -121,11 +142,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Books screen'), findsOneWidget);
-    // The card that sent them there is gone; the queue carries on with the
-    // next one on top of the destination, not a second copy of the first.
+    // The card that sent them there is gone, and its destination is not Home
+    // — so the next one waits rather than opening on top of it.
     expect(find.textContaining('Exam calendar released'), findsNothing);
-    expect(find.text('Second notice'), findsOneWidget);
+    expect(find.text('Second notice'), findsNothing);
     expect(container.read(dismissedAnnouncementsProvider), {'a1'});
+
+    // Back on Home, the rest of the queue picks up.
+    container.read(routerProvider).go('/');
+    await tester.pumpAndSettle();
+    expect(find.text('Second notice'), findsOneWidget);
   });
 
   testWidgets('an announcement with no link shows no action button',
@@ -160,16 +186,44 @@ void main() {
     expect(find.textContaining('Exam calendar released'), findsOneWidget);
   });
 
-  group('shown once, then never again', () {
-    const buyer = User(
-      id: 'u1',
-      email: 'student@test.local',
-      name: 'Student',
-      role: UserRole.student,
-      isPremium: false,
-      isSuspended: false,
-    );
+  testWidgets('stays quiet anywhere that is not the Home tab',
+      (tester) async {
+    // Not a full-screen task, not a login/auth route — just an ordinary
+    // listing screen. The old behaviour would have shown it here; the new
+    // brief is Home only.
+    final container = await pump(tester, initialLocation: '/books');
 
+    expect(find.text('Books screen'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsNothing);
+    expect(container.read(pendingAnnouncementsProvider), hasLength(2));
+
+    container.read(routerProvider).go('/');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Exam calendar released'), findsOneWidget);
+  });
+
+  testWidgets('a guest on the Home tab sees nothing', (tester) async {
+    final container = await pump(tester, user: null);
+
+    expect(find.text('Home screen'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsNothing);
+    // The queue itself is empty for a guest, not merely suppressed — there is
+    // nothing left for signing in to "unlock" out of stale state.
+    expect(container.read(pendingAnnouncementsProvider), isEmpty);
+  });
+
+  testWidgets('signing in while already on Home opens the queue',
+      (tester) async {
+    final container = await pump(tester, user: null);
+    expect(find.byTooltip('Close'), findsNothing);
+
+    container.read(testUserProvider.notifier).state = buyer;
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Exam calendar released'), findsOneWidget);
+  });
+
+  group('shown once, then never again', () {
     testWidgets('an announcement closed on a previous launch stays closed',
         (tester) async {
       // What a device looks like after the student has already met 'a1'.

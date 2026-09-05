@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_glass.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/offline.dart';
 import '../../data/repositories/books_repository.dart';
@@ -17,6 +19,7 @@ import '../pdfs/pdf_viewer_screen.dart';
 import '../pdfs/widgets/pdf_document_view.dart';
 import '../videos/video_player_screen.dart';
 import 'books_providers.dart';
+import 'full_page_audio_player_screen.dart';
 import 'reader_audio_controller.dart';
 import 'reader_types.dart';
 import 'widgets/reader_audio_player.dart';
@@ -117,6 +120,10 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
 
   Timer? _saveTimer;
 
+  /// Whether the system bars are currently hidden for this screen, so the
+  /// request is only made when it actually changes rather than every frame.
+  bool _immersive = false;
+
   @override
   void initState() {
     super.initState();
@@ -136,6 +143,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
       _audio = audio;
       _books = ref.read(booksRepositoryProvider);
       audio.playing.addListener(_onPlayingChanged);
+      audio.onClipFinished = _onClipFinished;
       _startScrollTicker();
     });
   }
@@ -143,9 +151,15 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   @override
   void dispose() {
     restorePortraitOnly();
+    if (_immersive) unawaited(exitImmersiveReading());
     unawaited(releaseSecureScreen());
     _scrollTicker?.cancel();
     _audio?.playing.removeListener(_onPlayingChanged);
+    // Only ever ours to clear: the controller outlives this screen, and a
+    // stale callback would walk a disposed reader through its chapters.
+    if (_audio?.onClipFinished == _onClipFinished) {
+      _audio?.onClipFinished = null;
+    }
     // Narration should not follow the student out of the book.
     if (_audio != null) unawaited(_audio!.stop());
     _releaseWorkingCopies();
@@ -323,6 +337,69 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   /// it is the reason the sidebar is worth opening at all for an audio-first
   /// student. Playback itself is left to the page's own player so there is
   /// still only ever one set of transport controls on screen.
+  /// The next topic that actually carries narration, at or after [from].
+  ///
+  /// Walks past topics that have none rather than stopping at the first: a
+  /// chapter often ends with a text-only summary, and stopping there would end
+  /// the listening session a topic early.
+  int? _nextAudioUnit(int from) {
+    for (var i = from; i < _units.length; i++) {
+      if (_units[i].hasAudio) return i;
+    }
+    return null;
+  }
+
+  int? _prevAudioUnit(int from) {
+    for (var i = from; i >= 0; i--) {
+      if (_units[i].hasAudio) return i;
+    }
+    return null;
+  }
+
+  void _openFullPageAudioPlayer(String bookTitle) {
+    debugPrint('===> _openFullPageAudioPlayer called for: $bookTitle');
+    Navigator.of(context, rootNavigator: true).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return FullPageAudioPlayerScreen(
+            bookTitle: bookTitle,
+            onNext: () {
+              final next = _nextAudioUnit(_activeIndex + 1);
+              if (next != null) _openUnitAudio(next);
+            },
+            onPrevious: () {
+              final prev = _prevAudioUnit(_activeIndex - 1);
+              if (prev != null) _openUnitAudio(prev);
+            },
+            hasNext: () => _nextAudioUnit(_activeIndex + 1) != null,
+            hasPrevious: () => _prevAudioUnit(_activeIndex - 1) != null,
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0);
+          const end = Offset.zero;
+          const curve = Curves.easeOutCubic;
+          final tween =
+              Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
+  /// Continues to the next narrated topic when the current clip plays out, so
+  /// a student listening with the screen off hears the chapter through rather
+  /// than stopping at each topic boundary.
+  void _onClipFinished() {
+    if (!mounted) return;
+    final next = _nextAudioUnit(_activeIndex + 1);
+    if (next == null) return;
+    _openUnitAudio(next);
+  }
+
   void _openUnitAudio(int index) {
     if (index < 0 || index >= _units.length) return;
     final unit = _units[index];
@@ -363,6 +440,8 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     unawaited(audio.load(
       url,
       label: unit.title,
+      // What the lock screen shows under the topic title.
+      album: _bookTitle,
       autoPlay: _autoPlayUnitId == unit.id ||
           (_autoResumed && _activeIndex == _savedIndex),
     ));
@@ -398,6 +477,29 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   /// Under this there is no room for anything but the page and its controls.
   static const _shortViewportHeight = 520.0;
 
+  /// The widest a column of body text is allowed to get before the side
+  /// padding starts absorbing the rest of the screen.
+  static const _maxTextColumn = 680.0;
+
+  /// Horizontal padding for the notes, widening on a screen too wide to read
+  /// straight across.
+  static double _notesInset(double width) =>
+      width <= _maxTextColumn ? 16 : (width - _maxTextColumn) / 2;
+
+  /// Hides the system bars while the phone is sideways and puts them back the
+  /// moment it is upright again.
+  ///
+  /// Called from `build` because rotation is exactly what changes the answer,
+  /// and deferred a frame because setting the UI mode during a build would be
+  /// a platform call in the middle of a layout pass.
+  void _syncImmersive(bool wanted) {
+    if (wanted == _immersive) return;
+    _immersive = wanted;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(wanted ? enterImmersiveReading() : exitImmersiveReading());
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final sourceAsync = ref.watch(readerSourceProvider(widget.bookId));
@@ -413,6 +515,9 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     // Landscape on a phone: everything optional gives up its height so the
     // page keeps as much as possible.
     final isShort = size.height < _shortViewportHeight;
+    // Including the status and navigation bars, which between them are worth
+    // about a sixth of a sideways phone's height.
+    _syncImmersive(isShort);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -447,10 +552,15 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
           final units = flattenChapters(content.chapters);
 
           // Wait for the progress row before settling on a starting unit, so
-          // the reader never opens at chapter 1 and then jumps. Offline that
-          // request will fail rather than hang, and hydration proceeds without
-          // a resume point.
-          if (!_hydrated && progressAsync.isLoading) {
+          // the reader never opens at chapter 1 and then jumps.
+          //
+          // Never for a book being read out of the vault, though: the resume
+          // point only exists on the server, and a device with no route to it
+          // does not always fail fast — a connected-but-dead network hangs
+          // until the request times out, which would hold a downloaded book
+          // behind a skeleton for the better part of a minute. Offline the
+          // reader opens immediately and simply has no resume point.
+          if (!_hydrated && progressAsync.isLoading && !source.isOffline) {
             return const _ReaderSkeleton();
           }
           _hydrate(units, progressAsync.valueOrNull);
@@ -479,6 +589,58 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _loadUnitAudio(unit);
           });
+
+          // A topic with a document reads as a document: the page fills the
+          // screen and the only chrome on it is the four corners — back, the
+          // contents, the download, and the auto-scroll switch while there is
+          // narration to follow. Everything else the reader can do lives in
+          // the contents panel one tap away.
+          if (showDocument) {
+            return _DocumentReader(
+              bookId: widget.bookId,
+              isOffline: source.isOffline,
+              hasAudio: unit.hasAudio,
+              onExpandAudio: () => _openFullPageAudioPlayer(content.title),
+              onBack: () => Navigator.of(context).maybePop(),
+              onContents: isWide
+                  ? null
+                  : () => _scaffoldKey.currentState?.openDrawer(),
+              onNotes: unit.hasBody
+                  ? () => setState(() {
+                        _preferNotes = true;
+                        _pdfState = null;
+                      })
+                  : null,
+              autoScroll: ref.watch(autoScrollProvider),
+              onToggleAutoScroll: () {
+                ref.read(autoScrollProvider.notifier).toggle();
+                _startScrollTicker();
+              },
+              contents: isWide
+                  ? SizedBox(
+                      width: 340,
+                      child: _buildContentsPanel(content.title),
+                    )
+                  : null,
+              document: PdfDocumentView(
+                // Keyed by topic so each document keeps its own place and
+                // starts its own sync rather than inheriting the last topic's
+                // page.
+                key: ValueKey('pdf-${unit.id}'),
+                url: unit.pdfUrl!,
+                localPath: _localPaths[unit.pdfUrl],
+                syncCues: unit.syncCues,
+                onStateChanged: (state) {
+                  if (!mounted) return;
+                  if (_pdfState?.currentPage == state.currentPage &&
+                      _pdfState?.pageCount == state.pageCount) {
+                    return;
+                  }
+                  setState(() => _pdfState = state);
+                },
+              ),
+            );
+          }
 
           final page = Column(
             children: [
@@ -521,27 +683,6 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                   onResume: () => _goTo(_savedIndex!),
                   onDismiss: () => setState(() => _showResumeBanner = false),
                 ),
-              if (showDocument)
-                Expanded(
-                  child: PdfDocumentView(
-                    // Keyed by topic so each document keeps its own place and
-                    // starts its own sync rather than inheriting the last
-                    // topic's page.
-                    key: ValueKey('pdf-${unit.id}'),
-                    url: unit.pdfUrl!,
-                    localPath: _localPaths[unit.pdfUrl],
-                    syncCues: unit.syncCues,
-                    onStateChanged: (state) {
-                      if (!mounted) return;
-                      if (_pdfState?.currentPage == state.currentPage &&
-                          _pdfState?.pageCount == state.pageCount) {
-                        return;
-                      }
-                      setState(() => _pdfState = state);
-                    },
-                  ),
-                )
-              else
               Expanded(
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
@@ -559,7 +700,16 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                   },
                   child: ListView(
                   controller: _scrollController,
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+                  // Sideways the page is 900dp across, and body text run to
+                  // that width is a line no one can track back from. The
+                  // padding grows instead, which keeps the column at a
+                  // readable measure without a second scroll view around it.
+                  padding: EdgeInsets.fromLTRB(
+                    _notesInset(width),
+                    18,
+                    _notesInset(width),
+                    28,
+                  ),
                   children: [
                     if (unit.isChapterStart) ...[
                       _ChapterDivider(
@@ -692,10 +842,6 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                   ),
                 ),
               ),
-              // The document fills the screen, so the narration transport
-              // sits with the page controls — the same shape the full-screen
-              // document viewer uses. It draws nothing when no clip is loaded.
-              if (showDocument) const ReaderMiniPlayer(),
               // A landscape phone has roughly 400dp of height; a full footer
               // would take a fifth of it for two buttons that now live in the
               // app bar instead.
@@ -734,6 +880,392 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
         },
       ),
     );
+  }
+}
+
+/// The reading page proper: the document, edge to edge, and nothing else but
+/// the corners.
+///
+/// Deliberately spare. Back sits where it always does, the contents live under
+/// the book icon at the bottom right, the download under the arrow at the
+/// bottom left, and the narration transport docks along the foot when there is
+/// a clip loaded. Auto-scroll is the one control that comes and goes: it is
+/// meaningless without narration, so it appears only while something is
+/// playing.
+class _DocumentReader extends ConsumerStatefulWidget {
+  const _DocumentReader({
+    required this.bookId,
+    required this.document,
+    required this.isOffline,
+    required this.onBack,
+    required this.onContents,
+    required this.onNotes,
+    required this.autoScroll,
+    required this.onToggleAutoScroll,
+    this.contents,
+    this.hasAudio = false,
+    this.onExpandAudio,
+  });
+
+  final String bookId;
+  final Widget document;
+
+  /// Reading out of the vault: there is nothing left to download.
+  final bool isOffline;
+
+  final VoidCallback onBack;
+
+  /// Null on a tablet, where the contents are already pinned open alongside.
+  final VoidCallback? onContents;
+
+  /// Null on a topic that carries no written notes — with nothing to switch
+  /// to, the switch is clutter.
+  final VoidCallback? onNotes;
+
+  final bool autoScroll;
+  final VoidCallback onToggleAutoScroll;
+
+  /// The pinned contents panel, on screens wide enough to hold one.
+  final Widget? contents;
+
+  final bool hasAudio;
+  final VoidCallback? onExpandAudio;
+
+  @override
+  ConsumerState<_DocumentReader> createState() => _DocumentReaderState();
+}
+
+class _DocumentReaderState extends ConsumerState<_DocumentReader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _expandController;
+  late final Animation<double> _expandAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialCollapsed = ref.read(audioBarCollapsedProvider);
+    _expandController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+      value: initialCollapsed ? 0.0 : 1.0,
+    );
+    _expandAnimation = CurvedAnimation(
+      parent: _expandController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _expandController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<bool>(audioBarCollapsedProvider, (previous, collapsed) {
+      if (collapsed) {
+        _expandController.reverse();
+      } else {
+        _expandController.forward();
+      }
+    });
+
+    final audio = ref.read(readerAudioProvider);
+    final topInset = MediaQuery.paddingOf(context).top;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final isExpanded = !ref.watch(audioBarCollapsedProvider);
+    final showAudio = widget.hasAudio || audio.title.value != null;
+
+    final reader = AnimatedBuilder(
+      animation: _expandAnimation,
+      builder: (context, _) {
+        final bottomOffset = _expandAnimation.value * 76.0;
+        final bottomMargin = bottomInset > 0 ? bottomInset + 8 : 16.0;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Full-page document viewer
+            widget.document,
+
+            // Back, and the way to the written notes when the topic has any.
+            Positioned(
+              top: topInset + 8,
+              left: 8,
+              right: 8,
+              child: Row(
+                children: [
+                  _ReaderCornerButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    tooltip: 'Back',
+                    onTap: widget.onBack,
+                  ),
+                  const Spacer(),
+                  if (widget.onNotes != null)
+                    _ReaderCornerButton(
+                      icon: Icons.article_rounded,
+                      tooltip: 'Show the written notes',
+                      onTap: widget.onNotes!,
+                    ),
+                ],
+              ),
+            ),
+
+            // Bottom left: the download, until the book is on the device.
+            if (!widget.isOffline)
+              Positioned(
+                left: 20,
+                bottom: 20 + bottomOffset,
+                child: _ReaderDownloadCorner(bookId: widget.bookId),
+              ),
+
+            // Bottom right: Book/Chapter icon, and Audio button below it!
+            Positioned(
+              right: 20,
+              bottom: 20 + bottomOffset,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: audio.playing,
+                    builder: (context, playing, _) => AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOutCubic,
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: ScaleTransition(scale: animation, child: child),
+                      ),
+                      child: !playing
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _ReaderCornerButton(
+                                icon: widget.autoScroll
+                                    ? Icons.swipe_vertical_rounded
+                                    : Icons.do_not_touch_outlined,
+                                tooltip: widget.autoScroll
+                                    ? 'Pages follow the audio — tap to stop'
+                                    : 'Follow the audio',
+                                onTap: widget.onToggleAutoScroll,
+                                accent: widget.autoScroll,
+                              ),
+                            ),
+                    ),
+                  ),
+                  if (widget.onContents != null)
+                    FloatingActionButton(
+                      heroTag: 'reader-contents',
+                      onPressed: widget.onContents,
+                      backgroundColor: context.palette.card,
+                      foregroundColor: AppColors.cyan,
+                      elevation: 3,
+                      tooltip: 'Chapters and topics',
+                      child: const Icon(Icons.menu_book_rounded, size: 22),
+                    ),
+                  if (showAudio) ...[
+                    if (widget.onContents != null) const SizedBox(height: 12),
+                    FloatingActionButton(
+                      heroTag: 'reader-audio-toggle',
+                      onPressed: () {
+                        ref.read(audioBarCollapsedProvider.notifier).toggle();
+                      },
+                      backgroundColor:
+                          isExpanded ? AppColors.cyan : context.palette.card,
+                      foregroundColor:
+                          isExpanded ? Colors.white : AppColors.cyan,
+                      elevation: 3,
+                      tooltip:
+                          isExpanded ? 'Hide audio player' : 'Audio player',
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: audio.playing,
+                        builder: (context, playing, _) => Icon(
+                          playing
+                              ? Icons.graphic_eq_rounded
+                              : Icons.headphones_rounded,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // Tablet-style Audio player expanding horizontally from left to right!
+            if (showAudio && _expandAnimation.value > 0.0)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: bottomMargin,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 680),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: SizeTransition(
+                          axis: Axis.horizontal,
+                          axisAlignment: -1.0, // expands from left to right!
+                          sizeFactor: _expandAnimation,
+                          child: FadeTransition(
+                            opacity: _expandAnimation,
+                            child: ReaderTabletAudioPlayer(
+                              onClose: () => ref
+                                  .read(audioBarCollapsedProvider.notifier)
+                                  .set(true),
+                              onExpand: widget.onExpandAudio,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+
+    final panel = widget.contents;
+    if (panel == null) return reader;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        panel,
+        VerticalDivider(width: 1, color: context.palette.border),
+        Expanded(child: reader),
+      ],
+    );
+  }
+}
+
+/// One of the reading page's floating controls: a translucent disc that reads
+/// on a white page and on a dark one, because a PDF can be either.
+class _ReaderCornerButton extends StatelessWidget {
+  const _ReaderCornerButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.accent = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  /// Marks the control as on, for the toggles.
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: accent
+            ? AppColors.cyan.withValues(alpha: 0.92)
+            : palette.card.withValues(alpha: 0.82),
+        shape: const CircleBorder(),
+        elevation: 2,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(
+              icon,
+              size: 19,
+              color: accent ? Colors.white : palette.textPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The download control in the corner of the reading page.
+///
+/// Present only while there is something to download: once the book is on the
+/// device the corner is empty, which is the whole of the affordance's state —
+/// no tick, no label, nothing to read.
+class _ReaderDownloadCorner extends ConsumerWidget {
+  const _ReaderDownloadCorner({required this.bookId});
+
+  final String bookId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = ref.watch(downloadProgressProvider(bookId));
+    final palette = context.palette;
+
+    switch (progress.status) {
+      case OfflineStatus.ready:
+      case OfflineStatus.needsRevalidation:
+      case OfflineStatus.expired:
+        return const SizedBox.shrink();
+
+      case OfflineStatus.downloading:
+        // Null while the manifest is still being counted — an indeterminate
+        // spinner says "working on it" better than a 0% that sits there.
+        final fraction = progress.fraction;
+        return Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: palette.card.withValues(alpha: 0.82),
+            shape: BoxShape.circle,
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 30,
+                height: 30,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  value: (fraction ?? 0) > 0 ? fraction : null,
+                  color: AppColors.cyan,
+                  backgroundColor: palette.border,
+                ),
+              ),
+              Text(
+                fraction == null ? '' : '${(fraction * 100).round()}',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      color: palette.textSecondary,
+                    ),
+              ),
+            ],
+          ),
+        );
+
+      case OfflineStatus.none:
+      case OfflineStatus.paused:
+      case OfflineStatus.failed:
+        return _ReaderCornerButton(
+          icon: progress.status == OfflineStatus.paused
+              ? Icons.download_rounded
+              : Icons.download_rounded,
+          tooltip: progress.status == OfflineStatus.paused
+              ? 'Resume the download'
+              : 'Save this book to read offline',
+          onTap: () async {
+            final book = await ref.read(bookDetailProvider(bookId).future);
+            if (!context.mounted) return;
+            ref.read(downloadManagerProvider.notifier).download(book);
+          },
+        );
+    }
   }
 }
 
@@ -792,175 +1324,190 @@ class _ReaderAppBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
 
-    return Material(
-      color: palette.card,
-      child: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(4, isCompact ? 2 : 6, 12,
-                  isCompact ? 2 : 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isCompact ? unit.title : bookTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        if (!isCompact)
+    // The reader's own bar, on the same glass as every other bar in the app.
+    // Square-cut, because it spans the page rather than floating on it.
+    return LiquidGlass(
+      borderRadius: BorderRadius.zero,
+      blurSigma: AppGlass.blurBar,
+      // Denser than a floating pane: the page beneath is body text, and a
+      // chapter title competing with the words under it is unreadable.
+      intensity: 1.5,
+      elevation: 0.4,
+      isCardScale: false,
+      child: Material(
+        type: MaterialType.transparency,
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(4, isCompact ? 2 : 6, 12,
+                    isCompact ? 2 : 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      // A default IconButton is 48dp square and sets the
+                      // height of the whole bar on its own.
+                      visualDensity:
+                          isCompact ? VisualDensity.compact : null,
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            'Chapter ${unit.chapterNumber} · $position'
-                            '${pageLabel == null ? '' : ' · $pageLabel'}',
+                            isCompact ? unit.title : bookTitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(color: palette.textMuted),
+                            style:
+                                Theme.of(context).textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
                           ),
-                      ],
-                    ),
-                  ),
-                  if (isOffline)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: Tooltip(
-                        message: 'Reading the copy saved on this device',
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: AppColors.emerald.withValues(alpha: 0.13),
-                            borderRadius:
-                                BorderRadius.circular(AppTheme.radiusSm),
-                          ),
-                          child: const Icon(Icons.offline_pin_rounded,
-                              size: 16, color: AppColors.emerald),
-                        ),
+                          if (!isCompact)
+                            Text(
+                              'Chapter ${unit.chapterNumber} · $position'
+                              '${pageLabel == null ? '' : ' · $pageLabel'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(color: palette.textMuted),
+                            ),
+                        ],
                       ),
                     ),
-                  if (showAutoScroll)
-                    Tooltip(
-                      message: autoScroll
-                          ? showingDocument
-                              ? 'Pages turn with the audio — tap to turn off'
-                              : 'Auto-scroll on — follows the audio'
-                          : showingDocument
-                              ? 'Auto page-turn off'
-                              : 'Auto-scroll off',
-                      child: InkWell(
-                        onTap: onToggleAutoScroll,
-                        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 4),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 9, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: autoScroll
-                                ? AppColors.cyan.withValues(alpha: 0.14)
-                                : palette.elevated,
-                            borderRadius:
-                                BorderRadius.circular(AppTheme.radiusSm),
-                            border: Border.all(
+                    if (isOffline)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Tooltip(
+                          message: 'Reading the copy saved on this device',
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: AppColors.emerald.withValues(alpha: 0.13),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusSm),
+                            ),
+                            child: const Icon(Icons.offline_pin_rounded,
+                                size: 16, color: AppColors.emerald),
+                          ),
+                        ),
+                      ),
+                    if (showAutoScroll)
+                      Tooltip(
+                        message: autoScroll
+                            ? showingDocument
+                                ? 'Pages turn with the audio — tap to turn off'
+                                : 'Auto-scroll on — follows the audio'
+                            : showingDocument
+                                ? 'Auto page-turn off'
+                                : 'Auto-scroll off',
+                        child: InkWell(
+                          onTap: onToggleAutoScroll,
+                          borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 4),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 9, vertical: isCompact ? 4 : 6),
+                            decoration: BoxDecoration(
                               color: autoScroll
-                                  ? AppColors.cyan.withValues(alpha: 0.4)
-                                  : palette.border,
+                                  ? AppColors.cyan.withValues(alpha: 0.14)
+                                  : palette.elevated,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusSm),
+                              border: Border.all(
+                                color: autoScroll
+                                    ? AppColors.cyan.withValues(alpha: 0.4)
+                                    : palette.border,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  autoScroll
+                                      ? Icons.swipe_vertical_rounded
+                                      : Icons.do_not_touch_outlined,
+                                  size: 15,
+                                  color: autoScroll
+                                      ? AppColors.cyan
+                                      : palette.textMuted,
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  autoScroll ? 'AUTO' : 'OFF',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: autoScroll
+                                            ? AppColors.cyan
+                                            : palette.textMuted,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 9.5,
+                                      ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                autoScroll
-                                    ? Icons.swipe_vertical_rounded
-                                    : Icons.do_not_touch_outlined,
-                                size: 15,
-                                color: autoScroll
-                                    ? AppColors.cyan
-                                    : palette.textMuted,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                autoScroll ? 'AUTO' : 'OFF',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      color: autoScroll
-                                          ? AppColors.cyan
-                                          : palette.textMuted,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 9.5,
-                                    ),
-                              ),
-                            ],
-                          ),
                         ),
                       ),
-                    ),
-                  // In landscape the footer is gone, so the page controls sit
-                  // here instead of leaving the student stranded on one topic.
-                  if (isCompact) ...[
-                    IconButton(
-                      tooltip: 'Previous topic',
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.chevron_left_rounded),
-                      onPressed: onPrev,
-                    ),
-                    IconButton(
-                      tooltip: 'Next topic',
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.chevron_right_rounded),
-                      onPressed: onNext,
-                    ),
-                  ],
-                  if (onToggleView != null)
-                    IconButton(
-                      tooltip: showingDocument
-                          ? 'Show the written notes'
-                          : 'Show the document',
-                      visualDensity: VisualDensity.compact,
-                      icon: Icon(
-                        showingDocument
-                            ? Icons.article_rounded
-                            : Icons.picture_as_pdf_rounded,
-                        color: showingDocument
-                            ? palette.textSecondary
-                            : AppColors.rose,
+                    // In landscape the footer is gone, so the page controls sit
+                    // here instead of leaving the student stranded on one topic.
+                    if (isCompact) ...[
+                      IconButton(
+                        tooltip: 'Previous topic',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.chevron_left_rounded),
+                        onPressed: onPrev,
                       ),
-                      onPressed: onToggleView,
-                    ),
-                  if (onContents != null)
-                    IconButton(
-                      tooltip: 'Chapters and topics',
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.menu_rounded),
-                      onPressed: onContents,
-                    ),
-                ],
+                      IconButton(
+                        tooltip: 'Next topic',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.chevron_right_rounded),
+                        onPressed: onNext,
+                      ),
+                    ],
+                    if (onToggleView != null)
+                      IconButton(
+                        tooltip: showingDocument
+                            ? 'Show the written notes'
+                            : 'Show the document',
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          showingDocument
+                              ? Icons.article_rounded
+                              : Icons.picture_as_pdf_rounded,
+                          color: showingDocument
+                              ? palette.textSecondary
+                              : AppColors.rose,
+                        ),
+                        onPressed: onToggleView,
+                      ),
+                    if (onContents != null)
+                      IconButton(
+                        tooltip: 'Chapters and topics',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.menu_rounded),
+                        onPressed: onContents,
+                      ),
+                  ],
+                ),
               ),
-            ),
-            SizedBox(
-              height: 3,
-              child: LinearProgressIndicator(
-                value: progress,
-                backgroundColor: palette.elevated,
-                valueColor: const AlwaysStoppedAnimation(AppColors.cyan),
+              SizedBox(
+                height: 3,
+                child: LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: palette.elevated,
+                  valueColor: const AlwaysStoppedAnimation(AppColors.cyan),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

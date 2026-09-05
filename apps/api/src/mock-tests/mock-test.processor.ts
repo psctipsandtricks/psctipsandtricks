@@ -28,7 +28,16 @@ export class MockTestProcessor extends QueuePoller<RecomputeRankMessage> {
     const participants = await this.prisma.mockTestParticipant.findMany({
       where: { mockTestId, submittedAt: { not: null } },
       include: { user: { select: { name: true, avatarUrl: true } } },
-      orderBy: [{ score: 'desc' }],
+      // Highest score first; a tie goes to whoever finished in less wall-clock
+      // time (millisecond precision), with `submittedAt` as a last resort for
+      // a genuine dead heat or a submission from before `timeTakenMs` existed.
+      // Mirrors `MockTestsService.getLeaderboard` and `.findOne` exactly, since
+      // this is what actually gets persisted to `rank` and broadcast live.
+      orderBy: [
+        { score: 'desc' },
+        { timeTakenMs: { sort: 'asc', nulls: 'last' } },
+        { submittedAt: 'asc' },
+      ],
     });
 
     // A single bulk UPDATE...FROM(VALUES...) instead of one round trip per

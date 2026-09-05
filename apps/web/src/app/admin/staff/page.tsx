@@ -54,6 +54,7 @@ import {
   Share2,
   LayoutDashboard,
   Lock,
+  Smartphone,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { StaffMember, StaffPermission } from '@psc/shared-types';
@@ -76,6 +77,7 @@ const PERMISSION_DEFINITIONS = [
   { key: 'manageReviews', label: 'Customer Reviews', icon: Star, category: 'Communications' },
   { key: 'manageSocialLinks', label: 'Social Media Links', icon: Share2, category: 'Communications' },
   { key: 'manageStaff', label: 'Staff Management', icon: ShieldCheck, category: 'Administration' },
+  { key: 'manageAppUpdate', label: 'App Update Settings', icon: Smartphone, category: 'Administration' },
 ] as const;
 
 function formatDateTime(isoString?: string | null) {

@@ -4,13 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/pdf_downloader.dart';
+import '../../core/utils/responsive.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/library.dart';
 import '../shell/library_providers.dart';
 import 'video_player_screen.dart';
+import '../shell/shell_scaffold.dart';
 
-/// Chapters of one video exam. Each chapter's clips load only when it is
-/// expanded, so a large exam opens in a single request.
+/// Videos of an exam or category. Supports both subfolders (chapters)
+/// and direct video lessons.
 class VideoListScreen extends ConsumerWidget {
   const VideoListScreen({
     super.key,
@@ -23,40 +27,100 @@ class VideoListScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final chaptersAsync = ref.watch(videoChaptersProvider(examId));
+    final contentAsync = ref.watch(videoFolderContentProvider(examId));
 
     return Scaffold(
-      appBar: AppBar(
+      appBar: GlassAppBar(
         title: Text(examTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: RefreshIndicator(
         onRefresh: () async =>
-            ref.refresh(videoChaptersProvider(examId).future),
+            ref.refresh(videoFolderContentProvider(examId).future),
         child: AsyncView(
-          value: chaptersAsync,
-          onRetry: () => ref.invalidate(videoChaptersProvider(examId)),
-          data: (chapters) {
-            if (chapters.isEmpty) {
+          value: contentAsync,
+          onRetry: () => ref.invalidate(videoFolderContentProvider(examId)),
+          data: (content) {
+            if (content.isEmpty) {
               return ListView(
                 children: const [
                   SizedBox(height: 60),
                   EmptyView(
                     icon: Icons.smart_display_rounded,
-                    title: 'No chapters yet',
-                    message: 'Classes for this exam are being uploaded.',
+                    title: 'No classes yet',
+                    message: 'Classes for this category are being uploaded.',
                   ),
                 ],
               );
             }
 
-            return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-              itemCount: chapters.length,
-              itemBuilder: (context, index) => _ChapterTile(
-                chapter: chapters[index],
-                // Open the first chapter by default: with one chapter that is
-                // the whole screen, and it saves a tap in the common case.
-                initiallyExpanded: index == 0,
+            final subfolders = content.subfolders;
+            final directVideos = content.videos;
+
+            return Responsive.centered(
+              maxWidth: Responsive.maxContentWidth,
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  Responsive.horizontalPadding(context),
+                  12,
+                  Responsive.horizontalPadding(context),
+                  24 + ShellScaffold.dockExtent,
+                ),
+                children: [
+                  // 1. Subfolders / Chapters
+                  if (subfolders.isNotEmpty) ...[
+                    if (directVideos.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
+                        child: Text(
+                          'Chapters (${subfolders.length})',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: context.palette.textMuted,
+                              ),
+                        ),
+                      ),
+                    for (int i = 0; i < subfolders.length; i++)
+                      _ChapterTile(
+                        chapter: subfolders[i],
+                        initiallyExpanded: i == 0 && directVideos.isEmpty,
+                      ),
+                  ],
+
+                  // 2. Direct Videos
+                  if (directVideos.isNotEmpty) ...[
+                    if (subfolders.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 12),
+                        child: Text(
+                          'Video Lessons (${directVideos.length})',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: context.palette.textMuted,
+                              ),
+                        ),
+                      ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: context.palette.card,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                        border: Border.all(color: context.palette.border),
+                      ),
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        children: [
+                          for (int i = 0; i < directVideos.length; i++) ...[
+                            if (i > 0)
+                              Divider(
+                                height: 12,
+                                color: context.palette.border.withValues(alpha: 0.5),
+                              ),
+                            _VideoRow(video: directVideos[i]),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             );
           },
@@ -204,7 +268,12 @@ class _VideoRow extends StatelessWidget {
         padding: const EdgeInsets.all(6),
         child: Row(
           children: [
-            VideoThumbnail(thumbnailUrl: video.thumbnailUrl, width: 112),
+            VideoThumbnail(
+              thumbnailUrl: video.effectiveThumbnailUrl,
+              youtubeVideoId: video.youtubeVideoId,
+              youtubeUrl: video.youtubeUrl,
+              width: 112,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -240,6 +309,19 @@ class _VideoRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (video.hasNotes)
+              IconButton(
+                icon: const Icon(Icons.download_rounded, size: 20),
+                color: AppColors.cyan,
+                tooltip: 'Download notes PDF',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => PdfDownloader.download(
+                  context,
+                  url: video.pdfUrl!,
+                  title: video.pdfFileName ?? '${video.title} notes',
+                  customFileName: video.pdfFileName,
+                ),
+              ),
             Icon(Icons.chevron_right_rounded, color: palette.textMuted),
           ],
         ),

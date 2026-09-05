@@ -70,15 +70,65 @@ export class BookAccessService {
     return validTill;
   }
 
-  /** True when the user holds an active, non-expired settled payment for this book. */
+  /** Turns a user's latest per-book order into subscription expiry info, or null when it is not a dated subscription. */
+  buildSubscriptionInfo(
+    order: { validTill: Date | null; createdAt: Date } | null | undefined,
+    book: PaywallableBook | null | undefined,
+    now: Date = new Date(),
+  ): BookSubscriptionAccessInfo | null {
+    if (!order || !book) return null;
+    const effectiveValidTill =
+      order.validTill ||
+      (book.subscriptionType === 'SUBSCRIPTION'
+        ? this.calculateSubscriptionExpiry(book.subscriptionDuration, order.createdAt)
+        : null);
+    if (!effectiveValidTill) return null;
+    const validTillDate = new Date(effectiveValidTill);
+    const isExpired = validTillDate.getTime() <= now.getTime();
+    const diffMs = validTillDate.getTime() - now.getTime();
+    const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    return {
+      isSubscription: true,
+      validTill: validTillDate.toISOString(),
+      isExpired,
+      expiresInDays,
+    };
+  }
+
+  /** Loads the caller's most recent settled order for a specific book, for subscription-expiry display. */
+  private async loadBookSubscriptionInfo(
+    userId: string,
+    book: PaywallableBook,
+    now: Date,
+  ): Promise<BookSubscriptionAccessInfo | null> {
+    if (book.subscriptionType !== 'SUBSCRIPTION') return null;
+    const order = await this.prisma.order.findFirst({
+      where: { userId, bookId: book.id, status: 'SUCCESS' },
+      orderBy: { createdAt: 'desc' },
+      select: { validTill: true, createdAt: true },
+    });
+    return this.buildSubscriptionInfo(order, book, now);
+  }
+
+  /** True when the user holds an active, non-expired settled payment for this specific book, or is staff. */
   async hasPurchased(userId: string, bookId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (user && (user.role === UserRole.ADMIN || user.role === UserRole.STAFF)) {
+      return true;
+    }
+
     const now = new Date();
     const paidOrder = await this.prisma.order.findFirst({
       where: {
         userId,
-        bookId,
         status: 'SUCCESS',
-        OR: [{ validTill: null }, { validTill: { gt: now } }],
+        bookId,
+        AND: [
+          { OR: [{ validTill: null }, { validTill: { gt: now } }] },
+        ],
       },
       select: { id: true },
     });
@@ -88,17 +138,28 @@ export class BookAccessService {
   /** Every book this user currently has active, valid access for — one query for list routes. */
   async getPurchasedBookIds(userId?: string | null): Promise<Set<string>> {
     if (!userId) return new Set();
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (user && (user.role === UserRole.ADMIN || user.role === UserRole.STAFF)) {
+      const all = await this.prisma.book.findMany({ select: { id: true } });
+      return new Set(all.map((b) => b.id));
+    }
+
     const now = new Date();
     const orders = await this.prisma.order.findMany({
       where: {
         userId,
         status: 'SUCCESS',
         bookId: { not: null },
-        OR: [{ validTill: null }, { validTill: { gt: now } }],
+        AND: [
+          { OR: [{ validTill: null }, { validTill: { gt: now } }] },
+        ],
       },
       select: { bookId: true },
     });
-    return new Set(orders.map((o) => o.bookId as string));
+    return new Set(orders.filter((o) => o.bookId).map((o) => o.bookId as string));
   }
 
   async getAccessState(
@@ -115,9 +176,14 @@ export class BookAccessService {
     }
 
     const now = new Date();
-    // Find latest successful order for this book
+
+    // Find latest successful order for this specific book
     const order = await this.prisma.order.findFirst({
-      where: { userId: actor.id, bookId: book!.id, status: 'SUCCESS' },
+      where: {
+        userId: actor.id,
+        status: 'SUCCESS',
+        bookId: book!.id,
+      },
       orderBy: { createdAt: 'desc' },
       select: { id: true, validTill: true, accessType: true, createdAt: true },
     });
@@ -132,29 +198,14 @@ export class BookAccessService {
       };
     }
 
-    const effectiveValidTill =
-      order.validTill ||
-      (book?.subscriptionType === 'SUBSCRIPTION'
-        ? this.calculateSubscriptionExpiry(book.subscriptionDuration, order.createdAt)
-        : null);
-
-    if (effectiveValidTill) {
-      const validTillDate = new Date(effectiveValidTill);
-      const isExpired = validTillDate.getTime() <= now.getTime();
-      const diffMs = validTillDate.getTime() - now.getTime();
-      const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-
+    const subscription = this.buildSubscriptionInfo(order, book, now);
+    if (subscription) {
       return {
         isPaid: true,
-        hasAccess: !isExpired,
+        hasAccess: !subscription.isExpired,
         price,
-        reason: !isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
-        subscription: {
-          isSubscription: true,
-          validTill: validTillDate.toISOString(),
-          isExpired,
-          expiresInDays,
-        },
+        reason: !subscription.isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+        subscription,
       };
     }
 
@@ -177,13 +228,14 @@ export class BookAccessService {
 
     // Fetch user's latest orders for these books if logged in
     const userOrdersMap = new Map<string, { validTill: Date | null; accessType: string | null; createdAt: Date }>();
+
     if (actor?.id) {
       const bookIds = books.map((b) => b.id);
       const orders = await this.prisma.order.findMany({
         where: {
           userId: actor.id,
-          bookId: { in: bookIds },
           status: 'SUCCESS',
+          bookId: { in: bookIds },
         },
         orderBy: { createdAt: 'desc' },
         select: { bookId: true, validTill: true, accessType: true, createdAt: true },
@@ -208,28 +260,14 @@ export class BookAccessService {
         if (!order) {
           access = { isPaid: true, hasAccess: false, price, reason: 'PAYMENT_REQUIRED', subscription: null };
         } else {
-          const effectiveValidTill =
-            order.validTill ||
-            (book.subscriptionType === 'SUBSCRIPTION'
-              ? this.calculateSubscriptionExpiry(book.subscriptionDuration, order.createdAt)
-              : null);
-
-          if (effectiveValidTill) {
-            const validTillDate = new Date(effectiveValidTill);
-            const isExpired = validTillDate.getTime() <= now.getTime();
-            const diffMs = validTillDate.getTime() - now.getTime();
-            const expiresInDays = isExpired ? 0 : Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+          const subscription = this.buildSubscriptionInfo(order, book, now);
+          if (subscription) {
             access = {
               isPaid: true,
-              hasAccess: !isExpired,
+              hasAccess: !subscription.isExpired,
               price,
-              reason: !isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
-              subscription: {
-                isSubscription: true,
-                validTill: validTillDate.toISOString(),
-                isExpired,
-                expiresInDays,
-              },
+              reason: !subscription.isExpired ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+              subscription,
             };
           } else {
             access = { isPaid: true, hasAccess: true, price, reason: 'PURCHASED', subscription: null };

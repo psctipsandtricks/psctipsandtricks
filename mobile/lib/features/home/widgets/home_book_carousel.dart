@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,52 +7,83 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_image.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/book.dart';
 import '../home_providers.dart';
 
-/// Compact 3D Coverflow Book Showcase Carousel mirroring the website's hero showcase.
+/// The home screen's hero: one book at a time, its cover running edge to edge
+/// under the bar, with the title, the detail line and the one action that
+/// matters set beneath it on the page.
 ///
-/// Designed to be space-efficient, interactive, and visually stunning.
+/// The copy sits below the artwork rather than on top of it — the covers in
+/// this catalog are busy, bright and already carry their own headline text, so
+/// anything laid over them fights for the same pixels. Keeping the two apart
+/// means the title is legible on any cover in either theme, and it matches the
+/// streaming-app pattern the design references. The cover parallaxes against
+/// the swipe, so paging feels like moving a stack of physical books rather
+/// than a filmstrip.
 class HomeBookCarousel extends ConsumerStatefulWidget {
-  const HomeBookCarousel({super.key});
+  const HomeBookCarousel({super.key, this.topOverlay = 0});
+
+  /// How much of the artwork's top edge the floating bar covers.
+  ///
+  /// Added to the art's height rather than subtracted from it: the point of
+  /// running the cover up under the bar is to fill the space above it, not to
+  /// lose that much of the picture, so the part still in the clear stays the
+  /// size it was designed to be.
+  final double topOverlay;
+
+  /// Height of the artwork alone, in the clear below the bar; the copy beneath
+  /// sizes itself.
+  ///
+  /// A fixed number rather than a share of the viewport, so a cover is the same
+  /// size on every phone and the hero cannot quietly grow or shrink with the
+  /// device. `topOverlay` is added on top of this for the part that runs behind
+  /// the bar — raising this raises what the student actually sees.
+  ///
+  /// Fixed height across all images so every banner maintains the exact same
+  /// uniform frame, regardless of aspect ratio, dimensions, or content.
+  static const double artHeight = 390;
 
   @override
   ConsumerState<HomeBookCarousel> createState() => _HomeBookCarouselState();
 }
 
-class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel>
-    with TickerProviderStateMixin {
+class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
+  /// The page space is a long loop of the same list, so paging never hits an
+  /// end and the student can keep swiping in either direction.
   static const int _loopFactor = 400;
-  static const Duration _autoRotateInterval = Duration(milliseconds: 4500);
-  static const Duration _slideDuration = Duration(milliseconds: 650);
+  static const Duration _autoRotateInterval = Duration(milliseconds: 5200);
+  static const Duration _slideDuration = Duration(milliseconds: 700);
 
   PageController? _pageController;
-  late final AnimationController _ambientGlowController;
-
   Timer? _autoRotateTimer;
   Timer? _resumeTimer;
   bool _isUserInteracting = false;
-  int _activeActualIndex = 0;
+  int _activeIndex = 0;
   int _initialPage = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _ambientGlowController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat(reverse: true);
-  }
+  /// Live page position, used for the parallax and the cross-fading copy.
+  double _page = 0;
 
   @override
   void dispose() {
     _autoRotateTimer?.cancel();
     _resumeTimer?.cancel();
-    _ambientGlowController.dispose();
+    _pageController?.removeListener(_onScroll);
     _pageController?.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    final controller = _pageController;
+    if (controller == null || !controller.hasClients) return;
+    if (!controller.position.hasContentDimensions) return;
+    final page = controller.page;
+    if (page == null || page == _page) return;
+    setState(() => _page = page);
   }
 
   void _startAutoRotation(int count) {
@@ -59,143 +91,89 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel>
     if (count <= 1) return;
 
     _autoRotateTimer = Timer.periodic(_autoRotateInterval, (_) {
+      final controller = _pageController;
       if (!mounted ||
-          _pageController == null ||
-          !_pageController!.hasClients ||
+          controller == null ||
+          !controller.hasClients ||
           _isUserInteracting) {
         return;
       }
-      final currentPage = _pageController!.page?.round() ?? _initialPage;
-      _pageController!.animateToPage(
-        currentPage + 1,
+      controller.animateToPage(
+        (controller.page?.round() ?? _initialPage) + 1,
         duration: _slideDuration,
         curve: Curves.easeInOutCubic,
       );
     });
   }
 
-  void _stopAutoRotation() {
-    _autoRotateTimer?.cancel();
-    _autoRotateTimer = null;
-  }
-
   void _onPointerDown() {
     _isUserInteracting = true;
-    _stopAutoRotation();
+    _autoRotateTimer?.cancel();
+    _autoRotateTimer = null;
     _resumeTimer?.cancel();
   }
 
   void _onPointerUp(int count) {
     _resumeTimer?.cancel();
-    _resumeTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted) {
-        _isUserInteracting = false;
-        _startAutoRotation(count);
-      }
+    // A long pause before the rotation picks up again: nothing is more
+    // annoying than the page moving under a finger that just stopped.
+    _resumeTimer = Timer(const Duration(seconds: 6), () {
+      if (!mounted) return;
+      _isUserInteracting = false;
+      _startAutoRotation(count);
     });
   }
 
-  void _navigateToBook(Book book) {
-    context.push(AppRoutes.bookDetail(book.id));
-  }
+  void _openBook(Book book) => context.push(AppRoutes.bookDetail(book.id));
 
   @override
   Widget build(BuildContext context) {
     final booksAsync = ref.watch(featuredBooksProvider);
 
     return booksAsync.when(
-      loading: () => _buildLoadingSkeleton(context),
-      error: (err, _) => const SizedBox.shrink(),
+      loading: () => _HeroSkeleton(
+        artHeight: HomeBookCarousel.artHeight + widget.topOverlay,
+      ),
+      error: (_, __) => const SizedBox.shrink(),
       data: (allBooks) {
-        // Filter books with covers
-        final books = allBooks
+        if (allBooks.isEmpty) return const SizedBox.shrink();
+
+        // Prefer the books that actually have artwork — a hero this large is
+        // unforgiving of a placeholder icon.
+        final withArt = allBooks
             .where((b) =>
                 (b.heroCoverUrl != null && b.heroCoverUrl!.isNotEmpty) ||
                 b.coverUrl.isNotEmpty)
             .toList();
 
-        if (books.isEmpty) {
-          if (allBooks.isEmpty) return const SizedBox.shrink();
-          return _buildShowcase(context, allBooks);
-        }
-
-        return _buildShowcase(context, books);
+        return _buildHero(context, withArt.isEmpty ? allBooks : withArt);
       },
     );
   }
 
-  Widget _buildLoadingSkeleton(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Container(
-        height: 280,
-        decoration: BoxDecoration(
-          color: context.palette.card,
-          borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-          border: Border.all(color: context.palette.border),
-        ),
-        child: const Center(
-          child: SkeletonBox(
-            width: 172,
-            height: 238,
-            radius: AppTheme.radiusLg,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildShowcase(BuildContext context, List<Book> books) {
+  Widget _buildHero(BuildContext context, List<Book> books) {
     if (_pageController == null) {
       _initialPage = (books.length * _loopFactor) ~/ 2;
-      _pageController = PageController(
-        viewportFraction: 0.54,
-        initialPage: _initialPage,
-      );
-      _activeActualIndex = _initialPage % books.length;
+      _page = _initialPage.toDouble();
+      _activeIndex = _initialPage % books.length;
+      _pageController = PageController(initialPage: _initialPage)
+        ..addListener(_onScroll);
       _startAutoRotation(books.length);
     }
 
     final controller = _pageController!;
-    final activeBook = books[_activeActualIndex.clamp(0, books.length - 1)];
+    final activeBook = books[_activeIndex.clamp(0, books.length - 1)];
+    final palette = context.palette;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── 3D Coverflow Carousel Viewport (Compact Height) ────────────────
         SizedBox(
-          height: 252,
+          height: HomeBookCarousel.artHeight + widget.topOverlay,
           child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
+            fit: StackFit.expand,
             children: [
-              // Dynamic Ambient Glow
-              AnimatedBuilder(
-                animation: _ambientGlowController,
-                builder: (context, _) {
-                  final glow = _ambientGlowController.value;
-                  return Positioned(
-                    top: 10,
-                    child: Container(
-                      width: 220 + (glow * 24),
-                      height: 210 + (glow * 20),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            AppColors.cyan.withValues(alpha: 0.18 + (glow * 0.10)),
-                            AppColors.indigo.withValues(alpha: 0.08 + (glow * 0.06)),
-                            Colors.transparent,
-                          ],
-                          stops: const [0.0, 0.55, 1.0],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-
-              // 3D PageView
               Listener(
                 onPointerDown: (_) => _onPointerDown(),
                 onPointerUp: (_) => _onPointerUp(books.length),
@@ -203,476 +181,411 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel>
                 child: PageView.builder(
                   controller: controller,
                   physics: const BouncingScrollPhysics(),
-                  clipBehavior: Clip.none,
-                  onPageChanged: (page) {
-                    setState(() {
-                      _activeActualIndex = page % books.length;
-                    });
-                  },
+                  onPageChanged: (page) =>
+                      setState(() => _activeIndex = page % books.length),
                   itemBuilder: (context, index) {
                     final book = books[index % books.length];
-
-                    return AnimatedBuilder(
-                      animation: controller,
-                      builder: (context, child) {
-                        double pageOffset = 0.0;
-                        if (controller.hasClients &&
-                            controller.position.hasContentDimensions) {
-                          pageOffset =
-                              (controller.page ?? _initialPage.toDouble()) -
-                                  index;
-                        } else {
-                          pageOffset = (_initialPage - index).toDouble();
-                        }
-
-                        final absOffset = pageOffset.abs();
-                        final isCenter = absOffset < 0.45;
-
-                        // 3D perspective transforms
-                        final scale = (1.0 - (absOffset * 0.15)).clamp(0.82, 1.0);
-                        final rotationY = (pageOffset * 0.25).clamp(-0.40, 0.40);
-                        final opacity = (1.0 - (absOffset * 0.38)).clamp(0.48, 1.0);
-                        final translationX = pageOffset * -8.0;
-
-                        final matrix = Matrix4.identity()
-                          ..setEntry(3, 2, 0.0016) // Perspective
-                          ..setTranslationRaw(translationX, 0.0, 0.0)
-                          ..rotateY(rotationY)
-                          ..scaleByDouble(scale, scale, 1.0, 1.0);
-
-                        return Center(
-                          child: Transform(
-                            transform: matrix,
-                            alignment: Alignment.center,
-                            child: Opacity(
-                              opacity: opacity,
-                              child: GestureDetector(
-                                onTap: () {
-                                  if (isCenter) {
-                                    _navigateToBook(book);
-                                  } else {
-                                    controller.animateToPage(
-                                      index,
-                                      duration: const Duration(milliseconds: 400),
-                                      curve: Curves.easeInOutCubic,
-                                    );
-                                  }
-                                },
-                                child: _Book3DCover(
-                                  book: book,
-                                  isCenter: isCenter,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                    return _HeroSlide(
+                      book: book,
+                      offset: _page - index,
+                      onTap: () => _openBook(book),
                     );
                   },
+                ),
+              ),
+
+              // The artwork melts into the page softly.
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 40,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          palette.background.withValues(alpha: 0.0),
+                          palette.background.withValues(alpha: 0.6),
+                          palette.background,
+                        ],
+                        stops: const [0.0, 0.65, 1.0],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ),
-
-        const SizedBox(height: 6),
-
-        // ── Compact Active Book Info: Category, Title & Action Bar ─────────
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Category in amber/gold bold uppercase
-              Text(
-                activeBook.category.isNotEmpty
-                    ? activeBook.category.toUpperCase()
-                    : 'KERALA PSC',
-                style: const TextStyle(
-                  color: AppColors.amber,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 10.5,
-                  letterSpacing: 1.1,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 3),
-
-              // Title (compact, max 1 line with ellipsis or 2 tight lines)
-              GestureDetector(
-                onTap: () => _navigateToBook(activeBook),
-                child: Text(
-                  activeBook.title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14.5,
-                        height: 1.22,
-                        letterSpacing: -0.2,
-                      ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Unified Action & Pagination Row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Pagination Indicator Dots
-                  if (books.length > 1)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(
-                        books.length.clamp(0, 8),
-                        (dotIndex) {
-                          final isSelected =
-                              dotIndex == (_activeActualIndex % books.length);
-                          return GestureDetector(
-                            onTap: () {
-                              final currentPage =
-                                  controller.page?.round() ?? _initialPage;
-                              final currentOffset = currentPage % books.length;
-                              final diff = dotIndex - currentOffset;
-                              controller.animateToPage(
-                                currentPage + diff,
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeInOutCubic,
-                              );
-                            },
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeOutCubic,
-                              margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                              width: isSelected ? 18 : 5,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(2.5),
-                                gradient:
-                                    isSelected ? AppColors.goldGradient : null,
-                                color: isSelected
-                                    ? null
-                                    : context.palette.border
-                                        .withValues(alpha: 0.9),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-
-                  const SizedBox(width: 14),
-
-                  // Compact Explore Pill Button
-                  InkWell(
-                    onTap: () => _navigateToBook(activeBook),
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.cyan.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppColors.cyan.withValues(alpha: 0.35),
-                          width: 1,
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Explore Book',
-                            style: TextStyle(
-                              color: AppColors.cyan,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 11.5,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          SizedBox(width: 3),
-                          Icon(
-                            Icons.arrow_forward_rounded,
-                            color: AppColors.cyan,
-                            size: 13,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 10),
-
-              // Super-compact trust highlights strip
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _TrustChip(
-                    icon: Icons.headphones_rounded,
-                    label: 'Audio Notes',
-                    color: AppColors.cyan,
-                  ),
-                  _DotDivider(),
-                  _TrustChip(
-                    icon: Icons.layers_rounded,
-                    label: 'Chapter Notes',
-                    color: AppColors.amber,
-                  ),
-                  _DotDivider(),
-                  _TrustChip(
-                    icon: Icons.phone_android_rounded,
-                    label: 'Offline Ready',
-                    color: AppColors.emerald,
-                  ),
-                ],
-              ),
-            ],
-          ),
+        _HeroCopy(
+          book: activeBook,
+          total: books.length,
+          activeIndex: _activeIndex % books.length,
+          onExplore: () => _openBook(activeBook),
+          onDotTap: (dot) {
+            final currentPage = controller.page?.round() ?? _initialPage;
+            final delta = dot - (currentPage % books.length);
+            controller.animateToPage(
+              currentPage + delta,
+              duration: const Duration(milliseconds: 420),
+              curve: Curves.easeInOutCubic,
+            );
+          },
         ),
       ],
     );
   }
 }
 
-class _TrustChip extends StatelessWidget {
-  const _TrustChip({
-    required this.icon,
-    required this.label,
-    required this.color,
+/// One full-bleed cover, parallaxing and dimming as it leaves the centre.
+class _HeroSlide extends StatelessWidget {
+  const _HeroSlide({
+    required this.book,
+    required this.offset,
+    required this.onTap,
   });
 
+  final Book book;
+
+  /// Distance from the centre of the viewport, in pages.
+  final double offset;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = offset.clamp(-1.5, 1.5);
+    final width = MediaQuery.sizeOf(context).width;
+    // The cover drifts against the swipe. The overscan has to outrun the
+    // drift — a 10% shift needs more than 10% of extra width behind it, or
+    // the far edge of the frame shows through part-way into the swipe.
+    final shift = clamped * width * 0.10;
+    final scale = 1.0 + (clamped.abs() * 0.24).clamp(0.0, 0.36);
+    final dim = (clamped.abs() * 0.45).clamp(0.0, 0.55);
+    final cover = book.effectiveHeroCoverUrl;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRect(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Transform.translate(
+              offset: Offset(shift, 0),
+              child: Transform.scale(
+                scale: scale,
+                child: AppImage(
+                  url: cover,
+                  fit: BoxFit.cover,
+                  // Centred, not top-aligned. The bar now sits over the top of
+                  // this frame, so keeping the top of the cover would park the
+                  // part worth seeing behind the glass; anchoring the middle
+                  // puts it in the clear.
+                  alignment: Alignment.center,
+                  fallbackIcon: Icons.menu_book_rounded,
+                ),
+              ),
+            ),
+            if (dim > 0)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: context.palette.background.withValues(alpha: dim),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Title, detail line, the primary action and the pagination dots — the compact
+/// block that sits on the page beneath the artwork.
+class _HeroCopy extends StatelessWidget {
+  const _HeroCopy({
+    required this.book,
+    required this.total,
+    required this.activeIndex,
+    required this.onExplore,
+    required this.onDotTap,
+  });
+
+  final Book book;
+  final int total;
+  final int activeIndex;
+  final VoidCallback onExplore;
+  final ValueChanged<int> onDotTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final meta = <String>[
+      if (book.category.isNotEmpty) book.category,
+      if (book.chaptersCount != null && book.chaptersCount! > 0)
+        Fmt.count(book.chaptersCount!, 'chapter'),
+      if (book.isFree) 'Free' else Fmt.price(book.finalPrice),
+    ];
+
+    final hasFlags = book.isFree || book.hasDiscount || book.isNew;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Row 1: Compact Badges + Category/Chapter/Price metadata inline
+          Row(
+            children: [
+              if (hasFlags) ...[
+                _HeroFlags(book: book),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  meta.join('  •  '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: palette.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        letterSpacing: 0.1,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+
+          // Row 2: Book Title strictly on a single line with ellipsis
+          GestureDetector(
+            onTap: onExplore,
+            child: Text(
+              book.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.35,
+                    height: 1.2,
+                    fontSize: 18,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Row 3: Compact primary action button + pagination indicator dots
+          Row(
+            children: [
+              _CompactActionButton(
+                label: book.isUnlocked ? 'Read now' : 'Explore book',
+                icon: book.isUnlocked
+                    ? Icons.menu_book_rounded
+                    : Icons.auto_stories_rounded,
+                onPressed: onExplore,
+              ),
+              const Spacer(),
+              if (total > 1)
+                _HeroDots(
+                  total: total,
+                  activeIndex: activeIndex,
+                  onDotTap: onDotTap,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sleek, compact action button for the hero banner.
+class _CompactActionButton extends StatelessWidget {
+  const _CompactActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
   final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        gradient: AppColors.brandGradient,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.cyan.withValues(alpha: 0.28),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: Colors.white),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroDots extends StatelessWidget {
+  const _HeroDots({
+    required this.total,
+    required this.activeIndex,
+    required this.onDotTap,
+  });
+
+  final int total;
+  final int activeIndex;
+  final ValueChanged<int> onDotTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(total.clamp(0, 8), (dot) {
+        final selected = dot == activeIndex;
+        return GestureDetector(
+          onTap: () => onDotTap(dot),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 6),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeOutCubic,
+              width: selected ? 16 : 5,
+              height: 5,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2.5),
+                gradient: selected ? AppColors.brandGradient : null,
+                color:
+                    selected ? null : palette.textMuted.withValues(alpha: 0.35),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// Free / discount / new compact badges.
+class _HeroFlags extends StatelessWidget {
+  const _HeroFlags({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context) {
+    final flags = <Widget>[
+      if (book.isFree)
+        const _HeroFlag(label: 'FREE', color: AppColors.emerald)
+      else if (book.hasDiscount)
+        _HeroFlag(
+          label: '${book.discountPercent}% OFF',
+          color: AppColors.rose,
+        ),
+      if (book.isNew) const _HeroFlag(label: 'NEW', color: AppColors.amber),
+    ];
+    if (flags.isEmpty) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < flags.length; i++) ...[
+          if (i > 0) const SizedBox(width: 5),
+          flags[i],
+        ],
+      ],
+    );
+  }
+}
+
+class _HeroFlag extends StatelessWidget {
+  const _HeroFlag({required this.label, required this.color});
+
   final String label;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 9.5,
+              letterSpacing: 0.4,
+            ),
+      ),
+    );
+  }
+}
+
+class _HeroSkeleton extends StatelessWidget {
+  const _HeroSkeleton({required this.artHeight});
+
+  final double artHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 3.5),
-        Text(
-          label,
-          style: TextStyle(
-            color: context.palette.textSecondary,
-            fontWeight: FontWeight.w600,
-            fontSize: 10,
+        SkeletonBox(width: double.infinity, height: artHeight, radius: 0),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SkeletonBox(width: 240, height: 20, radius: AppTheme.radiusSm),
+              SizedBox(height: 9),
+              SkeletonBox(width: 150, height: 12, radius: AppTheme.radiusSm),
+              SizedBox(height: 16),
+              SkeletonBox(width: 148, height: 38, radius: AppTheme.radiusMd),
+            ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _DotDivider extends StatelessWidget {
-  const _DotDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 7),
-      child: Text(
-        '·',
-        style: TextStyle(
-          color: context.palette.textMuted,
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
-/// 3D Hardcover Book widget with realistic spine lighting, depth, bevels & shadow.
-class _Book3DCover extends StatelessWidget {
-  const _Book3DCover({
-    required this.book,
-    required this.isCenter,
-  });
-
-  final Book book;
-  final bool isCenter;
-
-  @override
-  Widget build(BuildContext context) {
-    // Compact book dimensions: 1:1.38 ratio
-    const width = 172.0;
-    const height = 238.0;
-
-    final coverUrl = book.heroCoverUrl ?? book.coverUrl;
-
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          // Ambient soft drop shadow
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isCenter ? 0.42 : 0.22),
-            blurRadius: isCenter ? 22 : 12,
-            offset: Offset(0, isCenter ? 12 : 6),
-          ),
-          if (isCenter)
-            BoxShadow(
-              color: AppColors.cyan.withValues(alpha: 0.16),
-              blurRadius: 24,
-              spreadRadius: 1,
-            ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Cover Image
-            AppImage(
-              url: coverUrl,
-              fit: BoxFit.cover,
-              radius: 14,
-              fallbackIcon: Icons.menu_book_rounded,
-            ),
-
-            // 3D Hardcover Spine Highlight (left side sheen gradient)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 16,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.55),
-                      Colors.white.withValues(alpha: 0.20),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.0, 0.22, 1.0],
-                  ),
-                ),
-              ),
-            ),
-
-            // Right side subtle bevel shadow
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: 9,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerRight,
-                    end: Alignment.centerLeft,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.35),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // Bottom subtle vignette
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 42,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.55),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // Top Badge if Free or Discounted
-            if (!book.isPremium)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: AppColors.emerald,
-                    borderRadius: BorderRadius.circular(5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: const Text(
-                    'FREE',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 8.5,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ),
-              )
-            else if (book.discountPercent > 0)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: AppColors.rose,
-                    borderRadius: BorderRadius.circular(5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    '${book.discountPercent}% OFF',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 8.5,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                ),
-              ),
-
-            // Subtle border sheen
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: isCenter
-                      ? Colors.white.withValues(alpha: 0.25)
-                      : Colors.white.withValues(alpha: 0.12),
-                  width: 1.1,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

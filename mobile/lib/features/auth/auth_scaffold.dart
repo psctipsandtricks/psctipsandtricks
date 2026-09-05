@@ -1,7 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/responsive.dart';
+
+/// Navigates to wherever the student should land after signing in.
+///
+/// `redirect` comes from a protected route's query string (`_protectedPrefixes`
+/// in app_router.dart) — a plain `context.go(redirect)` would make that page
+/// the new stack root, leaving it with no Back and no Home underneath, so its
+/// app bar's automatic back button silently disappears. Re-establishing Home
+/// first, then pushing the actual destination on top, keeps Back working
+/// exactly as if the student had reached it by tapping through from Home.
+void goAfterAuth(BuildContext context, String? redirect) {
+  context.go(AppRoutes.home);
+  if (redirect != null && redirect != AppRoutes.home) {
+    context.push(redirect);
+  }
+}
 
 /// Shared chrome for the sign-in and sign-up screens: the brand mark over an
 /// ambient glow, matching the website's auth pages.
@@ -37,31 +55,37 @@ class AuthScaffold extends StatelessWidget {
             child: _Glow(color: AppColors.indigo, size: 280),
           ),
           SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(22, 28, 22, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const _BrandMark(),
-                  const SizedBox(height: 30),
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.6,
-                        ),
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 28, 22, 32),
+                child: Responsive.centered(
+                  maxWidth: Responsive.maxFormWidth,
+                  alignment: Alignment.center,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const _BrandMark(),
+                      const SizedBox(height: 30),
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.6,
+                            ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: palette.textSecondary,
+                              height: 1.5,
+                            ),
+                      ),
+                      const SizedBox(height: 26),
+                      child,
+                    ],
                   ),
-                  const SizedBox(height: 7),
-                  Text(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: palette.textSecondary,
-                          height: 1.5,
-                        ),
-                  ),
-                  const SizedBox(height: 26),
-                  child,
-                ],
+                ),
               ),
             ),
           ),
@@ -79,21 +103,31 @@ class _BrandMark extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 46,
-          height: 46,
+          width: 50,
+          height: 50,
+          padding: const EdgeInsets.all(1.5),
           decoration: BoxDecoration(
-            gradient: AppColors.brandGradient,
-            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: const Color(0xFF38BDF8).withValues(alpha: 0.40),
+              width: 1.2,
+            ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.cyan.withValues(alpha: 0.35),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
+                color: AppColors.cyan.withValues(alpha: 0.32),
+                blurRadius: 16,
+                offset: const Offset(0, 5),
               ),
             ],
           ),
-          alignment: Alignment.center,
-          child: const Icon(Icons.school_rounded, color: Colors.white, size: 25),
+          child: ClipOval(
+            child: Image.asset(
+              'assets/icon/app_logo.png',
+              width: 48,
+              height: 48,
+              fit: BoxFit.contain,
+            ),
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(

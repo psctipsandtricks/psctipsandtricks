@@ -22,4 +22,19 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   razorpayPaymentId?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-03', description: 'Order / purchase date (YYYY-MM-DD or ISO string)' })
+  @IsOptional()
+  @IsString()
+  purchaseDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-03', description: 'Alias for purchaseDate' })
+  @IsOptional()
+  @IsString()
+  orderDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-03T12:00:00.000Z' })
+  @IsOptional()
+  @IsString()
+  createdAt?: string;
 }

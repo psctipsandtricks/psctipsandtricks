@@ -42,3 +42,33 @@ Future<void> restorePortraitOnly() {
   if (_relaxed > 0) return Future<void>.value();
   return SystemChrome.setPreferredOrientations(_portraitOnly);
 }
+
+/// How many screens currently want the system bars out of the way.
+///
+/// Counted for the same reason rotation is: the reader and the full-screen
+/// document viewer can both be on the stack, and the inner one popping must
+/// not hand the status bar back to the reader still sitting behind it.
+int _immersed = 0;
+
+/// Hides the status and navigation bars for a full-screen read.
+///
+/// Worth doing only sideways, and only there because of what it costs: a phone
+/// in landscape has about 411dp of height, of which the two system bars take
+/// some 70 — a sixth of the page, spent on a clock. `immersiveSticky` keeps
+/// them one swipe away rather than gone.
+///
+/// Always pair with [exitImmersiveReading], or the rest of the app inherits a
+/// window with no system bars.
+Future<void> enterImmersiveReading() {
+  _immersed += 1;
+  if (_immersed > 1) return Future<void>.value();
+  return SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+}
+
+/// Gives up this screen's claim, and puts the system bars back once nothing
+/// else is holding one.
+Future<void> exitImmersiveReading() {
+  if (_immersed > 0) _immersed -= 1;
+  if (_immersed > 0) return Future<void>.value();
+  return SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+}

@@ -482,6 +482,33 @@ export function SocialLinksPageSkeleton() {
   );
 }
 
+/** Accurate App Update Settings Skeleton Loader */
+export function AppUpdatePageSkeleton() {
+  return (
+    <div className="space-y-6 max-w-3xl animate-pulse">
+      <div className="space-y-1.5">
+        <div className="h-8 w-64 bg-slate-200 dark:bg-[#1e2e56] rounded-xl" />
+        <div className="h-4 w-96 max-w-full bg-slate-100 dark:bg-[#132044] rounded-lg" />
+      </div>
+
+      <Card className="p-6 space-y-5 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] rounded-2xl shadow-sm">
+        <div className="h-14 w-full bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="h-20 bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+          <div className="h-20 bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="h-16 bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+          <div className="h-16 bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+        </div>
+        <div className="h-14 w-full bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+        <div className="h-24 w-full bg-slate-100 dark:bg-[#0c152e]/60 rounded-xl" />
+        <div className="h-10 w-40 bg-slate-200 dark:bg-[#1e2e56] rounded-xl" />
+      </Card>
+    </div>
+  );
+}
+
 /** Accurate Orders & Transactions Skeleton Loader */
 export function OrdersPageSkeleton() {
   return (

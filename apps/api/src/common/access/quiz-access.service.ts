@@ -8,6 +8,8 @@ export interface PaywallableQuiz {
   accessType?: string | null;
   isPremium?: boolean | null;
   price?: number | null;
+  discountPercent?: number | null;
+  finalPrice?: number | null;
   title?: string | null;
 }
 
@@ -18,6 +20,8 @@ export interface QuizAccessState {
   /** The caller may read questions and attempt it. */
   hasAccess: boolean;
   price: number;
+  originalPrice?: number;
+  discountPercent?: number;
   reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
 }
 
@@ -25,15 +29,11 @@ export interface QuizAccessState {
 export interface AccessActor {
   id: string;
   role?: UserRole | string | null;
+  isPremium?: boolean | null;
 }
 
 /**
  * Decides who may read and attempt a paid quiz.
- *
- * Entitlement is per quiz: it comes from a SUCCESS order for that specific
- * quiz, never from the account-wide `user.isPremium` flag — that flag is set by
- * any successful purchase, so trusting it would unlock every paid quiz in the
- * catalogue after a single unrelated payment.
  */
 @Injectable()
 export class QuizAccessService {
@@ -49,23 +49,32 @@ export class QuizAccessService {
     return actor?.role === UserRole.ADMIN || actor?.role === UserRole.STAFF;
   }
 
-  /** True when the user holds a settled payment for this quiz. */
+  /** True when the user holds a settled payment for this specific quiz. */
   async hasPurchased(userId: string, quizId: string): Promise<boolean> {
     const paidOrder = await this.prisma.order.findFirst({
-      where: { userId, quizId, status: 'SUCCESS' },
+      where: {
+        userId,
+        status: 'SUCCESS',
+        quizId,
+      },
       select: { id: true },
     });
     return !!paidOrder;
   }
 
   /** Every quiz this user has settled payment for — one query for list routes. */
-  async getPurchasedQuizIds(userId?: string | null): Promise<Set<string>> {
-    if (!userId) return new Set();
+  async getPurchasedQuizIds(userId?: string | null): Promise<{ quizIds: Set<string>; hasAllAccess: boolean }> {
+    if (!userId) return { quizIds: new Set(), hasAllAccess: false };
     const orders = await this.prisma.order.findMany({
-      where: { userId, status: 'SUCCESS', quizId: { not: null } },
+      where: {
+        userId,
+        status: 'SUCCESS',
+        quizId: { not: null },
+      },
       select: { quizId: true },
     });
-    return new Set(orders.map((o) => o.quizId as string));
+    const quizIds = new Set(orders.filter((o) => o.quizId).map((o) => o.quizId as string));
+    return { quizIds, hasAllAccess: false };
   }
 
   /**
@@ -77,19 +86,30 @@ export class QuizAccessService {
     actor: AccessActor | null | undefined,
     quizzes: T[],
   ): Promise<(T & { access: QuizAccessState })[]> {
-    const purchased = await this.getPurchasedQuizIds(actor?.id);
+    const { quizIds: purchased } = await this.getPurchasedQuizIds(actor?.id);
 
     return quizzes.map((quiz) => {
-      const price = quiz.price ?? 0;
+      const originalPrice = quiz.price ?? 0;
+      const discountPercent = quiz.discountPercent ?? 0;
+      const effectivePrice = (quiz.finalPrice !== undefined && quiz.finalPrice !== null && quiz.finalPrice > 0)
+        ? quiz.finalPrice
+        : originalPrice;
       let access: QuizAccessState;
 
       if (!this.isPaidQuiz(quiz)) {
-        access = { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
+        access = { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
       } else if (!actor?.id) {
-        access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
+        access = { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
       } else {
         const bought = purchased.has(quiz.id);
-        access = { isPaid: true, hasAccess: bought, price, reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED' };
+        access = {
+          isPaid: true,
+          hasAccess: bought,
+          price: effectivePrice,
+          originalPrice,
+          discountPercent,
+          reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+        };
       }
 
       return { ...this.stripQuestionsIfLocked(quiz, access), access };
@@ -100,20 +120,26 @@ export class QuizAccessService {
     actor: AccessActor | null | undefined,
     quiz: PaywallableQuiz | null | undefined,
   ): Promise<QuizAccessState> {
-    const price = quiz?.price ?? 0;
+    const originalPrice = quiz?.price ?? 0;
+    const discountPercent = quiz?.discountPercent ?? 0;
+    const effectivePrice = (quiz?.finalPrice !== undefined && quiz?.finalPrice !== null && quiz.finalPrice > 0)
+      ? quiz.finalPrice
+      : originalPrice;
 
     if (!this.isPaidQuiz(quiz)) {
-      return { isPaid: false, hasAccess: true, price: 0, reason: 'FREE' };
+      return { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
     }
     if (!actor?.id) {
-      return { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
+      return { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
     }
 
     const purchased = await this.hasPurchased(actor.id, quiz!.id);
     return {
       isPaid: true,
       hasAccess: purchased,
-      price,
+      price: effectivePrice,
+      originalPrice,
+      discountPercent,
       reason: purchased ? 'PURCHASED' : 'PAYMENT_REQUIRED',
     };
   }

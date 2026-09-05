@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/api_client.dart';
 import '../storage/token_store.dart';
+import '../../data/repositories/app_update_repository.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/books_repository.dart';
 import '../../data/repositories/chat_repository.dart';
@@ -57,3 +58,6 @@ final notificationsRepositoryProvider = Provider<NotificationsRepository>(
 
 final chatRepositoryProvider =
     Provider<ChatRepository>((ref) => ChatRepository(ref.watch(apiClientProvider)));
+
+final appUpdateRepositoryProvider = Provider<AppUpdateRepository>(
+    (ref) => AppUpdateRepository(ref.watch(apiClientProvider)));

@@ -31,7 +31,7 @@ export const Dialog: React.FC<DialogProps> = ({
       >
         {/* Fixed Header */}
         {title || description ? (
-          <div className="shrink-0 p-4 sm:p-6 pb-2 sm:pb-3 pr-14 relative border-b border-slate-100 dark:border-slate-800/40">
+          <div className="shrink-0 pl-4 sm:pl-6 pr-14 sm:pr-16 pt-4 sm:pt-6 pb-2 sm:pb-3 relative border-b border-slate-100 dark:border-slate-800/40">
             <button
               onClick={onClose}
               type="button"

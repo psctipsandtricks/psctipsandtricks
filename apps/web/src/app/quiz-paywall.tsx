@@ -116,6 +116,9 @@ export function QuizPaywall({
     setCouponError('');
   };
 
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [paidAmount, setPaidAmount] = useState(finalPrice);
+
   const handlePay = async () => {
     setPaying(true);
     setPayError('');
@@ -170,7 +173,8 @@ export function QuizPaywall({
             });
 
             if (settled?.status === 'SUCCESS') {
-              await onUnlocked();
+              setPaidAmount(payableRupees);
+              setShowStartModal(true);
             } else {
               throw new Error('Payment verification failed.');
             }
@@ -201,6 +205,63 @@ export function QuizPaywall({
 
   return (
     <div className="max-w-2xl mx-auto py-10 sm:py-16 px-4 relative">
+      {/* Payment Success & Start Quiz Modal */}
+      {showStartModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-3xl border border-emerald-500/40 bg-white dark:bg-[#0c152e] p-6 sm:p-8 space-y-5 shadow-2xl text-center relative overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="w-16 h-16 rounded-3xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+              <CheckCircle2 className="w-9 h-9 text-emerald-500" />
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Payment Verified</span>
+              </span>
+              <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                Payment Successful!
+              </h3>
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300 line-clamp-1">
+                {title}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Your test access is unlocked. Are you ready to begin?
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#070e20] border border-slate-200/80 dark:border-[#1e2e56] flex items-center justify-between text-xs font-semibold">
+              <span className="text-slate-500 dark:text-slate-400">Amount Paid:</span>
+              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">₹{paidAmount}</span>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <Button
+                variant="gold"
+                size="lg"
+                onClick={async () => {
+                  setShowStartModal(false);
+                  await onUnlocked();
+                }}
+                className="w-full font-black py-3.5 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white shadow-lg shadow-emerald-500/25 cursor-pointer text-sm"
+              >
+                <span>Start Quiz Now</span>
+              </Button>
+              <Link href="/quizzes" className="block">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs font-bold text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Back to Quiz Hub
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Card className="p-6 sm:p-8 space-y-5 border border-amber-500/30">
         {isDemoMode && (
           <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center justify-between gap-3">

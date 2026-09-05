@@ -278,7 +278,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
     );
   }
 
-  const owned = book.access ? book.access.hasAccess : false;
+  const owned = Boolean(book.access?.hasAccess);
   const originalPrice = book.price || 0;
   const rawDiscount = book.discountPercent || 0;
   const effectivePrice =
@@ -288,7 +288,7 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
     originalPrice > effectivePrice
       ? Math.round(((originalPrice - effectivePrice) / originalPrice) * 100)
       : Math.round(rawDiscount);
-  const isFree = !book.isPremium || effectivePrice === 0;
+  const isFree = !book.isPremium && effectivePrice === 0 && originalPrice === 0;
 
   const subInfo = book.access?.subscription;
   const isSubscription = book.subscriptionType === 'SUBSCRIPTION';

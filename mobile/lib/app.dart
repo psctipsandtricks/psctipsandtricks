@@ -6,9 +6,12 @@ import 'core/providers/theme_controller.dart';
 import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/update/app_update_controller.dart';
+import 'core/widgets/app_launch_splash.dart';
 import 'features/announcements/announcement_popup.dart';
 import 'features/offline/offline_gate.dart';
 import 'features/offline/offline_providers.dart';
+import 'features/update/update_gate.dart';
 
 class PscStudentApp extends ConsumerStatefulWidget {
   const PscStudentApp({super.key});
@@ -28,6 +31,10 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
     // launch-from-tray message is routed.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(pushServiceProvider).start();
+      // Fire-and-forget: the controller itself decides what, if anything, to
+      // show — nothing here waits on it, so a slow or unreachable backend
+      // never holds up the splash or the first frame of real content.
+      ref.read(appUpdateControllerProvider.notifier).checkForUpdate();
     });
   }
 
@@ -44,7 +51,17 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
     // check-in usually happens while they are online anyway, so the lock screen
     // stays rare.
     if (state == AppLifecycleState.resumed) {
-      ref.read(downloadManagerProvider.notifier).revalidateStale();
+      final downloads = ref.read(downloadManagerProvider.notifier);
+      // Delete any downloaded book whose access window has closed. This is a
+      // local check against each copy's stored validity, so it runs with or
+      // without a connection; the lease re-check that follows also catches
+      // server-side revocations.
+      downloads.purgeExpiredDownloads();
+      downloads.revalidateStale();
+      // Re-checks are cheap: the controller no-ops if a check is already
+      // running or the student is already looking at the blocking screen, so
+      // this never doubles up or re-launches a flow that is already open.
+      ref.read(appUpdateControllerProvider.notifier).checkForUpdate();
     }
   }
 
@@ -65,11 +82,19 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(scale),
           ),
-          child: OfflineGate(
-            // Above the router, so the notice reaches the student wherever
-            // the app opened them.
-            child: AnnouncementPopupHost(
-              child: child ?? const SizedBox.shrink(),
+          child: AppLaunchSplashHost(
+            child: UpdateGate(
+              // Outermost of the three: a mandatory update takes over the
+              // whole app, offline steering and announcements included —
+              // there is nothing behind that wall worth reaching. Otherwise
+              // it is invisible and everything below runs exactly as before.
+              child: OfflineGate(
+                // Above the router, so the notice reaches the student wherever
+                // the app opened them.
+                child: AnnouncementPopupHost(
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              ),
             ),
           ),
         );

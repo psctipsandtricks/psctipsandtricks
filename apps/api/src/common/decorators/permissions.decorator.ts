@@ -14,7 +14,8 @@ export type StaffPermissionKey =
   | 'managePdfs'
   | 'manageAnnouncements'
   | 'manageReviews'
-  | 'manageSocialLinks';
+  | 'manageSocialLinks'
+  | 'manageAppUpdate';
 
 export const PERMISSIONS_KEY = 'permissions';
 export const RequirePermissions = (...permissions: StaffPermissionKey[]) =>

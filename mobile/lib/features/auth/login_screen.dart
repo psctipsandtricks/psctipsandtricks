@@ -43,7 +43,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   void _goOnwards() {
     if (!mounted) return;
-    context.go(widget.redirect ?? AppRoutes.home);
+    goAfterAuth(context, widget.redirect);
   }
 
   Future<void> _submit() async {

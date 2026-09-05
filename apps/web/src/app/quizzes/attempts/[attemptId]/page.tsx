@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   Clock,
+  Download,
   History,
   ListChecks,
   MinusCircle,
@@ -36,6 +37,43 @@ const FILTERS: { key: Filter; label: string }[] = [
 function formatPercent(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+}
+
+/**
+ * A qualitative read on a score, layered on top of the pass/fail verdict.
+ *
+ * "Not Passed" only says whether the cutoff was cleared — it reads the same
+ * whether a student missed it by two marks or scored close to zero. This adds
+ * the difference back, and applies to every attempt, passed or not. Mirrors
+ * the thresholds the mobile app uses (performance_band.dart) so the two never
+ * disagree about a label for the same attempt.
+ */
+function performanceBandFor(percentage: number): {
+  label: string;
+  className: string;
+} {
+  if (percentage >= 85) {
+    return {
+      label: 'Excellent',
+      className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+    };
+  }
+  if (percentage >= 60) {
+    return {
+      label: 'Good',
+      className: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 border-cyan-500/30',
+    };
+  }
+  if (percentage >= 40) {
+    return {
+      label: 'Average',
+      className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+    };
+  }
+  return {
+    label: 'Needs Improvement',
+    className: 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30',
+  };
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -76,6 +114,7 @@ export default function QuizAttemptReviewPage({ params }: { params: { attemptId:
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -119,12 +158,73 @@ export default function QuizAttemptReviewPage({ params }: { params: { attemptId:
     [review, filter]
   );
 
+  // Premium-only, and only reachable from here — a submitted attempt's own
+  // result page — so a student can never download the answer key before
+  // their attempt is locked in.
+  const handleDownloadPDF = async () => {
+    if (!review || isDownloadingPDF) return;
+    setIsDownloadingPDF(true);
+    try {
+      const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
+      await generateQuizSolutionsPDF({
+        quizTitle: review.quizTitle,
+        score: review.score,
+        totalMarks: review.totalMarks,
+        questions: review.questions.map((q) => ({
+          id: q.id,
+          text: q.text,
+          options: q.options.map((opt) => ({
+            id: opt.id,
+            text: opt.text,
+            explanation: opt.explanation ?? undefined,
+          })),
+          correct: q.correctOptionIndex ?? -1,
+          explanation: q.explanation ?? undefined,
+          marks: q.marks,
+          userSelection: q.selectedOptionIndex ?? undefined,
+        })),
+      });
+    } catch (err) {
+      console.error('Failed to generate solutions PDF', err);
+      alert('Could not generate the solutions PDF. Please try again.');
+    } finally {
+      setIsDownloadingPDF(false);
+    }
+  };
+
   if (loading || authLoading || !user) {
     return (
-      <div className="max-w-4xl mx-auto space-y-4 py-6">
-        <Skeleton className="h-40 w-full rounded-2xl" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
-        <Skeleton className="h-32 w-full rounded-2xl" />
+      <div className="max-w-4xl mx-auto space-y-5 px-1 sm:px-0 py-2 animate-pulse">
+        <div className="flex items-center justify-between gap-3">
+          <Skeleton className="h-9 w-32 rounded-xl" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-28 rounded-xl" />
+            <Skeleton className="h-9 w-28 rounded-xl" />
+          </div>
+        </div>
+        <Card className="p-5 sm:p-6 space-y-5 rounded-2xl border border-slate-200/60 dark:border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div className="space-y-3 flex-1">
+              <Skeleton className="h-7 w-3/4 rounded-lg" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-6 w-20 rounded-lg" />
+                <Skeleton className="h-6 w-24 rounded-lg" />
+                <Skeleton className="h-6 w-20 rounded-lg" />
+              </div>
+            </div>
+            <Skeleton className="h-16 w-36 rounded-xl" />
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-2">
+            <Skeleton className="h-14 rounded-xl" />
+            <Skeleton className="h-14 rounded-xl" />
+            <Skeleton className="h-14 rounded-xl" />
+            <Skeleton className="h-14 rounded-xl" />
+          </div>
+        </Card>
+        <div className="space-y-3 pt-2">
+          <Skeleton className="h-36 w-full rounded-2xl" />
+          <Skeleton className="h-36 w-full rounded-2xl" />
+        </div>
       </div>
     );
   }
@@ -153,6 +253,8 @@ export default function QuizAttemptReviewPage({ params }: { params: { attemptId:
     minute: '2-digit',
   });
 
+  const band = performanceBandFor(review.percentage);
+
   return (
     <div className="max-w-4xl mx-auto space-y-5 px-1 sm:px-0 py-2">
       <div className="flex items-center justify-between gap-3">
@@ -162,12 +264,27 @@ export default function QuizAttemptReviewPage({ params }: { params: { attemptId:
             <span>My Attempts</span>
           </Button>
         </Link>
-        <Link href={`/quizzes/${review.quizId}`}>
-          <Button variant="gold" size="sm" className="font-bold flex items-center space-x-1.5">
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Retake Quiz</span>
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {review.isPremium && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadPDF}
+              isLoading={isDownloadingPDF}
+              className="font-bold flex items-center space-x-1.5 border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+              title="Download Solutions PDF"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Solutions PDF</span>
+            </Button>
+          )}
+          <Link href={`/quizzes/${review.quizId}`}>
+            <Button variant="gold" size="sm" className="font-bold flex items-center space-x-1.5">
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Retake Quiz</span>
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Result summary */}
@@ -181,6 +298,7 @@ export default function QuizAttemptReviewPage({ params }: { params: { attemptId:
               <Badge variant={review.passed ? 'success' : 'danger'} className="font-bold">
                 {review.passed ? 'Passed' : 'Not Passed'}
               </Badge>
+              <Badge className={`font-bold ${band.className}`}>{band.label}</Badge>
               <Badge variant="outline" className="font-bold">
                 Attempt #{review.attemptNumber}
               </Badge>

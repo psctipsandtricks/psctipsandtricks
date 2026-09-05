@@ -54,7 +54,11 @@ class AppRoutes {
   static String bookDetail(String id) => '/books/$id';
   static String bookReader(String id, {bool resume = false}) =>
       '/books/$id/read${resume ? '?resume=1' : ''}';
-  static String quizAttempt(String id) => '/attempt/$id';
+  /// [mockTestId], when the paper being attempted is a scheduled mock test,
+  /// routes the submission to the mock test's own scoring path — the one that
+  /// feeds the rank list — instead of a plain quiz attempt.
+  static String quizAttempt(String id, {String? mockTestId}) =>
+      '/attempt/$id${mockTestId != null ? '?mockTestId=$mockTestId' : ''}';
 
   /// The detailed result of one submitted attempt, keyed by attempt id.
   static String quizResult(String attemptId) => '/attempt-result/$attemptId';
@@ -148,8 +152,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/attempt/:id',
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) =>
-            QuizAttemptScreen(quizId: state.pathParameters['id']!),
+        builder: (context, state) => QuizAttemptScreen(
+          quizId: state.pathParameters['id']!,
+          mockTestId: state.uri.queryParameters['mockTestId'],
+        ),
       ),
       GoRoute(
         path: '/attempt-result/:attemptId',
@@ -169,6 +175,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) =>
             GroupChatScreen(groupId: state.pathParameters['id']!),
       ),
+      // Full-screen pages that hang off the account and home surfaces but do
+      // not own a bottom-nav tab. They live at the top level, on the root
+      // navigator, so `context.push` reaches them from *any* branch — a route
+      // nested inside one StatefulShellBranch is silently scoped out when
+      // pushed from another (which is why "My progress" opened nothing from
+      // the Me tab).
       GoRoute(
         path: '/orders',
         parentNavigatorKey: _rootNavigatorKey,
@@ -179,6 +191,31 @@ final routerProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const ProfileScreen(),
       ),
+      GoRoute(
+        path: AppRoutes.dashboard,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.notifications,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const NotificationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.mockTests,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const MockTestsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.community,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const CommunityScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.quizHistory,
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const QuizHistoryScreen(),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             ShellScaffold(navigationShell: navigationShell),
@@ -188,24 +225,6 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.home,
                 builder: (context, state) => const HomeScreen(),
-                routes: [
-                  GoRoute(
-                    path: 'notifications',
-                    builder: (context, state) => const NotificationsScreen(),
-                  ),
-                  GoRoute(
-                    path: 'mock-tests',
-                    builder: (context, state) => const MockTestsScreen(),
-                  ),
-                  GoRoute(
-                    path: 'dashboard',
-                    builder: (context, state) => const DashboardScreen(),
-                  ),
-                  GoRoute(
-                    path: 'community',
-                    builder: (context, state) => const CommunityScreen(),
-                  ),
-                ],
               ),
             ],
           ),
@@ -234,12 +253,6 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.quizzes,
                 builder: (context, state) => const QuizzesScreen(),
-                routes: [
-                  GoRoute(
-                    path: 'history',
-                    builder: (context, state) => const QuizHistoryScreen(),
-                  ),
-                ],
               ),
             ],
           ),
@@ -283,16 +296,6 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.account,
                 builder: (context, state) => const AccountScreen(),
-                routes: [
-                  GoRoute(
-                    path: 'profile',
-                    builder: (context, state) => const ProfileScreen(),
-                  ),
-                  GoRoute(
-                    path: 'orders',
-                    builder: (context, state) => const OrdersScreen(),
-                  ),
-                ],
               ),
             ],
           ),

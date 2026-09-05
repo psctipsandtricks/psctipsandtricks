@@ -18,6 +18,7 @@ import {
   Button,
   Dialog,
   DatePicker,
+  TimePicker,
   Select,
 } from '@psc/ui';
 import {
@@ -78,6 +79,8 @@ const manualOrderSchema = Yup.object({
   itemId: Yup.string().required('Select an item'),
   amount: Yup.string(),
   note: Yup.string(),
+  orderDate: Yup.string().required('Select an order date'),
+  orderTime: Yup.string().required('Select an order time'),
 });
 
 function formatLocalDate(d: Date): string {
@@ -85,6 +88,12 @@ function formatLocalDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function formatLocalTime(d: Date): string {
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
 }
 
 function StudentSearchCombobox({
@@ -405,6 +414,8 @@ export default function AdminOrdersPage() {
   const [viewingOrder, setViewingOrder] = useState<OrderRecord | null>(null);
   const [editingOrder, setEditingOrder] = useState<OrderRecord | null>(null);
   const [editStatus, setEditStatus] = useState<string>('SUCCESS');
+  const [editOrderDate, setEditOrderDate] = useState<string>('');
+  const [editOrderTime, setEditOrderTime] = useState<string>('');
   const [editAmount, setEditAmount] = useState<string>('');
   const [editNote, setEditNote] = useState<string>('');
   const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
@@ -555,18 +566,42 @@ export default function AdminOrdersPage() {
   }, [fetchOrders]);
 
   const formik = useFormik({
-    initialValues: { userId: '', itemType: 'book' as 'book' | 'quiz', itemId: '', amount: '', note: '' },
+    initialValues: {
+      userId: '',
+      itemType: 'book' as 'book' | 'quiz',
+      itemId: '',
+      amount: '',
+      note: '',
+      orderDate: formatLocalDate(new Date()),
+      orderTime: formatLocalTime(new Date()),
+    },
     validationSchema: manualOrderSchema,
     onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
       try {
         const rawAmount = String(values.amount ?? '').trim();
         const rawNote = String(values.note ?? '').trim();
+        const rawOrderDate = String(values.orderDate ?? '').trim();
+        const rawOrderTime = String(values.orderTime ?? '').trim() || '12:00';
+
+        let purchaseDateCombined: string | undefined = undefined;
+        if (rawOrderDate) {
+          const [y, m, d] = rawOrderDate.split('-').map(Number);
+          const [hh, mm] = rawOrderTime.split(':').map(Number);
+          if (y && m && d) {
+            const combined = new Date(y, m - 1, d, isNaN(hh) ? 12 : hh, isNaN(mm) ? 0 : mm, 0);
+            purchaseDateCombined = combined.toISOString();
+          } else {
+            purchaseDateCombined = rawOrderDate;
+          }
+        }
+
         await ApiClient.createManualOrder({
           userId: values.userId,
           bookId: values.itemType === 'book' ? values.itemId : undefined,
           quizId: values.itemType === 'quiz' ? values.itemId : undefined,
           amount: rawAmount !== '' ? Number(rawAmount) : undefined,
           note: rawNote !== '' ? rawNote : undefined,
+          purchaseDate: purchaseDateCombined,
         });
         resetForm();
         setUserSearch('');
@@ -583,11 +618,36 @@ export default function AdminOrdersPage() {
 
   const handleOpenGrantDialog = async () => {
     formik.resetForm();
+    const now = new Date();
+    formik.setFieldValue('orderDate', formatLocalDate(now));
+    formik.setFieldValue('orderTime', formatLocalTime(now));
+    formik.setFieldValue('amount', '');
     setUserSearch('');
     setIsGrantDialogOpen(true);
-    if (users.length === 0) ApiClient.getUsers().then(setUsers).catch(() => {});
-    if (books.length === 0) ApiClient.getBooks().then(setBooks).catch(() => {});
-    if (quizzes.length === 0) ApiClient.getQuizzes().then(setQuizzes).catch(() => {});
+    if (users.length === 0) {
+      ApiClient.getUsers({ limit: 500 })
+        .then((res) => {
+          const list: User[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+          setUsers(list);
+        })
+        .catch(() => {});
+    }
+    if (books.length === 0) {
+      ApiClient.getBooks({ limit: 500 })
+        .then((res) => {
+          const list: Book[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+          setBooks(list);
+        })
+        .catch(() => {});
+    }
+    if (quizzes.length === 0) {
+      ApiClient.getQuizzes({ limit: 500 })
+        .then((res) => {
+          const list: Quiz[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+          setQuizzes(list);
+        })
+        .catch(() => {});
+    }
   };
 
   const filteredUsers = users.filter(
@@ -596,7 +656,22 @@ export default function AdminOrdersPage() {
       u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
       u.email?.toLowerCase().includes(userSearch.toLowerCase()),
   );
-  const itemOptions = formik.values.itemType === 'book' ? books : quizzes;
+
+  const premiumBooks = useMemo(() => {
+    return books.filter(
+      (b) =>
+        !b.isLegacyPlaceholder &&
+        (b.isPremium || (b.finalPrice != null && b.finalPrice > 0) || (b.price != null && b.price > 0))
+    );
+  }, [books]);
+
+  const premiumQuizzes = useMemo(() => {
+    return quizzes.filter(
+      (q) => q.isPremium || (q as any).accessType === 'PAID' || (q.price != null && q.price > 0)
+    );
+  }, [quizzes]);
+
+  const itemOptions = formik.values.itemType === 'book' ? premiumBooks : premiumQuizzes;
 
   // Main Filtered Orders List
   const filteredOrders = useMemo(() => {
@@ -659,6 +734,20 @@ export default function AdminOrdersPage() {
     setEditStatus(order.status);
     setEditAmount(String(order.amount));
     setEditNote(order.description || '');
+
+    if (order.createdAtRaw) {
+      const d = new Date(order.createdAtRaw);
+      if (!isNaN(d.getTime())) {
+        setEditOrderDate(formatLocalDate(d));
+        setEditOrderTime(formatLocalTime(d));
+      } else {
+        setEditOrderDate(order.date || formatLocalDate(new Date()));
+        setEditOrderTime(formatLocalTime(new Date()));
+      }
+    } else {
+      setEditOrderDate(order.date || formatLocalDate(new Date()));
+      setEditOrderTime(formatLocalTime(new Date()));
+    }
   };
 
   const handleSaveOrderEdit = async () => {
@@ -667,10 +756,26 @@ export default function AdminOrdersPage() {
     try {
       const rawEditAmount = String(editAmount ?? '').trim();
       const rawEditNote = String(editNote ?? '').trim();
+      const rawEditDate = String(editOrderDate ?? '').trim();
+      const rawEditTime = String(editOrderTime ?? '').trim() || '12:00';
+
+      let purchaseDateCombined: string | undefined = undefined;
+      if (rawEditDate) {
+        const [y, m, d] = rawEditDate.split('-').map(Number);
+        const [hh, mm] = rawEditTime.split(':').map(Number);
+        if (y && m && d) {
+          const combined = new Date(y, m - 1, d, isNaN(hh) ? 12 : hh, isNaN(mm) ? 0 : mm, 0);
+          purchaseDateCombined = combined.toISOString();
+        } else {
+          purchaseDateCombined = rawEditDate;
+        }
+      }
+
       await ApiClient.updateOrder(editingOrder.id, {
         status: editStatus,
         amount: rawEditAmount !== '' ? Number(rawEditAmount) : undefined,
         description: rawEditNote !== '' ? rawEditNote : undefined,
+        purchaseDate: purchaseDateCombined,
       });
 
       // Update local state
@@ -682,6 +787,7 @@ export default function AdminOrdersPage() {
                 status: editStatus,
                 amount: rawEditAmount !== '' ? Number(rawEditAmount) : o.amount,
                 description: rawEditNote,
+                date: rawEditDate || o.date,
               }
             : o
         )
@@ -1347,6 +1453,22 @@ export default function AdminOrdersPage() {
               ]}
             />
 
+            {/* Order Date & Order Time */}
+            <div className="grid grid-cols-2 gap-4">
+              <DatePicker
+                label="Order Date"
+                value={editOrderDate}
+                onChange={(val) => setEditOrderDate(val)}
+                placeholder="YYYY-MM-DD"
+              />
+              <TimePicker
+                label="Order Time"
+                value={editOrderTime}
+                onChange={(val) => setEditOrderTime(val)}
+                placeholder="Select time…"
+              />
+            </div>
+
             {/* Amount Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
@@ -1415,34 +1537,85 @@ export default function AdminOrdersPage() {
             error={formik.touched.userId ? (formik.errors.userId as string) : undefined}
           />
 
-          <div className="grid grid-cols-2 gap-4">
-            <Select
-              label="Item Type"
-              value={formik.values.itemType}
-              onChange={(val) => {
-                formik.setFieldValue('itemType', val);
-                formik.setFieldValue('itemId', '');
-              }}
-              options={[
-                { value: 'book', label: 'Book' },
-                { value: 'quiz', label: 'Quiz' },
-              ]}
-            />
-            <Select
-              label={formik.values.itemType === 'book' ? 'Book' : 'Quiz'}
-              value={formik.values.itemId}
-              onChange={(val) => formik.setFieldValue('itemId', val)}
-              placeholder="Select item..."
-              searchable
-              options={itemOptions.map((item) => ({
+          {/* Item Type - Full Width */}
+          <Select
+            label="Item Type"
+            value={formik.values.itemType}
+            onChange={(val) => {
+              formik.setFieldValue('itemType', val);
+              formik.setFieldValue('itemId', '');
+              formik.setFieldValue('amount', '');
+            }}
+            options={[
+              { value: 'book', label: 'Book' },
+              { value: 'quiz', label: 'Quiz' },
+            ]}
+          />
+
+          {/* Book / Quiz Selection - Full Width */}
+          <Select
+            label={formik.values.itemType === 'book' ? 'Book' : 'Quiz'}
+            value={formik.values.itemId}
+            onChange={(val) => {
+              formik.setFieldValue('itemId', val);
+              if (!val) {
+                formik.setFieldValue('amount', '');
+                return;
+              }
+              if (formik.values.itemType === 'book') {
+                const selectedBook = premiumBooks.find((b) => b.id === val);
+                if (selectedBook) {
+                  const price =
+                    selectedBook.finalPrice != null && selectedBook.finalPrice > 0
+                      ? selectedBook.finalPrice
+                      : (selectedBook.price ?? 0);
+                  formik.setFieldValue('amount', price > 0 ? String(price) : '0');
+                }
+              } else {
+                const selectedQuiz = premiumQuizzes.find((q) => q.id === val);
+                if (selectedQuiz) {
+                  const price = selectedQuiz.price ?? 0;
+                  formik.setFieldValue('amount', price > 0 ? String(price) : '0');
+                }
+              }
+            }}
+            placeholder={formik.values.itemType === 'book' ? 'Select premium book...' : 'Select premium quiz...'}
+            searchable
+            options={itemOptions.map((item) => {
+              const price =
+                formik.values.itemType === 'book'
+                  ? ((item as Book).finalPrice != null && (item as Book).finalPrice > 0
+                      ? (item as Book).finalPrice
+                      : ((item as Book).price ?? 0))
+                  : ((item as Quiz).price ?? 0);
+              const priceBadge = price > 0 ? ` (₹${price})` : '';
+              return {
                 value: item.id,
-                label: item.title,
-              }))}
-              error={formik.touched.itemId ? (formik.errors.itemId as string) : undefined}
+                label: `${item.title}${priceBadge}`,
+              };
+            })}
+            error={formik.touched.itemId ? (formik.errors.itemId as string) : undefined}
+          />
+
+          {/* Order Date & Order Time */}
+          <div className="grid grid-cols-2 gap-4">
+            <DatePicker
+              label="Order Date"
+              value={formik.values.orderDate}
+              onChange={(val) => formik.setFieldValue('orderDate', val)}
+              placeholder="YYYY-MM-DD"
+              error={formik.touched.orderDate ? (formik.errors.orderDate as string) : undefined}
+            />
+            <TimePicker
+              label="Order Time"
+              value={formik.values.orderTime}
+              onChange={(val) => formik.setFieldValue('orderTime', val)}
+              placeholder="Select time…"
+              error={formik.touched.orderTime ? (formik.errors.orderTime as string) : undefined}
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Amount Override (Optional)"
               name="amount"

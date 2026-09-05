@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,10 +14,20 @@ import '../../data/repositories/offline_repository.dart';
 /// whole library.
 class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
   DownloadManager(this._repo) : super(const {}) {
-    unawaited(_restore());
+    _ready = _restore();
   }
 
   final OfflineRepository _repo;
+
+  /// Completes once the vault has been read back into memory.
+  ///
+  /// A cold start with no connection has to know whether there is anything
+  /// downloaded *before* it decides where to send the student, and the restore
+  /// is file IO — awaiting this is the difference between steering them to
+  /// their books and deciding, a few milliseconds too early, that they have
+  /// none.
+  Future<void> get ready => _ready;
+  late Future<void> _ready;
 
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, OfflineBook> _library = {};
@@ -56,6 +64,14 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
       final books = await _repo.library();
       final restored = <String, DownloadProgress>{};
       for (final book in books) {
+        // An entitlement that lapsed while the app was closed takes its
+        // download with it: the copy is deleted here rather than restored as a
+        // locked book. Expiry is read straight off the manifest's validTill,
+        // so this holds with no connection.
+        if (book.lease.isExpired) {
+          await _repo.delete(book.bookId);
+          continue;
+        }
         _library[book.bookId] = book;
         // Measure the vault rather than trusting the manifest: totalBytes only
         // advances when a whole asset lands, so a transfer interrupted mid-file
@@ -307,7 +323,7 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
       );
     }
 
-    add(book.coverUrl, OfflineAssetKind.cover);
+    add(book.effectiveHeroCoverUrl, OfflineAssetKind.cover);
 
     final content = BookReaderContent.fromJson(readerJson);
     for (final chapter in content.chapters) {
@@ -343,6 +359,48 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
     state = next;
   }
 
+  /// Deletes every downloaded book whose access window has closed.
+  ///
+  /// Expiry is judged from the manifest's own `validTill` (or an explicit
+  /// server revocation already written into the lease), so this needs no
+  /// connection. A book that has merely gone too long without a check-in is
+  /// left alone — only a real expiry removes the copy.
+  ///
+  /// Returns the titles removed, so a caller can tell the student what went.
+  Future<List<String>> purgeExpiredDownloads() async {
+    final expired =
+        _library.values.where((b) => b.lease.isExpired).toList();
+    for (final book in expired) {
+      await remove(book.bookId);
+    }
+    return [for (final book in expired) book.title];
+  }
+
+  /// Drops the entire offline library — in-flight transfers, in-memory state
+  /// and the encrypted files on disk.
+  ///
+  /// Called on sign-out. Downloaded books belong to the account that fetched
+  /// them, and nothing on disk ties a copy back to a user, so the whole vault
+  /// has to go when the session ends or the next account inherits the last
+  /// one's offline books.
+  Future<void> wipe() async {
+    for (final token in _cancelTokens.values) {
+      token.cancel('signed-out');
+    }
+    _cancelTokens.clear();
+    _discarded.clear();
+    _library.clear();
+    if (mounted) state = const {};
+    try {
+      await _repo.wipeLibrary();
+    } catch (e) {
+      if (kDebugMode) debugPrint('Could not wipe offline library: $e');
+    }
+    // Nothing left to restore; keep `ready` resolved so the offline gate does
+    // not stall waiting on a library that is gone.
+    _ready = Future.value();
+  }
+
   // ── Leases ────────────────────────────────────────────────────────────
 
   /// Re-checks one book against the server and rewrites its lease.
@@ -354,8 +412,18 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
     if (book == null) return OfflineStatus.none;
 
     try {
-      final lease = await _repo.revalidate(bookId, book.lease);
-      final updated = book.copyWith(lease: lease);
+      final (lease, freshBook) = await _repo.revalidate(bookId, book.lease);
+      var updated = book.copyWith(lease: lease);
+      if (updated.lease.isExpired) {
+        // The server confirmed access is gone (lapsed or revoked) — delete the
+        // copy rather than leaving it on the device as a locked book.
+        await remove(bookId);
+        return OfflineStatus.expired;
+      }
+      // Piggybacks on the round trip above rather than fetching the book a
+      // second time just to notice a cover swapped in the Admin Panel since
+      // the download.
+      updated = await _refreshCoverIfStale(updated, freshBook);
       await _repo.save(updated);
       _library[bookId] = updated;
       _emit(bookId, progressFor(bookId).copyWith(status: updated.status));
@@ -366,11 +434,53 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
     }
   }
 
-  /// Opportunistic sweep: refreshes every lease that is close to needing it.
+  /// Re-fetches just the cover when the URL the book now serves no longer
+  /// matches what is cached, so an old download can pick up a cover swapped in
+  /// the Admin Panel without a full re-download of everything else.
+  Future<OfflineBook> _refreshCoverIfStale(
+    OfflineBook book,
+    Book freshBook,
+  ) async {
+    final freshUrl = freshBook.effectiveHeroCoverUrl;
+    if (freshUrl.isEmpty || book.assetForUrl(freshUrl) != null) return book;
+
+    try {
+      final newAsset = OfflineAsset(
+        id: _repo.vault.assetId(book.bookId, freshUrl),
+        remoteUrl: freshUrl,
+        kind: OfflineAssetKind.cover,
+      );
+      final bytes = await _repo.downloadAsset(
+        bookId: book.bookId,
+        asset: newAsset,
+        cancelToken: CancelToken(),
+      );
+      final oldCoverAssetId = book.coverAssetId;
+      final updated = book.copyWith(
+        coverAssetId: newAsset.id,
+        assets: [
+          for (final a in book.assets) if (a.id != oldCoverAssetId) a,
+          newAsset.copyWith(bytes: bytes, complete: true),
+        ],
+        totalBytes: book.totalBytes + bytes,
+      );
+      await _repo.vault.deleteAsset(book.bookId, oldCoverAssetId);
+      return updated;
+    } catch (e) {
+      // A stale thumbnail is not worth failing the whole revalidation over.
+      if (kDebugMode) debugPrint('Could not refresh cover for ${book.bookId}: $e');
+      return book;
+    }
+  }
+
+  /// Opportunistic sweep: refreshes every lease that is close to needing it,
+  /// then deletes anything that has since lapsed.
   ///
   /// Called when the app comes back to the foreground, so a student who is
   /// online in the normal course of using the app rarely meets the lock screen.
-  Future<void> revalidateStale() async {
+  ///
+  /// Returns the titles of any downloads removed for expiry.
+  Future<List<String>> revalidateStale() async {
     for (final book in _library.values.toList()) {
       final lease = book.lease;
       final halfway = lease.lastVerifiedAt.add(
@@ -382,10 +492,13 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
         await revalidate(book.bookId);
       }
     }
+    // A copy can also lapse purely on its stored validTill, with no server
+    // call in the mix — clear those out too.
+    return purgeExpiredDownloads();
   }
 
   /// Re-reads the library from disk — used after a delete or an external change.
-  Future<void> refresh() => _restore();
+  Future<void> refresh() => _ready = _restore();
 
   @override
   void dispose() {

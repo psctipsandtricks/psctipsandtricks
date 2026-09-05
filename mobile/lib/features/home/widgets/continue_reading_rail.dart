@@ -157,9 +157,9 @@ class _ContinueReadingCard extends StatelessWidget {
       child: Row(
         children: [
           BookCover(
-            url: book.heroCoverUrl ?? book.coverUrl,
+            url: book.coverUrl.isNotEmpty ? book.coverUrl : (book.heroCoverUrl ?? ''),
             width: ContinueReadingRail._coverWidth,
-            aspectRatio: book.heroCoverUrl != null ? (4 / 3) : (9 / 16),
+            aspectRatio: 9 / 16,
           ),
           const SizedBox(width: 12),
           Expanded(

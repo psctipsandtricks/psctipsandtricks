@@ -25,6 +25,7 @@ class Order {
     this.quizId,
     this.bookTitle,
     this.bookCoverUrl,
+    this.bookHeroCoverUrl,
     this.quizTitle,
     this.razorpayPaymentId,
     this.createdAt,
@@ -37,13 +38,27 @@ class Order {
   final String? bookId;
   final String? quizId;
   final String? bookTitle;
+
+  /// The 16:9 catalog cover (`book.coverUrl`).
   final String? bookCoverUrl;
+
+  /// The 2:3 book-size hero cover uploaded from the Admin Panel (`book.heroCoverUrl`).
+  final String? bookHeroCoverUrl;
   final String? quizTitle;
   final String? razorpayPaymentId;
   final DateTime? createdAt;
 
   String get itemTitle => bookTitle ?? quizTitle ?? 'Purchase';
   bool get isBook => bookId != null;
+
+  /// Prefer the 2:3 hero cover for book artwork, falling back to the catalog cover.
+  String? get bookArtworkUrl {
+    final hero = bookHeroCoverUrl?.trim();
+    if (hero != null && hero.isNotEmpty) return hero;
+    final cover = bookCoverUrl?.trim();
+    if (cover != null && cover.isNotEmpty) return cover;
+    return null;
+  }
 
   factory Order.fromJson(Map<String, dynamic> json) {
     final book = J.map(json['book']);
@@ -57,6 +72,7 @@ class Order {
       quizId: J.strOrNull(json['quizId']),
       bookTitle: J.strOrNull(book['title']),
       bookCoverUrl: J.strOrNull(book['coverUrl']),
+      bookHeroCoverUrl: J.strOrNull(book['heroCoverUrl']),
       quizTitle: J.strOrNull(quiz['title']),
       razorpayPaymentId: J.strOrNull(json['razorpayPaymentId']),
       createdAt: J.dateOrNull(json['createdAt']),

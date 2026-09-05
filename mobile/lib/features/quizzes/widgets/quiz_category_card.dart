@@ -51,13 +51,10 @@ class QuizCategoryCard extends StatelessWidget {
         borderRadius: AppTheme.radiusLg,
         borderColor: accent.withValues(alpha: 0.35),
         // A wash of the category's own colour, so free and premium are told
-        // apart by the whole card rather than by one small icon. Blended into
-        // the card colour rather than layered over it, so it holds up in both
+        // apart by the whole card rather than by one small icon. It rides in
+        // the glass rather than sitting on top of it, so it holds up in both
         // themes instead of washing out the surface in dark mode.
-        color: Color.alphaBlend(
-          accent.withValues(alpha: palette.isDark ? 0.07 : 0.045),
-          palette.card,
-        ),
+        accentColor: accent,
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [

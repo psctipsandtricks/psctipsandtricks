@@ -14,7 +14,12 @@ import 'package:psc_tips_tricks_mobile/features/books/reader_audio_controller.da
 /// The real controller, minus the platform call — see `book_preview_test.dart`.
 class _SilentAudio extends ReaderAudioController {
   @override
-  Future<void> load(String url, {String? label, bool autoPlay = false}) async {
+  Future<void> load(
+    String url, {
+    String? label,
+    String? album,
+    bool autoPlay = false,
+  }) async {
     title.value = label;
   }
 }

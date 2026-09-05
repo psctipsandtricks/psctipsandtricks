@@ -1,6 +1,7 @@
 import '../../core/network/api_client.dart';
 import '../../core/utils/json.dart';
 import '../models/mock_test.dart';
+import '../models/paginated.dart';
 import '../models/quiz.dart';
 
 class MockTestsRepository {
@@ -17,6 +18,24 @@ class MockTestsRepository {
         .whereType<Map>()
         .map((e) => MockTest.fromJson(Map<String, dynamic>.from(e)))
         .toList();
+  }
+
+  /// One numbered page of mock tests for a single status (used by the
+  /// "Completed" rail).
+  Future<Paginated<MockTest>> fetchMockTestsPage({
+    required MockTestStatus status,
+    required int page,
+    int limit = 10,
+  }) async {
+    final res = await _api.get<dynamic>(
+      '/mock-tests',
+      query: {
+        'status': status.name.toUpperCase(),
+        'page': page,
+        'limit': limit,
+      },
+    );
+    return Paginated.fromJson(res, MockTest.fromJson);
   }
 
   Future<MockTest> fetchMockTest(String id) async {

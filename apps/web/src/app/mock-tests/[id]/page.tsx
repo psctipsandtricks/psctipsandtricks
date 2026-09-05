@@ -8,6 +8,7 @@ import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Cl
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { QuizPaywall } from '@/app/quiz-paywall';
+import { QuizSubmittingOverlay } from '@/app/quiz-submitting-overlay';
 import { QuizTakingSkeleton } from '../../skeletons/page-skeletons';
 
 interface QuizQuestionOption {
@@ -212,6 +213,18 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     return () => clearInterval(interval);
   }, [showLeaderboardView, isCompleted, params.id]);
 
+  // Restore submitted answers on result page reload if available
+  useEffect(() => {
+    if (showLeaderboardView && Object.keys(selectedAnswers).length === 0) {
+      try {
+        const raw = localStorage.getItem(`mock-test-submitted-answers-${params.id}`);
+        if (raw) {
+          setSelectedAnswers(JSON.parse(raw));
+        }
+      } catch {}
+    }
+  }, [showLeaderboardView, params.id, selectedAnswers]);
+
   if (loading || authLoading || !user) {
     return <QuizTakingSkeleton />;
   }
@@ -259,17 +272,23 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       const selected = selectedAnswers[q.id];
       return selected === undefined ? { questionId: q.id } : { questionId: q.id, selectedOptionIndex: selected };
     });
-    const elapsedSeconds = quizStartRef.current ? Math.round((Date.now() - quizStartRef.current) / 1000) : 0;
+    // The raw millisecond figure is what rank ties are broken on server-side —
+    // rounding to whole seconds first would throw away exactly the precision
+    // that separates two students who finish a beat apart.
+    const elapsedMs = quizStartRef.current ? Date.now() - quizStartRef.current : 0;
+    const elapsedSeconds = Math.round(elapsedMs / 1000);
 
     try {
       const result = await ApiClient.submitMockTest(params.id, {
         quizId: mockTest.quizId,
         answers: answerPayload,
         timeTakenSeconds: elapsedSeconds,
+        timeTakenMs: elapsedMs,
       });
       setSubmitResult(result);
       setIsSubmitted(true);
       localStorage.removeItem(mockProgressStorageKey(params.id));
+      localStorage.setItem(`mock-test-submitted-answers-${params.id}`, JSON.stringify(selectedAnswers));
     } catch (err: any) {
       const message: string = err?.message || '';
 
@@ -294,6 +313,14 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       setIsSubmitting(false);
     }
   };
+
+  // The countdown effect above stops ticking at 00:00 but never used to end
+  // the attempt — a stalled timer left the student stuck on the last question.
+  useEffect(() => {
+    if (!showQuizView || isSubmitted || isSubmitting || timeLeft > 0) return;
+    handleSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft, showQuizView, isSubmitted, isSubmitting]);
 
   const handleExportPDF = async () => {
     if (isExportingPDF) return;
@@ -344,8 +371,11 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         mockTest={mockTest}
         leaderboard={leaderboard}
         userId={user.id}
+        userName={user.name || user.email || 'Student'}
         myScore={submitResult?.score ?? myParticipant?.score}
         myRank={submitResult?.rank ?? myParticipant?.rank}
+        questions={questions}
+        selectedAnswers={selectedAnswers}
         onExportPDF={handleExportPDF}
       />
     );
@@ -384,17 +414,6 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
               {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
             </span>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportPDF}
-            isLoading={isExportingPDF}
-            className="font-bold flex items-center space-x-1 py-1.5 px-2.5 text-xs cursor-pointer shrink-0 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
-            title="Download Questions & Solutions PDF"
-          >
-            <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">PDF</span>
-          </Button>
           <Button
             variant="gold"
             size="sm"
@@ -477,6 +496,16 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
           )}
         </div>
       </Card>
+
+      {/* Covers the gap between pressing submit and the result/rank list
+          landing — otherwise the only feedback was a small button spinner. */}
+      {isSubmitting && (
+        <QuizSubmittingOverlay
+          type="mock-test"
+          title="Scoring your mock test…"
+          message="Calculating your score and placing you on the rank list. This only takes a moment."
+        />
+      )}
     </div>
   );
 }
@@ -589,22 +618,113 @@ function MissedTestView({ mockTest, joined, onExportPDF }: { mockTest: any; join
   );
 }
 
+type SolutionFilter = 'ALL' | 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
+
+const SOLUTION_FILTERS: { key: SolutionFilter; label: string }[] = [
+  { key: 'ALL', label: 'All' },
+  { key: 'CORRECT', label: 'Correct' },
+  { key: 'INCORRECT', label: 'Incorrect' },
+  { key: 'UNATTEMPTED', label: 'Skipped' },
+];
+
+const optionLetter = (index: number) => String.fromCharCode(65 + index);
+
+const STATUS_THEME: Record<'CORRECT' | 'INCORRECT' | 'UNATTEMPTED', { label: string; badge: string; border: string }> = {
+  CORRECT: {
+    label: 'Correct',
+    badge: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+    border: 'border-l-emerald-500',
+  },
+  INCORRECT: {
+    label: 'Incorrect',
+    badge: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30',
+    border: 'border-l-rose-500',
+  },
+  UNATTEMPTED: {
+    label: 'Not answered',
+    badge: 'bg-slate-500/15 text-slate-600 dark:text-slate-300 border-slate-500/30',
+    border: 'border-l-slate-400 dark:border-l-slate-600',
+  },
+};
+
 function LeaderboardView({
   mockTest,
   leaderboard,
   userId,
+  userName,
   myScore,
   myRank,
+  questions,
+  selectedAnswers,
   onExportPDF,
 }: {
   mockTest: any;
   leaderboard: any[];
   userId: string;
+  userName: string;
   myScore?: number;
   myRank?: number;
+  questions: QuizQuestion[];
+  selectedAnswers: Record<string, number>;
   onExportPDF?: () => void;
 }) {
   const isCompleted = mockTest.status === 'COMPLETED';
+  const [filter, setFilter] = useState<SolutionFilter>('ALL');
+
+  // Filter leaderboard to ONLY show the current user
+  const currentUserEntry = leaderboard.find((entry) => entry.userId === userId) || {
+    rank: myRank ?? 1,
+    userName: userName || 'You',
+    score: myScore ?? 0,
+    totalMarks: mockTest?.quiz?.totalMarks ?? 100,
+    userId,
+  };
+
+  // Build question review items
+  const reviewQuestions = React.useMemo(() => {
+    return questions.map((q, idx) => {
+      const selected = selectedAnswers[q.id];
+      const isUnattempted = selected === undefined || selected === null;
+      const isCorrect = !isUnattempted && selected === q.correct;
+      const status: 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED' = isUnattempted
+        ? 'UNATTEMPTED'
+        : isCorrect
+        ? 'CORRECT'
+        : 'INCORRECT';
+
+      return {
+        id: q.id,
+        number: idx + 1,
+        text: q.text,
+        options: q.options.map((opt, optIdx) => ({
+          id: typeof opt === 'string' ? `opt-${optIdx}` : opt.id || `opt-${optIdx}`,
+          text: typeof opt === 'string' ? opt : opt.text,
+          explanation: typeof opt === 'string' ? undefined : opt.explanation,
+        })),
+        correctOptionIndex: q.correct,
+        selectedOptionIndex: selected,
+        explanation: q.explanation,
+        marks: q.marks,
+        status,
+      };
+    });
+  }, [questions, selectedAnswers]);
+
+  const counts = React.useMemo(() => {
+    return {
+      ALL: reviewQuestions.length,
+      CORRECT: reviewQuestions.filter((q) => q.status === 'CORRECT').length,
+      INCORRECT: reviewQuestions.filter((q) => q.status === 'INCORRECT').length,
+      UNATTEMPTED: reviewQuestions.filter((q) => q.status === 'UNATTEMPTED').length,
+    } as Record<SolutionFilter, number>;
+  }, [reviewQuestions]);
+
+  const visibleQuestions = React.useMemo(() => {
+    return reviewQuestions.filter((q) => filter === 'ALL' || q.status === filter);
+  }, [reviewQuestions, filter]);
+
+  const initial = currentUserEntry.userName ? currentUserEntry.userName.charAt(0).toUpperCase() : 'S';
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 px-3 sm:px-0 py-6">
       <div className="text-center space-y-3">
@@ -616,17 +736,6 @@ function LeaderboardView({
           <Badge variant={isCompleted ? 'success' : 'gold'} className={`font-bold text-xs ${isCompleted ? '' : 'animate-pulse'}`}>
             {isCompleted ? 'Final Rank List' : 'Live Rank List — updating…'}
           </Badge>
-          {onExportPDF && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onExportPDF}
-              className="font-bold flex items-center space-x-1.5 text-xs border-cyan-500/40 text-cyan-600 dark:text-cyan-300 hover:bg-cyan-500/10 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-cyan-500" />
-              <span>Download Solutions PDF</span>
-            </Button>
-          )}
         </div>
       </div>
 
@@ -651,67 +760,52 @@ function LeaderboardView({
         </div>
       )}
 
+      {/* Rank table showing ONLY the current user */}
       <Card className="p-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-xs">
-        {leaderboard.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
-            No submissions yet — rankings will appear here as students finish.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-slate-200 dark:border-[#1e2e56] bg-slate-100/80 dark:bg-[#091124]">
-                  <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider py-3.5">Rank</TableHead>
-                  <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider py-3.5">Student Name</TableHead>
-                  <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-right py-3.5">Score</TableHead>
-                  <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-right py-3.5">Total Marks</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {leaderboard.map((entry) => {
-                  const initial = entry.userName ? entry.userName.charAt(0).toUpperCase() : 'S';
-                  const isCurrentUser = entry.userId === userId;
-                  return (
-                    <TableRow
-                      key={entry.userId}
-                      className={`border-b border-slate-200/80 dark:border-[#1e2e56] transition-colors ${
-                        isCurrentUser ? 'bg-cyan-500/10 dark:bg-cyan-500/15' : 'hover:bg-slate-50/50 dark:hover:bg-[#0c152e]/50'
-                      }`}
-                    >
-                      <TableCell className="py-3.5">
-                        <div className="flex items-center space-x-1.5">
-                          <Badge variant={entry.rank <= 3 ? 'gold' : 'outline'} className="text-[10px] font-mono font-bold">
-                            #{entry.rank}
-                          </Badge>
-                          {entry.rank === 1 && <Trophy className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-bold text-sm text-slate-900 dark:text-white py-3.5">
-                        <div className="flex items-center space-x-2.5">
-                          <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center shrink-0">
-                            {initial}
-                          </div>
-                          <span>
-                            {entry.userName} {isCurrentUser && <span className="text-cyan-400 font-semibold text-xs ml-1">(You)</span>}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-extrabold text-cyan-700 dark:text-cyan-400 py-3.5">
-                        {entry.score}
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-semibold text-slate-600 dark:text-slate-400 py-3.5">
-                        {entry.totalMarks ?? mockTest?.quiz?.totalMarks ?? 100}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-slate-200 dark:border-[#1e2e56] bg-slate-100/80 dark:bg-[#091124]">
+                <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider py-3.5">Rank</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider py-3.5">Student Name</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-right py-3.5">Score</TableHead>
+                <TableHead className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-right py-3.5">Total Marks</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow className="bg-cyan-500/10 dark:bg-cyan-500/15">
+                <TableCell className="py-3.5">
+                  <div className="flex items-center space-x-1.5">
+                    <Badge variant={currentUserEntry.rank <= 3 ? 'gold' : 'outline'} className="text-[10px] font-mono font-bold">
+                      #{currentUserEntry.rank}
+                    </Badge>
+                    {currentUserEntry.rank === 1 && <Trophy className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
+                  </div>
+                </TableCell>
+                <TableCell className="font-bold text-sm text-slate-900 dark:text-white py-3.5">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center shrink-0">
+                      {initial}
+                    </div>
+                    <span>
+                      {currentUserEntry.userName} <span className="text-cyan-400 font-semibold text-xs ml-1">(You)</span>
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-right font-mono font-extrabold text-cyan-700 dark:text-cyan-400 py-3.5">
+                  {currentUserEntry.score}
+                </TableCell>
+                <TableCell className="text-right font-mono font-semibold text-slate-600 dark:text-slate-400 py-3.5">
+                  {currentUserEntry.totalMarks ?? mockTest?.quiz?.totalMarks ?? 100}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
       </Card>
 
-      <div className="pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* Action Buttons above Questions & Solutions */}
+      <div className="pt-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
         {onExportPDF && (
           <Button
             variant="outline"
@@ -729,6 +823,164 @@ function LeaderboardView({
           </Button>
         </Link>
       </div>
+
+      {/* Question-by-question solution review */}
+      {reviewQuestions.length > 0 && (
+        <div className="space-y-4 pt-4 border-t border-slate-200/80 dark:border-[#1e2e56]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <span className="flex items-center space-x-2 text-base font-extrabold text-slate-900 dark:text-white">
+              <CheckCircle2 className="w-5 h-5 text-cyan-500" />
+              <span>Questions &amp; Solutions</span>
+            </span>
+
+            <div className="flex items-center flex-wrap gap-2">
+              {SOLUTION_FILTERS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors cursor-pointer ${
+                    filter === key
+                      ? 'bg-cyan-500 text-white border-cyan-500 shadow-xs'
+                      : 'bg-transparent text-slate-600 dark:text-slate-300 border-slate-300 dark:border-[#1e2e56] hover:border-cyan-500/50'
+                  }`}
+                >
+                  {label} ({counts[key]})
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {visibleQuestions.length === 0 ? (
+            <Card className="p-8 text-center glass-card border-dashed">
+              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+                No questions match this filter.
+              </p>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {visibleQuestions.map((q) => (
+                <MockReviewCard key={q.id} question={q} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function MockReviewCard({
+  question,
+}: {
+  question: {
+    id: string;
+    number: number;
+    text: string;
+    options: { id: string; text: string; explanation?: string }[];
+    correctOptionIndex: number;
+    selectedOptionIndex?: number;
+    explanation?: string;
+    marks: number;
+    status: 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
+  };
+}) {
+  const theme = STATUS_THEME[question.status];
+
+  return (
+    <Card className={`p-4 sm:p-5 space-y-4 glass-card rounded-2xl border-l-4 ${theme.border}`}>
+      <div className="flex items-center flex-wrap gap-2">
+        <Badge variant="outline" className="font-bold">
+          Question {question.number}
+        </Badge>
+        <span className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold border ${theme.badge}`}>
+          {theme.label}
+        </span>
+        <span className="text-[11px] font-semibold font-mono text-slate-500 dark:text-slate-400">
+          {question.marks} {question.marks === 1 ? 'mark' : 'marks'}
+        </span>
+      </div>
+
+      <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-relaxed">
+        {question.text}
+      </h3>
+
+      <div className="space-y-2">
+        {question.options.map((option, index) => {
+          const isCorrect = index === question.correctOptionIndex;
+          const isChosen = index === question.selectedOptionIndex;
+
+          let rowStyles =
+            'border-slate-200 dark:border-[#1e2e56] bg-slate-50 dark:bg-[#091124] text-slate-600 dark:text-slate-400';
+          let badgeStyles = 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400';
+          if (isCorrect) {
+            rowStyles =
+              'border-emerald-500/50 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200 font-semibold';
+            badgeStyles = 'bg-emerald-500 text-white';
+          } else if (isChosen) {
+            rowStyles = 'border-rose-500/50 bg-rose-500/10 text-rose-900 dark:text-rose-200 font-semibold';
+            badgeStyles = 'bg-rose-500 text-white';
+          }
+
+          return (
+            <div key={option.id} className="space-y-1">
+              <div
+                className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border text-xs sm:text-sm ${rowStyles}`}
+              >
+                <div className="flex items-start space-x-2.5 min-w-0">
+                  <span
+                    className={`inline-flex items-center justify-center w-6 h-6 rounded-lg text-[11px] font-mono font-bold shrink-0 ${badgeStyles}`}
+                  >
+                    {optionLetter(index)}
+                  </span>
+                  <span className="text-left leading-snug">{option.text}</span>
+                </div>
+                <div className="flex items-center flex-wrap gap-1.5 sm:shrink-0">
+                  {isChosen && (
+                    <span
+                      className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
+                        isCorrect
+                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                          : 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                      }`}
+                    >
+                      {isCorrect ? (
+                        <CheckCircle2 className="w-3 h-3" />
+                      ) : (
+                        <XCircle className="w-3 h-3" />
+                      )}
+                      <span>Your answer</span>
+                    </span>
+                  )}
+                  {isCorrect && (
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>Correct answer</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {option.explanation && (isCorrect || isChosen) && (
+                <p className="ml-9 text-[11px] italic text-slate-600 dark:text-slate-400 leading-relaxed">
+                  {option.explanation}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {question.explanation && (
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1">
+          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 block">
+            Explanation
+          </span>
+          <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+            {question.explanation}
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }

@@ -21,28 +21,33 @@ final premiumQuizzesProvider = premiumCarouselQuizzesProvider;
 
 
 
-/// The mock test running right now, if there is one.
+/// The mock tests worth showing at the top of the home screen: every test
+/// running right now (LIVE) as well as upcoming ones, sorted so LIVE tests appear
+/// first, followed by upcoming tests sorted by scheduled start time.
 ///
 /// Failure is swallowed: a mock test is a bonus on the home screen, and a
 /// signed-out student or a flaky call should not take the whole page down.
-final liveMockTestProvider =
-    FutureProvider.autoDispose<MockTest?>((ref) async {
+final liveMockTestsProvider =
+    FutureProvider.autoDispose<List<MockTest>>((ref) async {
   try {
-    final mocks = await ref
-        .watch(mockTestsRepositoryProvider)
-        .fetchMockTests(status: MockTestStatus.live);
-    if (mocks.isNotEmpty) return mocks.first;
+    final all = await ref.watch(mockTestsRepositoryProvider).fetchMockTests();
+    final active = all
+        .where((m) =>
+            (m.status == MockTestStatus.live ||
+             m.status == MockTestStatus.upcoming) &&
+            (m.quiz?.totalQuestions ?? 0) > 0)
+        .toList();
 
-    // Nothing live: surface the next one starting soon so the card still has
-    // something worth showing.
-    final upcoming = await ref
-        .watch(mockTestsRepositoryProvider)
-        .fetchMockTests(status: MockTestStatus.upcoming);
-    if (upcoming.isEmpty) return null;
-    upcoming.sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
-    final next = upcoming.first;
-    return next.startsIn.inHours <= 48 ? next : null;
+    active.sort((a, b) {
+      final aRank = a.status == MockTestStatus.live ? 0 : 1;
+      final bRank = b.status == MockTestStatus.live ? 0 : 1;
+      final rankDiff = aRank.compareTo(bRank);
+      if (rankDiff != 0) return rankDiff;
+      return a.scheduledAt.compareTo(b.scheduledAt);
+    });
+
+    return active;
   } catch (_) {
-    return null;
+    return const [];
   }
 });

@@ -41,6 +41,7 @@ export interface StaffPermission {
   manageAnnouncements: boolean;
   manageReviews: boolean;
   manageSocialLinks: boolean;
+  manageAppUpdate: boolean;
   grantedById?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -116,6 +117,7 @@ export interface Book {
   ordersCount?: number;
   chaptersCount?: number;
   topicsCount?: number;
+  isLegacyPlaceholder?: boolean;
   chapters?: Chapter[];
   /** Present on responses from GET /books and GET /books/:id — the caller's purchase state for this book. */
   access?: {
@@ -402,6 +404,8 @@ export interface Quiz {
   imageUrl?: string | null;
   showCorrectAnswerAfterSelection?: boolean;
   price: number;
+  discountPercent?: number;
+  finalPrice?: number;
   /** "For every N wrong answers, deduct M marks" — disabled by default. */
   negativeMarkingEnabled: boolean;
   negativeMarkingEvery: number;
@@ -419,6 +423,9 @@ export interface QuizSubmissionPayload {
   quizId: string;
   answers: { questionId: string; selectedOptionIndex?: number }[];
   timeTakenSeconds: number;
+  /** Same duration to millisecond precision. Mock tests rank a tied score on
+   * this — two participants can easily finish within the same whole second. */
+  timeTakenMs?: number;
 }
 
 export interface QuizResult {
@@ -473,6 +480,9 @@ export interface QuizAttemptReview {
   id: string;
   quizId: string;
   quizTitle: string;
+  /** Gates the "Download Solutions PDF" button — available once an attempt is
+   * submitted, and only for a premium quiz. */
+  isPremium: boolean;
   attemptNumber: number;
   attemptStatus: 'COMPLETED';
   score: number;
@@ -669,6 +679,21 @@ export interface SocialLinks {
   facebookUrl: string | null;
   twitterUrl: string | null;
   updatedAt: string | null;
+}
+
+export type AppUpdateMode = 'immediate' | 'flexible';
+
+/** The wire shape of `GET/PATCH /app/update-config` — read by the mobile app
+ * on every launch and by the admin settings form. `platform` is Android-only
+ * for now and is passed as a request param, not carried in this body. */
+export interface AppUpdateConfig {
+  enabled: boolean;
+  latestVersion: string;
+  minimumVersion: string;
+  updateMode: AppUpdateMode;
+  forceUpdate: boolean;
+  message: string;
+  updatedAt: string;
 }
 
 export interface CustomerReview {

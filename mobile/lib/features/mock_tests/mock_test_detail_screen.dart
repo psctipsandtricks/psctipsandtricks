@@ -11,6 +11,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/mock_test.dart';
@@ -40,12 +41,14 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
     try {
       await ref.read(mockTestsRepositoryProvider).join(mock.id);
       ref.invalidate(mockTestProvider(mock.id));
-      ref.invalidate(mockTestsProvider);
-      ref.invalidate(liveMockTestProvider);
+      ref.invalidate(mockTestsViewProvider);
+      ref.invalidate(liveMockTestsProvider);
       if (!mounted) return;
 
       // Joining only reserves a seat; the paper itself is the underlying quiz.
-      context.push(AppRoutes.quizAttempt(mock.quizId));
+      // The mock test id tags along so submitting scores this as a ranked
+      // attempt rather than a private quiz attempt.
+      context.push(AppRoutes.quizAttempt(mock.quizId, mockTestId: mock.id));
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -81,8 +84,8 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
       if (success && mounted) {
         // Refetch mock test state so it updates to unlocked
         ref.invalidate(mockTestProvider(mock.id));
-        ref.invalidate(mockTestsProvider);
-        ref.invalidate(liveMockTestProvider);
+        ref.invalidate(mockTestsViewProvider);
+        ref.invalidate(liveMockTestsProvider);
         await ref.read(mockTestProvider(mock.id).future);
 
         if (mounted) {
@@ -104,7 +107,7 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
     final mockAsync = ref.watch(mockTestProvider(widget.mockTestId));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mock test')),
+      appBar: const GlassAppBar(title: Text('Mock test')),
       body: AsyncView(
         value: mockAsync,
         onRetry: () => ref.invalidate(mockTestProvider(widget.mockTestId)),

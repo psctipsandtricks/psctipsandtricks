@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
+import { PauseQuizDto } from './dto/pause-quiz.dto';
 import { CreateQuizFolderDto, UpdateQuizFolderDto } from './dto/quiz-folder.dto';
 import { ReorderDto } from '../common/dto/library-folder.dto';
 import { AccessActor, QuizAccessService } from '../common/access/quiz-access.service';
@@ -19,6 +20,20 @@ const CURATOR: AccessActor = { id: '', role: 'ADMIN' as any };
  * arriving, plus modest clock drift between their machine and the server.
  */
 const RELEASE_DATE_GRACE_MS = 60_000;
+
+/**
+ * The one ordering every quiz listing uses — admin table, website and mobile
+ * app alike — so a drag in the admin panel is what students see.
+ *
+ * `createdAt asc` is the tie-breaker rather than decoration. Quizzes that
+ * predate `orderIndex` all sit at the default 0, so they fall back to creation
+ * order: oldest first, newest last. That is both a sane backfill-free default
+ * and the behaviour asked for — a newly created quiz lands at the bottom.
+ */
+const QUIZ_ORDER: Prisma.QuizOrderByWithRelationInput[] = [
+  { orderIndex: 'asc' },
+  { createdAt: 'asc' },
+];
 
 export type QuizAnswerStatus = 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
 
@@ -170,7 +185,7 @@ export class QuizzesService {
           },
           skip,
           take: limit,
-          orderBy: { createdAt: 'desc' },
+          orderBy: QUIZ_ORDER,
         }),
       ]);
 
@@ -190,7 +205,7 @@ export class QuizzesService {
         questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         _count: { select: { questions: true, submissions: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: QUIZ_ORDER,
       // Callers that omit page/limit get every quiz as a bare array (the
       // browse page's current contract) — this cap is a safety net against
       // the catalog growing unbounded, not real pagination.
@@ -227,6 +242,11 @@ export class QuizzesService {
     return { ...this.quizAccess.stripQuestionsIfLocked(quiz, access), access };
   }
 
+  private static resolveFinalPrice(price: number, discountPercent: number) {
+    const safeDiscount = Math.min(100, Math.max(0, discountPercent));
+    return Math.round(price - (price * safeDiscount) / 100);
+  }
+
   async create(data: CreateQuizDto) {
     const { questions, ...quizData } = data;
     const questionCount = questions?.length ?? 0;
@@ -235,10 +255,23 @@ export class QuizzesService {
       this.assertReleaseDateNotInThePast(quizData.releaseDate);
     }
 
+    const isPaid = quizData.accessType === 'PAID' || quizData.isPremium === true;
+    const price = isPaid ? Math.max(0, Number(quizData.price) || 0) : 0;
+    const discountPercent = isPaid ? Math.min(100, Math.max(0, Number(quizData.discountPercent) || 0)) : 0;
+    const finalPrice = isPaid
+      ? (quizData.finalPrice !== undefined && Number(quizData.finalPrice) > 0
+          ? Number(quizData.finalPrice)
+          : QuizzesService.resolveFinalPrice(price, discountPercent))
+      : 0;
+
     return this.prisma.quiz.create({
       data: {
         ...quizData,
+        price,
+        discountPercent,
+        finalPrice,
         totalQuestions: questionCount,
+        orderIndex: await this.nextOrderIndex(quizData.folderName),
         isActive: quizData.isActive ?? true,
         questions: questions
           ? {
@@ -278,6 +311,23 @@ export class QuizzesService {
         !!existing.releaseDate &&
         new Date(existing.releaseDate).getTime() === new Date(incoming).getTime();
       if (!unchanged) this.assertReleaseDateNotInThePast(incoming);
+    }
+
+    const accessType = (quizData.accessType ?? existing.accessType) as string;
+    const isPaid = accessType === 'PAID' || quizData.isPremium === true || (quizData.isPremium === undefined && existing.isPremium);
+    if (!isPaid && quizData.accessType !== undefined) {
+      quizData.price = 0;
+      quizData.discountPercent = 0;
+      quizData.finalPrice = 0;
+    } else if (isPaid) {
+      const price = quizData.price !== undefined ? Math.max(0, Number(quizData.price) || 0) : existing.price;
+      const discountPercent = quizData.discountPercent !== undefined ? Math.min(100, Math.max(0, Number(quizData.discountPercent) || 0)) : existing.discountPercent;
+      const finalPrice = quizData.finalPrice !== undefined && Number(quizData.finalPrice) > 0
+        ? Number(quizData.finalPrice)
+        : QuizzesService.resolveFinalPrice(price, discountPercent);
+      if (quizData.price !== undefined) quizData.price = price;
+      if (quizData.discountPercent !== undefined) quizData.discountPercent = discountPercent;
+      quizData.finalPrice = finalPrice;
     }
 
     // Delete existing questions and recreate if questions array is provided
@@ -411,6 +461,30 @@ export class QuizzesService {
       where: { userId, quizId, attemptStatus: 'IN_PROGRESS' },
       orderBy: { startedAt: 'desc' },
     });
+  }
+
+  async pauseAttempt(userId: string, quizId: string, dto: PauseQuizDto, attemptId?: string) {
+    const active = await this.prisma.quizSubmission.findFirst({
+      where: {
+        ...(attemptId ? { id: attemptId } : { userId, quizId, attemptStatus: 'IN_PROGRESS' }),
+        userId,
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+
+    if (!active || active.attemptStatus !== 'IN_PROGRESS') {
+      throw new NotFoundException('No active quiz attempt found to pause');
+    }
+
+    const updated = await this.prisma.quizSubmission.update({
+      where: { id: active.id },
+      data: {
+        timeTakenSeconds: typeof dto.timeTakenSeconds === 'number' ? dto.timeTakenSeconds : active.timeTakenSeconds,
+        answers: (dto.answers ?? active.answers) as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    return updated;
   }
 
   async submitQuiz(actor: AccessActor, quizId: string, payload: SubmitQuizDto, attemptId?: string) {
@@ -551,9 +625,17 @@ export class QuizzesService {
       selectionByQuestion.set(answer.questionId, answer.selectedOptionIndex);
     }
 
+    // Explanations — both the per-option notes and the question's own — are a
+    // premium perk. A free quiz's review shows only whether each answer was
+    // right and which option was correct, so they are stripped from the
+    // payload here rather than left to each client to hide.
+    const isPremiumQuiz = this.quizAccess.isPaidQuiz(quiz);
+
     let matchedAnswers = 0;
     const questions = quiz.questions.map((question, index) => {
-      const options = normalizeOptions(question.options);
+      const options = normalizeOptions(question.options).map((option) =>
+        isPremiumQuiz ? option : { ...option, explanation: null },
+      );
       const recorded = selectionByQuestion.get(question.id);
       if (recorded !== undefined) matchedAnswers++;
 
@@ -579,7 +661,7 @@ export class QuizzesService {
         number: index + 1,
         text: question.text,
         marks: question.marks,
-        explanation: question.explanation,
+        explanation: isPremiumQuiz ? question.explanation : null,
         options,
         selectedOptionIndex,
         selectedOptionText: selectedOptionIndex === null ? null : options[selectedOptionIndex].text,
@@ -604,6 +686,11 @@ export class QuizzesService {
       id: submission.id,
       quizId: submission.quizId,
       quizTitle: quiz.title,
+      // The solutions PDF is a premium-only download, offered only once an
+      // attempt is submitted — this is the payload both clients render that
+      // result screen from, so it is the natural place to carry the gate.
+      // It also decides whether the explanations above were included.
+      isPremium: isPremiumQuiz,
       attemptNumber: submission.attemptNumber,
       attemptStatus: submission.attemptStatus,
       score: submission.score,
@@ -630,21 +717,68 @@ export class QuizzesService {
     };
   }
 
-  async getStudentHistory(userId: string) {
-    return this.prisma.quizSubmission.findMany({
-      where: { userId },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            durationMinutes: true,
-            totalQuestions: true,
-            passingMarks: true,
-            totalMarks: true,
-          },
+  async getStudentHistory(
+    userId: string,
+    opts?: { page?: number; limit?: number },
+  ) {
+    const include = {
+      quiz: {
+        select: {
+          id: true,
+          title: true,
+          durationMinutes: true,
+          totalQuestions: true,
+          passingMarks: true,
+          totalMarks: true,
+          // Lets the history card mark an attempt as Free vs Premium, and gate
+          // the "Solutions PDF" download to premium quizzes only.
+          accessType: true,
+          isPremium: true,
+          price: true,
         },
       },
+    };
+
+    // With page/limit the caller (mobile app) gets a numbered-pagination
+    // envelope of *completed* attempts only, plus a summary computed over every
+    // completed attempt — not just the visible page. Without them the website
+    // still receives the full bare array it filters and paginates itself.
+    if (opts?.page || opts?.limit) {
+      const page = Math.max(1, Number(opts.page) || 1);
+      const limit = Math.max(1, Math.min(100, Number(opts.limit) || 10));
+      const skip = (page - 1) * limit;
+      const where = { userId, attemptStatus: 'COMPLETED' as const };
+
+      const [total, data, passed, agg] = await Promise.all([
+        this.prisma.quizSubmission.count({ where }),
+        this.prisma.quizSubmission.findMany({
+          where,
+          include,
+          orderBy: [{ submittedAt: 'desc' }, { startedAt: 'desc' }],
+          skip,
+          take: limit,
+        }),
+        this.prisma.quizSubmission.count({ where: { ...where, passed: true } }),
+        this.prisma.quizSubmission.aggregate({ where, _avg: { percentage: true } }),
+      ]);
+
+      return {
+        data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        summary: {
+          attempts: total,
+          passed,
+          avgPercentage: agg._avg.percentage ?? 0,
+        },
+      };
+    }
+
+    return this.prisma.quizSubmission.findMany({
+      where: { userId },
+      include,
       orderBy: { startedAt: 'desc' },
       // The quiz-history page fetches every attempt as a bare array and
       // paginates client-side — this cap is a safety net for a long-tenured
@@ -864,7 +998,10 @@ export class QuizzesService {
         name,
         parentId,
         description: dto.description?.trim() || null,
-        orderIndex: dto.orderIndex ?? 0,
+        // Bottom of its parent unless the caller pinned a position. `?? 0`
+        // would have put every new folder at the top the moment real
+        // positions existed, which is the opposite of what a new folder wants.
+        orderIndex: dto.orderIndex ?? (await this.nextFolderOrderIndex(parentId)),
         isActive: dto.isActive ?? true,
       },
       include: { parent: true },
@@ -994,16 +1131,235 @@ export class QuizzesService {
     };
   }
 
-  async reorderFolders(dto: { items: { id: string; orderIndex: number }[] }) {
-    await Promise.all(
-      dto.items
-        .filter((item) => item.id && !item.id.startsWith('virtual-') && item.id !== 'root-folder')
-        .map((item) =>
-          this.prisma.quizFolder
-            .update({ where: { id: item.id }, data: { orderIndex: item.orderIndex } })
-            .catch(() => null),
-        ),
+  /**
+   * Where a brand-new quiz goes: one past whatever sits lowest in its folder.
+   *
+   * Deliberately the bottom, not the top. An admin arranges a folder to read
+   * as a syllabus — Chapter 1 first — and a new chapter belongs after the last
+   * one, not ahead of it.
+   */
+  private async nextOrderIndex(folderName?: string | null): Promise<number> {
+    const last = await this.prisma.quiz.findFirst({
+      where: { folderName: folderName ?? 'Root' },
+      orderBy: { orderIndex: 'desc' },
+      select: { orderIndex: true },
+    });
+    return last ? last.orderIndex + 1 : 0;
+  }
+
+  /**
+   * Applies a drag-to-reorder from the admin table.
+   *
+   * `items` carry absolute positions within the folder — the admin table is
+   * paginated server-side, so a row's index on screen is not its index in the
+   * folder, and the client is the only side that knows the page offset.
+   */
+  async reorderQuizzes(dto: { items: { id: string; orderIndex: number }[] }) {
+    const items = (dto.items ?? []).filter((item) => !!item.id);
+    if (items.length === 0) return { success: true, updated: 0 };
+
+    const touched = await this.prisma.quiz.findMany({
+      where: { id: { in: items.map((i) => i.id) } },
+      select: { id: true, folderName: true },
+    });
+    if (touched.length === 0) throw new NotFoundException('No matching quizzes to reorder');
+
+    // A drag happens inside one folder's table, but grouping costs nothing and
+    // keeps a mixed request from writing one folder's positions into another.
+    const folderOf = new Map(touched.map((q) => [q.id, q.folderName ?? 'Root']));
+    const byFolder = new Map<string, { id: string; orderIndex: number }[]>();
+    for (const item of items) {
+      const folder = folderOf.get(item.id);
+      if (!folder) continue;
+      const bucket = byFolder.get(folder);
+      if (bucket) bucket.push(item);
+      else byFolder.set(folder, [item]);
+    }
+
+    let updated = 0;
+    for (const [folderName, folderItems] of byFolder) {
+      updated += await this.spliceFolderOrder(folderName, folderItems);
+    }
+
+    return { success: true, updated };
+  }
+
+  /**
+   * Moves one quiz to an absolute position in its folder, shifting whatever
+   * sits between out of the way — what the "Move to Position" dialog and the
+   * Up/Down buttons need.
+   *
+   * Separate from {@link reorderQuizzes} because it is a different operation:
+   * a drag hands over the new order of the rows on screen, whereas this is one
+   * quiz jumping a distance that may cross pages the admin cannot even see.
+   */
+  async moveQuizToPosition(id: string, toPosition: number) {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { id },
+      select: { id: true, folderName: true },
+    });
+    if (!quiz) throw new NotFoundException('Quiz not found');
+
+    const folderName = quiz.folderName ?? 'Root';
+    const position = Math.max(0, Math.trunc(toPosition));
+    await this.spliceFolderOrder(folderName, [{ id, orderIndex: position }]);
+
+    return { success: true, position };
+  }
+
+  /**
+   * Rebuilds a folder's order: the named quizzes land on the absolute
+   * positions asked for, everything else keeps its relative order and closes
+   * up around them. The result is written as a dense 0..n-1 run.
+   *
+   * Rebuilding from the folder's *current* order — rather than writing the
+   * incoming positions and hoping the rest sort themselves out — is what makes
+   * this correct on data that predates `orderIndex`. Those rows all still hold
+   * 0, so a bare write would leave them sorting ahead of every quiz that just
+   * received a real position. Reading the display order first, then renumbering
+   * the whole folder, retires those zeroes the first time a folder is touched.
+   */
+  private async spliceFolderOrder(
+    folderName: string,
+    items: { id: string; orderIndex: number }[],
+  ): Promise<number> {
+    const current = await this.prisma.quiz.findMany({
+      where: { folderName },
+      orderBy: QUIZ_ORDER,
+      select: { id: true, orderIndex: true },
+    });
+    if (current.length === 0) return 0;
+
+    const currentIds = current.map((q) => q.id);
+    const known = new Set(currentIds);
+    const moving = items
+      .filter((item) => known.has(item.id))
+      .sort((a, b) => a.orderIndex - b.orderIndex);
+    if (moving.length === 0) return 0;
+
+    const movingIds = new Set(moving.map((m) => m.id));
+    const rest = currentIds.filter((id) => !movingIds.has(id));
+
+    const next: string[] = [];
+    let cursor = 0;
+    for (const move of moving) {
+      const target = Math.max(0, Math.min(currentIds.length - 1, move.orderIndex));
+      while (next.length < target && cursor < rest.length) next.push(rest[cursor++]);
+      next.push(move.id);
+    }
+    while (cursor < rest.length) next.push(rest[cursor++]);
+
+    const currentIndex = new Map(current.map((q) => [q.id, q.orderIndex]));
+    const drifted = next
+      .map((id, position) => ({ id, position }))
+      .filter(({ id, position }) => currentIndex.get(id) !== position);
+    if (drifted.length === 0) return 0;
+
+    await this.prisma.$transaction(
+      drifted.map(({ id, position }) =>
+        this.prisma.quiz.update({ where: { id }, data: { orderIndex: position } }),
+      ),
     );
+    return drifted.length;
+  }
+
+  /** One past the lowest folder sitting under the same parent. */
+  private async nextFolderOrderIndex(parentId: string | null): Promise<number> {
+    const last = await this.prisma.quizFolder.findFirst({
+      where: { parentId: parentId ?? null },
+      orderBy: { orderIndex: 'desc' },
+      select: { orderIndex: true },
+    });
+    return last ? last.orderIndex + 1 : 0;
+  }
+
+  /**
+   * Applies a drag-to-reorder of folders.
+   *
+   * Rebuilt from the siblings' current order rather than writing the incoming
+   * positions straight through, for the same reason the quiz table needs it:
+   * folders that have never been reordered all still hold the default 0, and a
+   * bare write would leave them sorting ahead of every folder that just
+   * received a real position.
+   */
+  async reorderFolders(dto: { items: { id: string; orderIndex: number }[] }) {
+    // Virtual folders are synthesised from quiz `folderName`s and have no row
+    // to update; the root pseudo-folder has none either.
+    const items = (dto.items ?? []).filter(
+      (item) => item.id && !item.id.startsWith('virtual-') && item.id !== 'root-folder',
+    );
+    if (items.length === 0) return this.listFolders(CURATOR);
+
+    const touched = await this.prisma.quizFolder.findMany({
+      where: { id: { in: items.map((i) => i.id) } },
+      select: { id: true, parentId: true },
+    });
+
+    // Folders are ordered within their parent, so a request that spans levels
+    // is split before anything is written.
+    const parentOf = new Map(touched.map((f) => [f.id, f.parentId ?? null]));
+    const byParent = new Map<string | null, { id: string; orderIndex: number }[]>();
+    for (const item of items) {
+      if (!parentOf.has(item.id)) continue;
+      const parent = parentOf.get(item.id)!;
+      const bucket = byParent.get(parent);
+      if (bucket) bucket.push(item);
+      else byParent.set(parent, [item]);
+    }
+
+    for (const [parentId, siblings] of byParent) {
+      await this.spliceFolderPositions(parentId, siblings);
+    }
+
     return this.listFolders(CURATOR);
+  }
+
+  /**
+   * Rebuilds one parent's child order: the named folders land on the positions
+   * asked for, their siblings keep their relative order and close up around
+   * them, and the result is written as a dense 0..n-1 run.
+   */
+  private async spliceFolderPositions(
+    parentId: string | null,
+    items: { id: string; orderIndex: number }[],
+  ): Promise<number> {
+    const current = await this.prisma.quizFolder.findMany({
+      where: { parentId: parentId ?? null },
+      orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, orderIndex: true },
+    });
+    if (current.length === 0) return 0;
+
+    const currentIds = current.map((f) => f.id);
+    const known = new Set(currentIds);
+    const moving = items
+      .filter((item) => known.has(item.id))
+      .sort((a, b) => a.orderIndex - b.orderIndex);
+    if (moving.length === 0) return 0;
+
+    const movingIds = new Set(moving.map((m) => m.id));
+    const rest = currentIds.filter((id) => !movingIds.has(id));
+
+    const next: string[] = [];
+    let cursor = 0;
+    for (const move of moving) {
+      const target = Math.max(0, Math.min(currentIds.length - 1, move.orderIndex));
+      while (next.length < target && cursor < rest.length) next.push(rest[cursor++]);
+      next.push(move.id);
+    }
+    while (cursor < rest.length) next.push(rest[cursor++]);
+
+    const currentIndex = new Map(current.map((f) => [f.id, f.orderIndex]));
+    const drifted = next
+      .map((id, position) => ({ id, position }))
+      .filter(({ id, position }) => currentIndex.get(id) !== position);
+    if (drifted.length === 0) return 0;
+
+    await this.prisma.$transaction(
+      drifted.map(({ id, position }) =>
+        this.prisma.quizFolder.update({ where: { id }, data: { orderIndex: position } }),
+      ),
+    );
+    return drifted.length;
   }
 }

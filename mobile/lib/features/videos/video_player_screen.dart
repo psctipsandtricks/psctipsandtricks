@@ -1,8 +1,12 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/pdf_downloader.dart';
+import '../../core/widgets/liquid_glass.dart';
+import '../../data/models/library.dart';
 import '../../features/pdfs/pdf_viewer_screen.dart';
 
 /// What the player needs. Accepts a plain URL so both the video library and the
@@ -38,18 +42,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   @override
   void initState() {
     super.initState();
-    final id = YoutubePlayer.convertUrlToId(widget.video.youtubeUrl);
-    if (id != null) {
-      _controller = YoutubePlayerController(
-        initialVideoId: id,
-        flags: const YoutubePlayerFlags(
-          autoPlay: true,
-          mute: false,
-          enableCaption: true,
-          forceHD: false,
-        ),
-      );
-    }
+    try {
+      final id = YoutubePlayer.convertUrlToId(widget.video.youtubeUrl) ??
+          widget.video.youtubeUrl;
+      if (id.isNotEmpty) {
+        _controller = YoutubePlayerController(
+          initialVideoId: id,
+          flags: const YoutubePlayerFlags(
+            autoPlay: true,
+            mute: false,
+            enableCaption: true,
+            forceHD: false,
+            useHybridComposition: true,
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   @override
@@ -65,7 +73,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
     if (controller == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Video')),
+        appBar: const GlassAppBar(title: Text('Video')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(28),
@@ -92,7 +100,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         ),
       ),
       builder: (context, player) => Scaffold(
-        appBar: AppBar(
+        appBar: GlassAppBar(
           title: Text(
             widget.video.title,
             maxLines: 1,
@@ -136,11 +144,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
                     const SizedBox(height: 10),
                     PdfAttachmentTile(
                       title: widget.video.pdfFileName ?? 'Notes for this class',
-                      subtitle: 'Tap to read',
+                      subtitle: 'Tap to read · Download available',
                       onTap: () => openPdf(
                         context,
                         url: widget.video.pdfUrl!,
-                        title: widget.video.title,
+                        title: widget.video.pdfFileName ?? widget.video.title,
+                      ),
+                      onDownload: () => PdfDownloader.download(
+                        context,
+                        url: widget.video.pdfUrl!,
+                        title: widget.video.pdfFileName ?? widget.video.title,
                       ),
                     ),
                   ],
@@ -166,14 +179,43 @@ class VideoThumbnail extends StatelessWidget {
   const VideoThumbnail({
     super.key,
     required this.thumbnailUrl,
+    this.youtubeVideoId,
+    this.youtubeUrl,
     this.width = 132,
   });
 
   final String thumbnailUrl;
+  final String? youtubeVideoId;
+  final String? youtubeUrl;
   final double width;
+
+  String get _resolvedUrl {
+    final thumb = thumbnailUrl.trim();
+    if (thumb.isNotEmpty && thumb.startsWith('http')) {
+      return thumb;
+    }
+    final vid = (youtubeVideoId != null && youtubeVideoId!.isNotEmpty)
+        ? youtubeVideoId!
+        : (youtubeUrl != null ? extractYoutubeId(youtubeUrl!) : '');
+    if (vid.isNotEmpty) {
+      return 'https://img.youtube.com/vi/$vid/hqdefault.jpg';
+    }
+    return '';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final url = _resolvedUrl;
+    final fallbackVid = (youtubeVideoId != null && youtubeVideoId!.isNotEmpty)
+        ? youtubeVideoId!
+        : (youtubeUrl != null ? extractYoutubeId(youtubeUrl!) : '');
+    final fallbackUrl = fallbackVid.isNotEmpty
+        ? 'https://i.ytimg.com/vi/$fallbackVid/hqdefault.jpg'
+        : '';
+
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final memCacheW = (width * dpr).round();
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: SizedBox(
@@ -182,12 +224,29 @@ class VideoThumbnail extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Image.network(
-              thumbnailUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) =>
-                  ColoredBox(color: context.palette.elevated),
-            ),
+            if (url.isNotEmpty)
+              CachedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.cover,
+                memCacheWidth: memCacheW > 0 ? memCacheW : null,
+                fadeInDuration: const Duration(milliseconds: 200),
+                placeholder: (_, __) => Container(
+                  color: context.palette.elevated,
+                ),
+                errorWidget: (_, __, ___) => fallbackUrl.isNotEmpty && fallbackUrl != url
+                    ? CachedNetworkImage(
+                        imageUrl: fallbackUrl,
+                        fit: BoxFit.cover,
+                        memCacheWidth: memCacheW > 0 ? memCacheW : null,
+                        placeholder: (_, __) => Container(
+                          color: context.palette.elevated,
+                        ),
+                        errorWidget: (_, __, ___) => _fallbackContainer(context),
+                      )
+                    : _fallbackContainer(context),
+              )
+            else
+              _fallbackContainer(context),
             Center(
               child: Container(
                 padding: const EdgeInsets.all(6),
@@ -204,4 +263,23 @@ class VideoThumbnail extends StatelessWidget {
       ),
     );
   }
+
+  Widget _fallbackContainer(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              context.palette.elevated,
+              context.palette.card,
+            ],
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.smart_display_rounded,
+          color: context.palette.textMuted.withValues(alpha: 0.4),
+          size: 24,
+        ),
+      );
 }

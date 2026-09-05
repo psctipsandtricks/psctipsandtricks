@@ -10,76 +10,98 @@ import { Skeleton, Card } from '@psc/ui';
  */
 export function QuizHubSkeleton() {
   return (
-    <div className="space-y-8 py-4 animate-in fade-in duration-300 w-full max-w-7xl mx-auto px-2 sm:px-0">
+    <div className="space-y-6 sm:space-y-8 py-2 sm:py-4 px-1 sm:px-0 animate-in fade-in duration-300 w-full max-w-7xl mx-auto">
       {/* Header Skeleton */}
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-64 sm:w-80 rounded-xl" />
-        <Skeleton className="h-4 w-full max-w-lg rounded-lg" />
-      </div>
-
-      {/* Featured Quiz Carousel Banner Skeleton */}
-      <div className="rounded-3xl p-6 sm:p-8 bg-slate-900/40 dark:bg-[#070e22]/60 border border-cyan-500/20 shadow-xl backdrop-blur-md space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <Skeleton className="h-6 w-28 rounded-full" />
-          <Skeleton className="h-5 w-24 rounded-full" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="space-y-2">
+          <Skeleton className="h-8 sm:h-9 w-64 sm:w-80 rounded-xl" />
+          <Skeleton className="h-4 w-full max-w-lg rounded-lg" />
         </div>
-        <Skeleton className="h-8 w-3/4 max-w-md rounded-xl" />
-        <Skeleton className="h-4 w-full max-w-xl rounded-lg" />
-        <div className="flex items-center gap-4 pt-2">
-          <Skeleton className="h-10 w-36 rounded-xl" />
-          <Skeleton className="h-5 w-28 rounded-md" />
+        <Skeleton className="h-9 w-44 rounded-xl shrink-0" />
+      </div>
+
+      {/* Live & Upcoming Mock Test Banner Card Skeleton */}
+      <div className="space-y-3 sm:space-y-4">
+        <div className="flex items-center space-x-2.5">
+          <Skeleton className="w-4 h-4 rounded-full" />
+          <Skeleton className="h-5 w-52 rounded-lg" />
+          <Skeleton className="h-5 w-16 rounded-full" />
         </div>
-      </div>
 
-      {/* Filter & Search Bar Skeleton */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
-        <Skeleton className="h-11 w-full sm:w-80 rounded-xl" />
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-hidden">
-          <Skeleton className="h-10 w-28 rounded-xl" />
-          <Skeleton className="h-10 w-32 rounded-xl" />
-        </div>
-      </div>
-
-      {/* Category Pills Skeleton */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-9 w-28 rounded-xl shrink-0" />
-        ))}
-      </div>
-
-      {/* Quiz Grid Cards Skeleton (matches Liquid Glass Quiz Cards) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-2xl p-5 space-y-4 flex flex-col justify-between border border-slate-200/80 dark:border-[#1e2e56] bg-white/70 dark:bg-[#0c152e]/70 shadow-sm backdrop-blur-md"
-          >
-            <div className="space-y-3">
-              {/* Badges strip */}
-              <div className="flex justify-between items-center gap-2">
-                <Skeleton className="h-5 w-20 rounded-md" />
-                <Skeleton className="h-5 w-16 rounded-md" />
-              </div>
-              {/* Title & Description */}
-              <Skeleton className="h-6 w-5/6 rounded-lg" />
-              <Skeleton className="h-4 w-full rounded-md" />
-              <Skeleton className="h-4 w-2/3 rounded-md" />
-
-              {/* Meta Chips */}
-              <div className="flex items-center gap-3 pt-2">
-                <Skeleton className="h-5 w-20 rounded-md" />
-                <Skeleton className="h-5 w-20 rounded-md" />
-                <Skeleton className="h-5 w-16 rounded-md" />
-              </div>
+        <div className="w-full rounded-3xl p-5 sm:p-7 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-sm space-y-4">
+          {/* Top badges strip */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-6 w-24 rounded-full" />
+              <Skeleton className="h-6 w-28 rounded-full" />
             </div>
+            <Skeleton className="h-4 w-32 rounded-md" />
+          </div>
 
-            {/* Footer Action */}
-            <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-              <Skeleton className="h-5 w-20 rounded-md" />
-              <Skeleton className="h-10 w-32 rounded-xl" />
+          {/* Title & Subtitle */}
+          <div className="space-y-2 pt-1">
+            <Skeleton className="h-7 w-3/4 max-w-md rounded-xl" />
+            <Skeleton className="h-4 w-1/2 max-w-xs rounded-md" />
+          </div>
+
+          {/* Meta Chips */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Skeleton className="h-7 w-36 rounded-xl" />
+            <Skeleton className="h-7 w-24 rounded-xl" />
+            <Skeleton className="h-7 w-28 rounded-xl" />
+            <Skeleton className="h-7 w-24 rounded-xl" />
+          </div>
+
+          {/* Exam room / timer box */}
+          <div className="h-20 w-full rounded-2xl border border-slate-200/60 dark:border-slate-800/80 bg-slate-50/50 dark:bg-[#070e20]/60 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Skeleton className="w-10 h-10 rounded-2xl" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-36 rounded-md" />
+                <Skeleton className="h-3 w-56 rounded-md" />
+              </div>
             </div>
           </div>
-        ))}
+
+          {/* Bottom actions row */}
+          <div className="pt-2 flex items-center justify-between gap-3 flex-wrap">
+            <Skeleton className="h-4 w-48 rounded-md" />
+            <Skeleton className="h-10 w-36 rounded-xl" />
+          </div>
+        </div>
+      </div>
+
+      {/* Browse Question Banks Section Skeleton */}
+      <div className="space-y-4 sm:space-y-5">
+        <div className="flex items-center space-x-2">
+          <Skeleton className="w-4 h-4 rounded-md" />
+          <Skeleton className="h-5 w-48 rounded-lg" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-3xl p-6 sm:p-7 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-sm space-y-4 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Skeleton className="w-12 h-12 rounded-2xl" />
+                <Skeleton className="h-6 w-24 rounded-full" />
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <Skeleton className="h-6 w-36 rounded-xl" />
+                <Skeleton className="h-4 w-full rounded-md" />
+                <Skeleton className="h-4 w-2/3 rounded-md" />
+              </div>
+
+              <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex items-center justify-between">
+                <Skeleton className="h-4 w-24 rounded-md" />
+                <Skeleton className="w-5 h-5 rounded-full" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -490,59 +512,54 @@ export function MediaLibrarySkeleton({ isVideo = false }: { isVideo?: boolean })
  */
 export function CheckoutSkeleton() {
   return (
-    <div className="max-w-5xl mx-auto py-6 sm:py-10 space-y-8 animate-in fade-in duration-300">
-      {/* Title */}
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-48 rounded-xl" />
-        <Skeleton className="h-4 w-72 rounded-md" />
+    <div className="max-w-xl mx-auto space-y-6 py-4 animate-in fade-in duration-300">
+      {/* Title Skeleton */}
+      <div className="flex items-center space-x-2">
+        <Skeleton className="w-7 h-7 rounded-lg" />
+        <Skeleton className="h-8 w-56 rounded-xl" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Item Review + Coupon (7 Cols) */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] space-y-4 shadow-sm">
-            <Skeleton className="h-6 w-36 rounded-lg" />
-            <div className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50">
-              <Skeleton className="w-20 h-14 rounded-xl shrink-0" />
-              <div className="space-y-2 flex-1 min-w-0">
-                <Skeleton className="h-5 w-3/4 rounded-md" />
-                <Skeleton className="h-4 w-1/3 rounded-md" />
-              </div>
-            </div>
+      {/* Checkout Card Skeleton */}
+      <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] space-y-6 shadow-md">
+        {/* Item Header */}
+        <div className="flex justify-between items-start border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
+          <div className="space-y-2 flex-1">
+            <Skeleton className="h-6 w-3/4 rounded-lg" />
+            <Skeleton className="h-4 w-1/2 rounded-md" />
           </div>
+          <Skeleton className="h-6 w-20 rounded-full" />
+        </div>
 
-          {/* Coupon Code Input */}
-          <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] space-y-3 shadow-sm">
-            <Skeleton className="h-5 w-28 rounded-md" />
-            <div className="flex gap-2">
-              <Skeleton className="h-11 flex-1 rounded-xl" />
-              <Skeleton className="h-11 w-24 rounded-xl" />
-            </div>
+        {/* Authenticated account pill */}
+        <div className="p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-900/50 flex items-center justify-between">
+          <Skeleton className="h-4 w-24 rounded-md" />
+          <Skeleton className="h-4 w-44 rounded-md" />
+        </div>
+
+        {/* Coupon Form Input */}
+        <div className="flex gap-3">
+          <Skeleton className="h-11 flex-1 rounded-xl" />
+          <Skeleton className="h-11 w-20 rounded-xl" />
+        </div>
+
+        {/* Price Breakdown */}
+        <div className="space-y-3 pt-2 border-t border-slate-200/80 dark:border-slate-800/80">
+          <div className="flex justify-between">
+            <Skeleton className="h-4 w-20 rounded-md" />
+            <Skeleton className="h-4 w-16 rounded-md" />
+          </div>
+          <div className="flex justify-between pt-2 border-t border-slate-200/80 dark:border-slate-800/80">
+            <Skeleton className="h-6 w-28 rounded-lg" />
+            <Skeleton className="h-6 w-20 rounded-lg" />
           </div>
         </div>
 
-        {/* Right Column: Order Summary & Pay Button (5 Cols) */}
-        <div className="lg:col-span-5">
-          <div className="p-6 rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] space-y-5 shadow-md">
-            <Skeleton className="h-6 w-36 rounded-lg" />
+        {/* Pay Button */}
+        <Skeleton className="h-12 w-full rounded-2xl" />
 
-            <div className="space-y-3 pt-2 border-t border-slate-200/60 dark:border-slate-800">
-              <div className="flex justify-between">
-                <Skeleton className="h-4 w-20 rounded-md" />
-                <Skeleton className="h-4 w-16 rounded-md" />
-              </div>
-              <div className="flex justify-between">
-                <Skeleton className="h-4 w-24 rounded-md" />
-                <Skeleton className="h-4 w-16 rounded-md" />
-              </div>
-              <div className="flex justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800">
-                <Skeleton className="h-6 w-24 rounded-lg" />
-                <Skeleton className="h-6 w-24 rounded-lg" />
-              </div>
-            </div>
-
-            <Skeleton className="h-12 w-full rounded-2xl" />
-          </div>
+        {/* Security badge footer */}
+        <div className="flex justify-center items-center gap-1.5 pt-1">
+          <Skeleton className="h-3.5 w-60 rounded-md" />
         </div>
       </div>
     </div>

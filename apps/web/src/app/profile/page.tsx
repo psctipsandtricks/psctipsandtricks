@@ -12,7 +12,6 @@ import {
   Calendar,
   ShoppingBag,
   History,
-  Crown,
   CheckCircle2,
   AlertCircle,
   Chrome,
@@ -299,12 +298,6 @@ export default function ProfilePage() {
           <div className="flex-1 min-w-0 text-center sm:text-left space-y-2">
             <div className="flex items-center justify-center sm:justify-start flex-wrap gap-2">
               <h2 className="text-lg font-black text-slate-900 dark:text-white truncate">{profile.name}</h2>
-              {profile.isPremium && (
-                <Badge variant="gold" className="text-[10px] font-bold flex items-center gap-1">
-                  <Crown className="w-3 h-3" />
-                  <span>PREMIUM</span>
-                </Badge>
-              )}
               <Badge variant="outline" className="text-[10px] font-bold">
                 {profile.role}
               </Badge>

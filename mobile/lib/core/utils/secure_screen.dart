@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Screen-capture protection for the pages that show paid book content.
@@ -29,7 +30,10 @@ int _holders = 0;
 /// [releaseSecureScreen] in the same widget's `dispose`, or the flag outlives
 /// the screen that asked for it.
 Future<void> requestSecureScreen() async {
-  if (!Platform.isAndroid) return;
+  if (!Platform.isAndroid || kDebugMode) {
+    if (kDebugMode) await _invoke('disable');
+    return;
+  }
   _holders += 1;
   if (_holders > 1) return;
   await _invoke('enable');

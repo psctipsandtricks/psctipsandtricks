@@ -46,8 +46,8 @@ export class BooksService {
 
     const where: any = { isLegacyPlaceholder: false };
 
-    if (query?.category && query.category !== 'ALL') {
-      where.category = query.category;
+    if (query?.category && query.category.toUpperCase() !== 'ALL') {
+      where.category = { equals: query.category, mode: 'insensitive' };
     }
 
     if (query?.subscriptionType && query.subscriptionType !== 'ALL') {
@@ -357,7 +357,13 @@ export class BooksService {
 
   // --- Chapters ---
 
-  async listChapters(bookId: string) {
+  async listChapters(bookId: string, actor?: AccessActor | null) {
+    const book = await this.prisma.book.findUnique({ where: { id: bookId } });
+    if (!book) throw new NotFoundException('Book not found');
+
+    const access = await this.bookAccess.getAccessState(actor, book);
+    const hasAccess = access.hasAccess;
+
     const chapters = await this.prisma.chapter.findMany({
       where: { bookId },
       include: {
@@ -384,9 +390,13 @@ export class BooksService {
 
     return chapters.map((c) => ({
       ...c,
+      audioUrl: hasAccess ? c.audioUrl : null,
+      pdfUrl: hasAccess ? c.pdfUrl : null,
       topicsCount: c._count?.topics ?? 0,
       topics: c.topics.map((t) => ({
         ...t,
+        audioUrl: hasAccess ? t.audioUrl : null,
+        pdfUrl: hasAccess ? t.pdfUrl : null,
         subtopicsCount: t._count?.subtopics ?? 0,
       })),
     }));
@@ -412,9 +422,16 @@ export class BooksService {
     return this.listChapters(bookId);
   }
 
-  async findChapter(chapterId: string) {
+  async findChapter(chapterId: string, actor?: AccessActor | null) {
     const chapter = await this.prisma.chapter.findUnique({ where: { id: chapterId } });
     if (!chapter) throw new NotFoundException('Chapter not found');
+    if (actor !== undefined) {
+      const book = await this.prisma.book.findUnique({ where: { id: chapter.bookId } });
+      const access = await this.bookAccess.getAccessState(actor, book);
+      if (!access.hasAccess) {
+        return { ...chapter, audioUrl: null, pdfUrl: null };
+      }
+    }
     return chapter;
   }
 
@@ -458,8 +475,12 @@ export class BooksService {
 
   // --- Topics ---
 
-  async listTopics(chapterId: string) {
-    await this.findChapter(chapterId);
+  async listTopics(chapterId: string, actor?: AccessActor | null) {
+    const chapter = await this.findChapter(chapterId);
+    const book = await this.prisma.book.findUnique({ where: { id: chapter.bookId } });
+    const access = await this.bookAccess.getAccessState(actor, book);
+    const hasAccess = access.hasAccess;
+
     const topics = await this.prisma.topic.findMany({
       where: { chapterId },
       include: {
@@ -469,6 +490,8 @@ export class BooksService {
     });
     return topics.map((t) => ({
       ...t,
+      audioUrl: hasAccess ? t.audioUrl : null,
+      pdfUrl: hasAccess ? t.pdfUrl : null,
       subtopicsCount: t._count?.subtopics ?? 0,
     }));
   }
@@ -503,9 +526,19 @@ export class BooksService {
     return this.listTopics(chapterId);
   }
 
-  async findTopic(topicId: string) {
+  async findTopic(topicId: string, actor?: AccessActor | null) {
     const topic = await this.prisma.topic.findUnique({ where: { id: topicId } });
     if (!topic) throw new NotFoundException('Topic not found');
+    if (actor !== undefined) {
+      const chapter = await this.prisma.chapter.findUnique({ where: { id: topic.chapterId } });
+      if (chapter) {
+        const book = await this.prisma.book.findUnique({ where: { id: chapter.bookId } });
+        const access = await this.bookAccess.getAccessState(actor, book);
+        if (!access.hasAccess) {
+          return { ...topic, audioUrl: null, pdfUrl: null };
+        }
+      }
+    }
     return topic;
   }
 
@@ -548,14 +581,27 @@ export class BooksService {
     return this.prisma.topic.update({ where: { id: topicId }, data: { pdfUrl: url } });
   }
 
-  // --- Subtopics ---
-
-  async listSubtopics(topicId: string) {
-    await this.findTopic(topicId);
-    return this.prisma.subtopic.findMany({
+  async listSubtopics(topicId: string, actor?: AccessActor | null) {
+    const topic = await this.prisma.topic.findUnique({ where: { id: topicId } });
+    if (!topic) throw new NotFoundException('Topic not found');
+    let hasAccess = true;
+    if (actor !== undefined) {
+      const chapter = await this.prisma.chapter.findUnique({ where: { id: topic.chapterId } });
+      if (chapter) {
+        const book = await this.prisma.book.findUnique({ where: { id: chapter.bookId } });
+        const access = await this.bookAccess.getAccessState(actor, book);
+        hasAccess = access.hasAccess;
+      }
+    }
+    const subtopics = await this.prisma.subtopic.findMany({
       where: { topicId },
       orderBy: { orderIndex: 'asc' },
     });
+    return subtopics.map((s) => ({
+      ...s,
+      audioUrl: hasAccess ? s.audioUrl : null,
+      pdfUrl: hasAccess ? s.pdfUrl : null,
+    }));
   }
 
   async addSubtopic(topicId: string, dto: CreateSubtopicDto) {

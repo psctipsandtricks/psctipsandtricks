@@ -21,14 +21,14 @@ export class OrdersService {
     if (data.quizId) {
       const quiz = await this.prisma.quiz.findUnique({
         where: { id: data.quizId },
-        select: { price: true, accessType: true, isPremium: true },
+        select: { price: true, finalPrice: true, accessType: true, isPremium: true },
       });
       if (!quiz) throw new NotFoundException('Quiz not found');
 
       const isPaidQuiz = quiz.accessType === 'PAID' || quiz.isPremium || (quiz.price ?? 0) > 0;
       if (!isPaidQuiz) throw new BadRequestException('This quiz is free — no payment is needed.');
 
-      amount = quiz.price ?? 0;
+      amount = (quiz.finalPrice && quiz.finalPrice > 0) ? quiz.finalPrice : (quiz.price ?? 0);
     } else if (data.bookId) {
       const book = await this.prisma.book.findUnique({
         where: { id: data.bookId },
@@ -152,9 +152,23 @@ export class OrdersService {
         validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
       }
     } else if (dto.quizId) {
-      const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId }, select: { price: true } });
+      const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId }, select: { price: true, finalPrice: true } });
       if (!quiz) throw new NotFoundException('Quiz not found');
-      if (amount === undefined) amount = quiz.price ?? 0;
+      if (amount === undefined) amount = (quiz.finalPrice && quiz.finalPrice > 0) ? quiz.finalPrice : (quiz.price ?? 0);
+    }
+
+    let purchasedAt = new Date();
+    if (dto.purchaseDate) {
+      const parsed = new Date(dto.purchaseDate);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('Invalid purchaseDate.');
+      }
+      // A date-only string ("YYYY-MM-DD") parses to midnight UTC; nudge it to
+      // noon so the recorded day is stable across timezones.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dto.purchaseDate)) {
+        parsed.setUTCHours(12, 0, 0, 0);
+      }
+      purchasedAt = parsed;
     }
 
     const notePart = dto.note ? `_${dto.note.slice(0, 60).replace(/\s+/g, '_')}` : '';
@@ -168,7 +182,8 @@ export class OrdersService {
         status: 'SUCCESS',
         accessType,
         validTill,
-        paidAt: new Date(),
+        paidAt: purchasedAt,
+        createdAt: purchasedAt,
         razorpayOrderId: MANUAL_ORDER_TAG,
         razorpayPaymentId: `granted_by_${grantedByUserId}${notePart}`,
       },
@@ -178,8 +193,6 @@ export class OrdersService {
         quiz: { select: { title: true } },
       },
     });
-
-    await this.prisma.user.update({ where: { id: dto.userId }, data: { isPremium: true } });
 
     return order;
   }
@@ -226,13 +239,6 @@ export class OrdersService {
       },
     });
 
-    if (order.userId) {
-      await this.prisma.user.update({
-        where: { id: order.userId },
-        data: { isPremium: true },
-      });
-    }
-
     return updated;
   }
 
@@ -277,12 +283,6 @@ export class OrdersService {
                 paidAt: new Date(),
               },
             });
-            if (order.userId) {
-              await this.prisma.user.update({
-                where: { id: order.userId },
-                data: { isPremium: true },
-              });
-            }
           }
         }
       }
@@ -423,10 +423,34 @@ export class OrdersService {
     });
   }
 
-  async updateOrder(id: string, dto: { status?: any; amount?: number; description?: string; razorpayPaymentId?: string }) {
+  async updateOrder(
+    id: string,
+    dto: {
+      status?: any;
+      amount?: number;
+      description?: string;
+      razorpayPaymentId?: string;
+      purchaseDate?: string;
+      orderDate?: string;
+      createdAt?: string;
+    },
+  ) {
     const existing = await this.prisma.order.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Order with ID ${id} not found`);
+    }
+
+    let createdAt: Date | undefined;
+    const dateInput = dto.purchaseDate || dto.orderDate || dto.createdAt;
+    if (dateInput) {
+      const parsed = new Date(dateInput);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('Invalid order / purchase date.');
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+        parsed.setUTCHours(12, 0, 0, 0);
+      }
+      createdAt = parsed;
     }
 
     const updated = await this.prisma.order.update({
@@ -436,6 +460,7 @@ export class OrdersService {
         ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.razorpayPaymentId !== undefined ? { razorpayPaymentId: dto.razorpayPaymentId } : {}),
+        ...(createdAt !== undefined ? { createdAt } : {}),
       },
       include: {
         user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },
@@ -448,16 +473,40 @@ export class OrdersService {
   }
 
   /** A student's own purchase history — "My Orders" on the public site (only successful/completed purchases). */
-  async findMyOrders(userId: string) {
+  async findMyOrders(
+    userId: string,
+    opts?: { page?: number; limit?: number },
+  ) {
+    const where = { userId, status: 'SUCCESS' as const };
+    const include = {
+      book: { select: { id: true, title: true, coverUrl: true, heroCoverUrl: true } },
+      quiz: { select: { id: true, title: true, isLiveMock: true } },
+    };
+
+    // Bare array unless the caller opts into pagination with page/limit — the
+    // website reads the whole list, the mobile app pages through it.
+    if (opts?.page || opts?.limit) {
+      const page = Math.max(1, Number(opts.page) || 1);
+      const limit = Math.max(1, Math.min(100, Number(opts.limit) || 10));
+      const skip = (page - 1) * limit;
+
+      const [total, data] = await Promise.all([
+        this.prisma.order.count({ where }),
+        this.prisma.order.findMany({
+          where,
+          include,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+      ]);
+
+      return { data, total, page, limit, totalPages: Math.ceil(total / limit) || 1 };
+    }
+
     return this.prisma.order.findMany({
-      where: {
-        userId,
-        status: 'SUCCESS',
-      },
-      include: {
-        book: { select: { id: true, title: true, coverUrl: true } },
-        quiz: { select: { id: true, title: true, isLiveMock: true } },
-      },
+      where,
+      include,
       orderBy: { createdAt: 'desc' },
     });
   }

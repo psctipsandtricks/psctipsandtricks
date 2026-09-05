@@ -1,6 +1,20 @@
 import type { Metadata } from 'next';
+import { Noto_Sans_Malayalam } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
+
+// Self-hosted at build time. Only the Malayalam subset is loaded, so next/font
+// emits an @font-face scoped to `unicode-range: U+0D00–0D7F`. That lets this
+// family sit FIRST in the stack (see tailwind.config.js) without touching Latin
+// text: the browser only reaches for it on Malayalam codepoints, which the
+// system UI font on many platforms mis-shapes (broken chillu / vowel signs).
+const notoSansMalayalam = Noto_Sans_Malayalam({
+  subsets: ['malayalam'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-noto-malayalam',
+  display: 'swap',
+  fallback: ['sans-serif'],
+});
 import { AnnouncementPopupHost } from './announcement-popup';
 import { NavbarWrapper } from './navbar-wrapper';
 import { FooterWrapper } from './footer-wrapper';
@@ -28,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={notoSansMalayalam.variable}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/icon.svg?v=3" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=3" />

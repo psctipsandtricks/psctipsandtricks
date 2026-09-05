@@ -19,8 +19,16 @@ export class MockTestsController {
   @ApiOperation({ summary: 'List mock tests, optionally filtered by status' })
   @UseGuards(OptionalJwtAuthGuard)
   @Get()
-  async findAll(@Request() req: any, @Query('status') status?: MockTestStatus) {
-    return this.mockTestsService.findAll(status, req.user);
+  async findAll(
+    @Request() req: any,
+    @Query('status') status?: MockTestStatus,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.mockTestsService.findAll(status, req.user, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @ApiOperation({ summary: "Get the current user's mock test participation records" })

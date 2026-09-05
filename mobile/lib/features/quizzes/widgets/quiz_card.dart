@@ -6,6 +6,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_image.dart';
 import '../../../core/widgets/glass_card.dart';
 import '../../../data/models/quiz.dart';
+import '../../books/widgets/book_card.dart';
 
 /// Quiz card designed to match the Home Page Book Card (BookTile) style,
 /// layout, spacing, image presentation, typography, badges, and border radius.
@@ -305,42 +306,52 @@ class QuizCard extends StatelessWidget {
                 ],
               ),
 
-              // Quiz Details
+              // Quiz Details with fixed slot heights for perfect horizontal alignment
               Padding(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      quiz.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                            height: 1.25,
-                            letterSpacing: -0.2,
-                          ),
+                    // Fixed 2-line title slot (34px)
+                    SizedBox(
+                      height: 34,
+                      child: Text(
+                        quiz.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                              height: 1.25,
+                              letterSpacing: -0.2,
+                            ),
+                      ),
                     ),
                     const SizedBox(height: 3),
-                    Text(
-                      subtitleText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: palette.textMuted,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
+                    // Fixed 1-line topic slot (16px)
+                    SizedBox(
+                      height: 16,
+                      child: Text(
+                        subtitleText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: palette.textMuted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
+                    // Price & Actions Row - Always pinned at the exact same horizontal baseline!
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         if (!quiz.isPaid)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1.5),
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: AppColors.emerald.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(4),
@@ -382,18 +393,40 @@ class QuizCard extends StatelessWidget {
                           ],
                         ],
                         const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: AppColors.cyan.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
+                        if (quiz.isPaid && quiz.isLocked)
+                          const BuyNowButton(compact: true)
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4.5),
+                            decoration: BoxDecoration(
+                              color: AppColors.cyan.withValues(alpha: isDark ? 0.12 : 0.08),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: AppColors.cyan.withValues(alpha: isDark ? 0.3 : 0.25),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Start',
+                                  style: TextStyle(
+                                    color: isDark ? AppColors.cyan : const Color(0xFF0284C7),
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(width: 2.5),
+                                Icon(
+                                  Icons.arrow_forward_rounded,
+                                  size: 11,
+                                  color: isDark ? AppColors.cyan : const Color(0xFF0284C7),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.arrow_forward_rounded,
-                            size: 13,
-                            color: AppColors.cyan,
-                          ),
-                        ),
                       ],
                     ),
                   ],

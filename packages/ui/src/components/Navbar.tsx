@@ -15,7 +15,6 @@ import {
   LogOut,
   ChevronDown,
   ChevronRight,
-  Sparkles,
   Shield,
   LayoutDashboard,
 } from 'lucide-react';
@@ -220,10 +219,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="text-[9px] font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400 leading-tight">
                       {user.role}
                     </span>
-                  ) : user.isPremium ? (
-                    <span className="text-[9px] font-black uppercase tracking-wider text-amber-500 leading-tight flex items-center gap-0.5">
-                      <Sparkles className="w-2.5 h-2.5" /> PRO
-                    </span>
                   ) : null}
                 </div>
                 <ChevronDown
@@ -264,10 +259,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                         ) : user.role === 'STAFF' ? (
                           <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-400 border border-purple-500/20 shrink-0">
                             Staff
-                          </span>
-                        ) : user.isPremium ? (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0 flex items-center gap-0.5">
-                            <Sparkles className="w-2.5 h-2.5" /> PRO
                           </span>
                         ) : null}
                       </div>

@@ -38,6 +38,9 @@ export interface StaffPermission {
     managePdfs: boolean;
     manageStaff: boolean;
     manageAnnouncements: boolean;
+    manageReviews: boolean;
+    manageSocialLinks: boolean;
+    manageAppUpdate: boolean;
     grantedById?: string | null;
     createdAt: string;
     updatedAt: string;
@@ -102,6 +105,7 @@ export interface Book {
     ordersCount?: number;
     chaptersCount?: number;
     topicsCount?: number;
+    isLegacyPlaceholder?: boolean;
     chapters?: Chapter[];
     /** Present on responses from GET /books and GET /books/:id — the caller's purchase state for this book. */
     access?: {
@@ -136,6 +140,37 @@ export interface Chapter {
     createdAt: string;
     updatedAt: string;
 }
+/**
+ * One subtitle-style segment of an audio track, mapped to the PDF page that
+ * should be on screen while it plays. Timestamps are integer **milliseconds**
+ * from the start of the audio — page turns in a lecture land between words, so
+ * whole seconds are too coarse to place them precisely.
+ *
+ * Cues are sparse by design: gaps between them hold the previous page rather
+ * than falling back to a duration-derived guess, which is what lets a page of
+ * dense diagrams stay put while the narrator talks over it.
+ */
+export interface PdfSyncCue {
+    /** Inclusive segment start, in ms from the beginning of the audio. */
+    startMs: number;
+    /** Exclusive segment end, in ms. Always greater than `startMs`. */
+    endMs: number;
+    /** 1-based PDF page to display for this segment. */
+    page: number;
+}
+/** The saved PDF↔audio mapping for one reading unit. */
+export interface PdfSyncMap {
+    /**
+     * Global correction applied to every cue, in ms. Positive values make pages
+     * turn later. Lets a reader fix a whole track that drifted uniformly without
+     * re-timing each cue.
+     */
+    offsetMs: number;
+    cues: PdfSyncCue[];
+    /** Bumped whenever cues are edited, so a stale cached copy can be detected. */
+    revision?: number;
+    updatedAt?: string;
+}
 export interface Topic {
     id: string;
     chapterId: string;
@@ -146,6 +181,8 @@ export interface Topic {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
+    /** Authored PDF↔audio timing map. Null when this topic was never synced. */
+    syncCues?: PdfSyncMap | null;
     subtopicsCount?: number;
     subtopics?: Subtopic[];
     createdAt: string;
@@ -161,6 +198,8 @@ export interface Subtopic {
     youtubeUrl?: string | null;
     audioUrl?: string | null;
     pdfUrl?: string | null;
+    /** Authored PDF↔audio timing map. Null when this subtopic was never synced. */
+    syncCues?: PdfSyncMap | null;
     createdAt: string;
     updatedAt: string;
 }
@@ -322,8 +361,11 @@ export interface Quiz {
     durationMinutes: number;
     isLiveMock: boolean;
     isPremium: boolean;
+    imageUrl?: string | null;
     showCorrectAnswerAfterSelection?: boolean;
     price: number;
+    discountPercent?: number;
+    finalPrice?: number;
     /** "For every N wrong answers, deduct M marks" — disabled by default. */
     negativeMarkingEnabled: boolean;
     negativeMarkingEvery: number;
@@ -343,6 +385,9 @@ export interface QuizSubmissionPayload {
         selectedOptionIndex?: number;
     }[];
     timeTakenSeconds: number;
+    /** Same duration to millisecond precision. Mock tests rank a tied score on
+     * this — two participants can easily finish within the same whole second. */
+    timeTakenMs?: number;
 }
 export interface QuizResult {
     submissionId: string;
@@ -357,6 +402,72 @@ export interface QuizResult {
     timeTakenSeconds: number;
     rank?: number;
     createdAt: string;
+}
+/** Whether a reviewed question was answered correctly, wrongly, or skipped. */
+export type QuizAnswerStatus = 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
+/** One option, normalized by the server whatever shape the quiz was authored in. */
+export interface ReviewOption {
+    id: string;
+    text: string;
+    explanation: string | null;
+}
+/** One question of a review, paired with what the student picked. */
+export interface QuizReviewQuestion {
+    id: string;
+    /** 1-based position in the quiz's own question order. */
+    number: number;
+    text: string;
+    marks: number;
+    explanation?: string | null;
+    options: ReviewOption[];
+    /** null when the question was skipped. */
+    selectedOptionIndex: number | null;
+    selectedOptionText: string | null;
+    correctOptionIndex: number | null;
+    correctOptionText: string | null;
+    status: QuizAnswerStatus;
+    isCorrect: boolean;
+}
+/**
+ * The scored attempt plus its full answer key, as served by
+ * `GET /quizzes/attempts/:attemptId/review`. Both the website and the mobile
+ * app render their result/review screens from this exact payload.
+ */
+export interface QuizAttemptReview {
+    id: string;
+    quizId: string;
+    quizTitle: string;
+    /** Gates the "Download Solutions PDF" button — available once an attempt is
+     * submitted, and only for a premium quiz. */
+    isPremium: boolean;
+    attemptNumber: number;
+    attemptStatus: 'COMPLETED';
+    score: number;
+    totalMarks: number;
+    percentage: number;
+    passed: boolean;
+    passingMarks: number;
+    totalQuestions: number;
+    correctAnswers: number;
+    wrongAnswers: number;
+    unattempted: number;
+    timeTakenSeconds: number;
+    startedAt: string;
+    submittedAt?: string | null;
+    negativeMarking: {
+        enabled: boolean;
+        every: number;
+        deduct: number;
+        allowNegativeScore: boolean;
+        /** Marks actually deducted on this attempt. */
+        deducted: number;
+    };
+    /**
+     * True when the quiz was edited after this attempt, so the stored answers no
+     * longer line up with the current questions.
+     */
+    answersStale: boolean;
+    questions: QuizReviewQuestion[];
 }
 export type AttemptStatus = 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED';
 export interface QuizAttempt {
@@ -526,6 +637,39 @@ export interface OrderWithItems extends Order {
         isLiveMock: boolean;
     } | null;
 }
+export interface SocialLinks {
+    id: string;
+    telegramUrl: string | null;
+    instagramUrl: string | null;
+    youtubeUrl: string | null;
+    facebookUrl: string | null;
+    twitterUrl: string | null;
+    updatedAt: string | null;
+}
+export type AppUpdateMode = 'immediate' | 'flexible';
+/** The wire shape of `GET/PATCH /app/update-config` — read by the mobile app
+ * on every launch and by the admin settings form. `platform` is Android-only
+ * for now and is passed as a request param, not carried in this body. */
+export interface AppUpdateConfig {
+    enabled: boolean;
+    latestVersion: string;
+    minimumVersion: string;
+    updateMode: AppUpdateMode;
+    forceUpdate: boolean;
+    message: string;
+    updatedAt: string;
+}
+export interface CustomerReview {
+    id: string;
+    customerName: string;
+    /** Whole stars, 1–5. */
+    rating: number;
+    comment: string;
+    isActive: boolean;
+    orderIndex: number;
+    createdAt: string;
+    updatedAt: string;
+}
 export interface Coupon {
     id: string;
     code: string;
@@ -598,7 +742,34 @@ export interface Notification {
     sentById?: string | null;
     isRead: boolean;
     type?: string;
+    status?: 'SENT' | 'SCHEDULED' | string;
+    scheduledFor?: string | null;
+    /** Where a tap lands: an in-app route like `/books/<id>`, or an https link. */
+    route?: string | null;
+    /** Optional 16:9 banner image (YouTube thumbnail format). */
+    imageUrl?: string | null;
     createdAt: string;
+}
+/** A row in the composer's "recently sent" list. */
+export interface SentNotification extends Notification {
+    user?: {
+        id: string;
+        name: string;
+        email: string;
+    } | null;
+    sentBy?: {
+        id: string;
+        name: string;
+    } | null;
+}
+/** Whether a push sent right now would actually reach a device. */
+export interface PushStatus {
+    /** False when the API has no Firebase service-account credentials. */
+    configured: boolean;
+    /** Registered device tokens, signed-in or not. */
+    devices: number;
+    /** Distinct students with at least one registered device. */
+    students: number;
 }
 export interface AnnouncementPopup {
     id: string;

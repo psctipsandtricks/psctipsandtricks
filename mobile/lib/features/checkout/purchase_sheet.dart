@@ -12,6 +12,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../data/models/order.dart';
 
 /// What is being bought. Exactly one of the two ids is set, matching the
@@ -44,10 +45,10 @@ Future<bool> showPurchaseSheet(
   BuildContext context, {
   required PurchaseTarget target,
 }) async {
-  final result = await showModalBottomSheet<bool>(
+  final result = await showGlassSheet<bool>(
     context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
+    // The sheet draws its own handle above the order summary.
+    handle: false,
     builder: (_) => PurchaseSheet(target: target),
   );
   return result ?? false;
@@ -262,22 +263,22 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: bottomInset),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + (bottomInset > 0 ? 12 : bottomPadding)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Center(
               child: Container(
-                width: 42,
+                width: 44,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 18),
+                margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
                   color: palette.border,
                   borderRadius: BorderRadius.circular(4),
@@ -287,20 +288,25 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(9),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: AppColors.amber.withValues(alpha: 0.13),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                    color: AppColors.amber.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    border: Border.all(
+                      color: AppColors.amber.withValues(alpha: 0.28),
+                      width: 1,
+                    ),
                   ),
                   child: Icon(
                     widget.target.isBook
                         ? Icons.menu_book_rounded
                         : Icons.workspace_premium_rounded,
                     color: AppColors.amber,
-                    size: 20,
+                    size: 22,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -310,9 +316,10 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                               color: palette.textMuted,
                               letterSpacing: 0.4,
+                              fontWeight: FontWeight.w600,
                             ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
                         widget.target.title,
                         maxLines: 2,
@@ -327,7 +334,7 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
 
             // Coupon
             if (_coupon == null)
@@ -344,19 +351,40 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
                         prefixIcon:
                             const Icon(Icons.local_offer_outlined, size: 19),
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
-                  OutlinedButton(
+                  FilledButton(
                     onPressed: _checkingCoupon || _paying ? null : _applyCoupon,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.cyan,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                      ),
+                    ),
                     child: _checkingCoupon
                         ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
-                        : const Text('Apply'),
+                        : const Text(
+                            'Apply',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                   ),
                 ],
               )
@@ -408,7 +436,7 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
               value: Fmt.amount(_payable),
               emphasise: true,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
 
             if (_error != null) ...[
               Container(
@@ -437,14 +465,14 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
               isLoading: _paying,
               onPressed: _paying ? null : _pay,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.shield_outlined, size: 13, color: palette.textMuted),
                 const SizedBox(width: 6),
                 Text(
-                  'Secured by Razorpay',
+                  'Secured by Razorpay • 256-bit encryption',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: palette.textMuted,
                       ),

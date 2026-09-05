@@ -12,8 +12,10 @@ import { UserRole } from '@prisma/client';
 import { CreateQuizDto } from './dto/create-quiz.dto';
 import { UpdateQuizDto } from './dto/update-quiz.dto';
 import { SubmitQuizDto } from './dto/submit-quiz.dto';
+import { PauseQuizDto } from './dto/pause-quiz.dto';
 import { CreateQuizFolderDto, UpdateQuizFolderDto } from './dto/quiz-folder.dto';
 import { ReorderDto } from '../common/dto/library-folder.dto';
+import { MoveQuizDto } from './dto/move-quiz.dto';
 
 const MANAGE_QUIZZES_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
 
@@ -101,6 +103,28 @@ export class QuizzesController {
     );
   }
 
+  // Declared ahead of `:id` so the literal segment wins — `@Patch(':id')` would
+  // otherwise swallow this as a quiz whose id is "reorder".
+  @ApiOperation({ summary: 'Reorder quizzes within a folder (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Patch('reorder')
+  async reorderQuizzes(@Body() dto: ReorderDto) {
+    return this.quizzesService.reorderQuizzes(dto);
+  }
+
+  @ApiOperation({ summary: 'Move a quiz to an absolute position in its folder (Admin / Staff with manage_quizzes)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Patch(':id/move')
+  async moveQuiz(@Param('id') id: string, @Body() dto: MoveQuizDto) {
+    return this.quizzesService.moveQuizToPosition(id, dto.position);
+  }
+
   @ApiOperation({ summary: 'Get quiz details by ID with questions' })
   @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
@@ -182,8 +206,15 @@ export class QuizzesController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('history/me')
-  async getStudentHistory(@Request() req: any) {
-    return this.quizzesService.getStudentHistory(req.user.id);
+  async getStudentHistory(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.quizzesService.getStudentHistory(req.user.id, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @ApiOperation({ summary: 'Get the full question-by-question review for one submitted attempt' })
@@ -218,6 +249,19 @@ export class QuizzesController {
   @Get(':id/attempts/active')
   async getActiveAttempt(@Request() req: any, @Param('id') id: string) {
     return this.quizzesService.getActiveAttempt(req.user.id, id);
+  }
+
+  @ApiOperation({ summary: 'Pause and save active IN_PROGRESS quiz attempt' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/attempts/pause')
+  async pauseAttempt(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() dto: PauseQuizDto,
+    @Query('attemptId') attemptId?: string,
+  ) {
+    return this.quizzesService.pauseAttempt(req.user.id, id, dto, attemptId);
   }
 
   @ApiOperation({ summary: 'Submit quiz responses for a specific attempt' })

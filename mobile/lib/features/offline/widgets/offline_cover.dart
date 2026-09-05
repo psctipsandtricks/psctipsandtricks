@@ -5,16 +5,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_image.dart';
 import '../../../data/models/offline.dart';
 import '../offline_providers.dart';
 
-/// A downloaded book's cover, read back out of the encrypted vault.
+/// A downloaded book's 2:3 hero cover, read back out of the encrypted vault.
 ///
 /// Decryption is asynchronous, so the widget paints a neutral placeholder first
 /// and swaps the image in — the alternative, blocking the list build on file
 /// IO, would stutter the Downloads screen on every scroll.
 class OfflineCover extends ConsumerStatefulWidget {
-  const OfflineCover({super.key, required this.book, this.width = 62});
+  const OfflineCover({super.key, required this.book, this.width = 66});
 
   final OfflineBook book;
   final double width;
@@ -54,32 +55,46 @@ class _OfflineCoverState extends ConsumerState<OfflineCover> {
 
   @override
   Widget build(BuildContext context) {
-    final height = widget.width * 1.45;
+    final height = widget.width * 1.5; // Exact 2:3 book size hero aspect ratio
     final radius = BorderRadius.circular(AppTheme.radiusMd);
     final file = _file;
+
+    final coverAsset = widget.book.assets.cast<OfflineAsset?>().firstWhere(
+          (a) => a?.kind == OfflineAssetKind.cover,
+          orElse: () => null,
+        );
 
     return ClipRRect(
       borderRadius: radius,
       child: SizedBox(
         width: widget.width,
         height: height,
-        child: file == null
-            ? DecoratedBox(
-                decoration: const BoxDecoration(
-                  gradient: AppColors.brandGradient,
-                ),
-                child: Icon(
-                  Icons.menu_book_rounded,
-                  color: Colors.white.withValues(alpha: 0.75),
-                  size: widget.width * 0.4,
-                ),
-              )
-            : Image.file(
+        child: file != null
+            ? Image.file(
                 file,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) =>
                     ColoredBox(color: context.palette.elevated),
-              ),
+              )
+            : (coverAsset?.remoteUrl != null && coverAsset!.remoteUrl.isNotEmpty)
+                ? AppImage(
+                    url: coverAsset.remoteUrl,
+                    fit: BoxFit.cover,
+                    width: widget.width,
+                    height: height,
+                    radius: AppTheme.radiusMd,
+                    fallbackIcon: Icons.menu_book_rounded,
+                  )
+                : DecoratedBox(
+                    decoration: const BoxDecoration(
+                      gradient: AppColors.brandGradient,
+                    ),
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      size: widget.width * 0.4,
+                    ),
+                  ),
       ),
     );
   }

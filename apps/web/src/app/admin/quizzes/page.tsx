@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useFormik } from 'formik';
@@ -37,7 +37,22 @@ import {
   X,
   CheckCircle2,
   ListChecks,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
+import {
+  DndContext,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableTableRow, stopDragActivationProps } from './sortable-row';
 import type { QuizFolder } from '@psc/shared-types';
 import { AdminSkeletonHeader, AdminSkeletonTable, MediaLibrarySkeleton } from '../admin-skeleton';
 
@@ -62,6 +77,7 @@ export default function AdminQuizFoldersPage() {
 
   // Expandable Hierarchy Tree State
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const dragStartOrderRef = useRef<QuizFolder[] | null>(null);
   const [folderContents, setFolderContents] = useState<
     Record<string, { subFolders: QuizFolder[]; quizzes: any[]; loading: boolean }>
   >({});
@@ -286,6 +302,97 @@ export default function AdminQuizFoldersPage() {
     currentPage * pageSize,
   );
 
+  // ── Drag-to-reorder ──────────────────────────────────────────────────
+  // Under a search the rows on screen are a subset of the real sequence, so a
+  // drag would write positions derived from gaps the admin cannot see.
+  const canReorder = !searchTerm.trim();
+
+  /** Absolute position of a row among all folders, not its index on the page. */
+  const pageOffset = (currentPage - 1) * pageSize;
+
+  const persistFolderOrder = useCallback(
+    async (ordered: QuizFolder[]) => {
+      try {
+        await ApiClient.reorderQuizFolders(
+          ordered.map((folder, index) => ({ id: folder.id, orderIndex: index })),
+        );
+        setToastMsg({ type: 'success', text: 'Folder order updated. Students see this order too.' });
+      } catch (err) {
+        console.error('Failed to save folder order:', err);
+        setToastMsg({ type: 'error', text: 'Could not save the new order. The list has been put back.' });
+        loadFolders();
+      }
+    },
+    [loadFolders],
+  );
+
+  const dragSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
+
+  const handleDragStart = () => {
+    dragStartOrderRef.current = folders;
+    // Rows are wildly different heights once a folder is expanded, which makes
+    // a drag hard to aim. Collapsing first keeps the list uniform.
+    setExpandedFolders({});
+    document.body.style.cursor = 'grabbing';
+    document.body.classList.add('select-none');
+  };
+
+  // Swap semantics, matching the quiz and question tables.
+  const handleDragOverSort = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setFolders((prev) => {
+      const fromIndex = prev.findIndex((f) => f.id === active.id);
+      const toIndex = prev.findIndex((f) => f.id === over.id);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+      return next;
+    });
+  };
+
+  const resetDragUiState = () => {
+    document.body.style.cursor = '';
+    document.body.classList.remove('select-none');
+  };
+
+  const handleDragEndSort = async (_event: DragEndEvent) => {
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    resetDragUiState();
+    if (!startOrder) return;
+    const changed = startOrder.some((f, idx) => f.id !== folders[idx]?.id);
+    if (!changed) return;
+    await persistFolderOrder(folders);
+  };
+
+  const handleDragCancel = () => {
+    const startOrder = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    resetDragUiState();
+    if (startOrder) setFolders(startOrder);
+  };
+
+  /**
+   * Up/Down move a folder one place in the full list, which may carry it onto
+   * the previous or next page — the whole list is in memory here, so this is a
+   * plain splice rather than a round trip.
+   */
+  const moveFolderBy = async (folder: QuizFolder, delta: number) => {
+    const from = folders.findIndex((f) => f.id === folder.id);
+    const to = from + delta;
+    if (from === -1 || to < 0 || to >= folders.length) return;
+    const next = [...folders];
+    next.splice(to, 0, ...next.splice(from, 1));
+    setFolders(next);
+    const destinationPage = Math.floor(to / pageSize) + 1;
+    if (destinationPage !== currentPage) setCurrentPage(destinationPage);
+    await persistFolderOrder(next);
+  };
+
   const totalQuizzes = folders.reduce((sum, f) => sum + (f.quizCount || 0), 0);
 
   if (loading && folders.length === 0) {
@@ -392,6 +499,14 @@ export default function AdminQuizFoldersPage() {
               </div>
             </div>
           ) : (
+            <DndContext
+              sensors={dragSensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOverSort}
+              onDragEnd={handleDragEndSort}
+              onDragCancel={handleDragCancel}
+            >
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
@@ -403,14 +518,28 @@ export default function AdminQuizFoldersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedFolders.map((folder) => (
+                <SortableContext items={paginatedFolders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+                {paginatedFolders.map((folder, pageIndex) => {
+                  const position = pageOffset + pageIndex;
+                  return (
                   <React.Fragment key={`root-folder-${folder.id}`}>
-                    <TableRow className="border-b border-slate-100 dark:border-[#1e2e56]/40 hover:bg-slate-50/70 dark:hover:bg-[#0c152e]/40 transition-colors group">
+                    <SortableTableRow id={folder.id} canReorder={canReorder}>
                       {/* Name with Expand Chevron */}
                       <TableCell className="py-3">
                         <div className="flex items-center gap-2">
+                          <span
+                            title={canReorder ? 'Drag to reorder' : 'Clear the search to reorder'}
+                            className={
+                              canReorder
+                                ? 'text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none shrink-0'
+                                : 'text-slate-200 dark:text-slate-700 cursor-not-allowed shrink-0'
+                            }
+                          >
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </span>
                           <button
                             type="button"
+                            {...stopDragActivationProps}
                             onClick={() => toggleExpandFolder(folder)}
                             className="p-1 rounded text-slate-400 hover:text-cyan-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                             title={expandedFolders[folder.id] ? 'Collapse inner contents' : 'Expand inner contents'}
@@ -481,7 +610,29 @@ export default function AdminQuizFoldersPage() {
 
                       {/* Actions for Top Folder */}
                       <TableCell className="py-3 text-right">
-                        <div className="flex items-center justify-end space-x-1.5">
+                        <div className="flex items-center justify-end space-x-1.5" {...stopDragActivationProps}>
+                          <div className="flex flex-col -space-y-1 mr-0.5">
+                            <button
+                              type="button"
+                              disabled={!canReorder || position === 0}
+                              onClick={() => moveFolderBy(folder, -1)}
+                              className="p-0.5 text-slate-400 hover:text-cyan-500 disabled:opacity-25 disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+                              title="Move up"
+                              aria-label={`Move ${folder.name} up`}
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canReorder || position >= folders.length - 1}
+                              onClick={() => moveFolderBy(folder, 1)}
+                              className="p-0.5 text-slate-400 hover:text-cyan-500 disabled:opacity-25 disabled:hover:text-slate-400 disabled:cursor-not-allowed cursor-pointer"
+                              title="Move down"
+                              aria-label={`Move ${folder.name} down`}
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
                           <Link href={`/admin/quizzes/folder/${encodeURIComponent(folder.name)}?action=createQuiz`}>
                             <Button
                               variant="outline"
@@ -533,7 +684,7 @@ export default function AdminQuizFoldersPage() {
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                    </SortableTableRow>
 
                     {/* Expanded Inner Hierarchy (Sub-folders & Quizzes) */}
                     {expandedFolders[folder.id] && (
@@ -847,10 +998,17 @@ export default function AdminQuizFoldersPage() {
                                             </TableCell>
                                             <TableCell className="py-2">
                                               {qz.accessType === 'PAID' ? (
-                                                <Badge variant="gold" className="text-[9px]">₹{qz.price || 0}</Badge>
-                                              ) : (
-                                                <Badge variant="success" className="text-[9px]">FREE</Badge>
-                                              )}
+                                                  <div className="flex items-center gap-1 flex-wrap">
+                                                    <Badge variant="gold" className="text-[9px]">₹{qz.finalPrice && qz.finalPrice > 0 ? qz.finalPrice : (qz.price || 0)}</Badge>
+                                                    {Boolean(qz.discountPercent && qz.discountPercent > 0) && (
+                                                      <span className="text-[8px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-1 py-0.5 rounded">
+                                                        {qz.discountPercent}% OFF
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                ) : (
+                                                  <Badge variant="success" className="text-[9px]">FREE</Badge>
+                                                )}
                                             </TableCell>
                                             <TableCell className="py-2 text-xs font-mono text-slate-600 dark:text-slate-400">
                                               {qz.totalQuestions || qz.questions?.length || 0} Qs · {qz.durationMinutes}m
@@ -910,12 +1068,19 @@ export default function AdminQuizFoldersPage() {
                                   </div>
                                 </TableCell>
                                 <TableCell className="py-2.5">
-                                  {qz.accessType === 'PAID' ? (
-                                    <Badge variant="gold" className="text-[10px]">₹{qz.price || 0}</Badge>
-                                  ) : (
-                                    <Badge variant="success" className="text-[10px]">FREE</Badge>
-                                  )}
-                                </TableCell>
+                                    {qz.accessType === 'PAID' ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <Badge variant="gold" className="text-[10px]">₹{qz.finalPrice && qz.finalPrice > 0 ? qz.finalPrice : (qz.price || 0)}</Badge>
+                                        {Boolean(qz.discountPercent && qz.discountPercent > 0) && (
+                                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                                            {qz.discountPercent}% OFF
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <Badge variant="success" className="text-[10px]">FREE</Badge>
+                                    )}
+                                  </TableCell>
                                 <TableCell className="py-2.5 text-xs font-mono text-slate-600 dark:text-slate-400">
                                   {qz.totalQuestions || qz.questions?.length || 0} Qs · {qz.durationMinutes}m
                                 </TableCell>
@@ -950,9 +1115,12 @@ export default function AdminQuizFoldersPage() {
                       </>
                     )}
                   </React.Fragment>
-                ))}
+                  );
+                })}
+                </SortableContext>
               </TableBody>
             </Table>
+            </DndContext>
           )}
         </div>
 

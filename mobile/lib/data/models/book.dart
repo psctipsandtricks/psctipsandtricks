@@ -75,7 +75,7 @@ class AccessState {
 
   factory AccessState.fromJson(Map<String, dynamic> json) => AccessState(
         isPaid: J.boolVal(json['isPaid']),
-        hasAccess: J.boolVal(json['hasAccess'], true),
+        hasAccess: J.boolVal(json['hasAccess'], false),
         price: J.dbl(json['price']),
         reason: _reasonFrom(json['reason']),
         subscription: json['subscription'] is Map
@@ -140,9 +140,26 @@ class Book {
   /// since until then there is no date to show.
   SubscriptionAccess? get subscription => access?.subscription;
 
-  bool get isFree => finalPrice <= 0;
+  /// The 16:9 catalog cover image uploaded from Admin Panel (`coverUrl`), falling back to hero cover.
+  String get effectiveCatalogCoverUrl {
+    final cover = coverUrl.trim();
+    if (cover.isNotEmpty) return cover;
+    return (heroCoverUrl?.trim() ?? '');
+  }
+
+  /// The 2:3 book size hero banner cover image (`heroCoverUrl`), falling back to catalog cover.
+  String get effectiveHeroCoverUrl {
+    final hero = heroCoverUrl?.trim();
+    if (hero != null && hero.isNotEmpty) return hero;
+    return coverUrl.trim();
+  }
+
+  /// The standard catalog cover image if available, falling back to hero cover.
+  String get effectiveCoverUrl => effectiveCatalogCoverUrl;
+
+  bool get isFree => finalPrice <= 0 && price <= 0 && !isPremium;
   bool get hasDiscount => discountPercent > 0 && finalPrice < price;
-  bool get isUnlocked => access?.hasAccess ?? !isPremium;
+  bool get isUnlocked => access?.hasAccess ?? isFree;
 
   factory Book.fromJson(Map<String, dynamic> json) => Book(
         id: J.str(json['id']),

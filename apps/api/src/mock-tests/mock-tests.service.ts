@@ -57,35 +57,59 @@ export class MockTestsService {
     });
   }
 
-  async findAll(status?: MockTestStatus, actor?: AccessActor | null) {
-    const mockTests = await this.prisma.mockTest.findMany({
-      where: status ? { status } : undefined,
-      include: {
-        // accessType/price let the listing show a premium lock and its cost
-        // before the student opens the test.
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            durationMinutes: true,
-            totalMarks: true,
-            totalQuestions: true,
-            accessType: true,
-            isPremium: true,
-            price: true,
-          },
+  async findAll(
+    status?: MockTestStatus,
+    actor?: AccessActor | null,
+    opts?: { page?: number; limit?: number },
+  ) {
+    const where = status ? { status } : undefined;
+    const include = {
+      // accessType/price let the listing show a premium lock and its cost
+      // before the student opens the test.
+      quiz: {
+        select: {
+          id: true,
+          title: true,
+          durationMinutes: true,
+          totalMarks: true,
+          totalQuestions: true,
+          accessType: true,
+          isPremium: true,
+          price: true,
         },
-        _count: { select: { participants: true } },
       },
-      orderBy: { scheduledAt: 'asc' },
-    });
+      _count: { select: { participants: true } },
+    };
+    // Completed tests read best newest-first; the live/upcoming rails stay in
+    // chronological order so the next test to start is at the top.
+    const orderBy = {
+      scheduledAt: status === MockTestStatus.COMPLETED ? ('desc' as const) : ('asc' as const),
+    };
+
+    // page/limit turns this into a numbered-pagination envelope (mobile's
+    // completed rail); without them every caller keeps the bare array.
+    let meta: { total: number; page: number; limit: number; totalPages: number } | null = null;
+    let mockTests;
+    if (opts?.page || opts?.limit) {
+      const page = Math.max(1, Number(opts.page) || 1);
+      const limit = Math.max(1, Math.min(100, Number(opts.limit) || 10));
+      const skip = (page - 1) * limit;
+      const [total, rows] = await Promise.all([
+        this.prisma.mockTest.count({ where }),
+        this.prisma.mockTest.findMany({ where, include, orderBy, skip, take: limit }),
+      ]);
+      mockTests = rows;
+      meta = { total, page, limit, totalPages: Math.ceil(total / limit) || 1 };
+    } else {
+      mockTests = await this.prisma.mockTest.findMany({ where, include, orderBy });
+    }
 
     // The listing must reflect purchase state up front — otherwise a premium
     // mock test's card reads "Join & Start" exactly like a free one, and the
     // paywall only shows up after the student has already clicked through.
-    const purchased = await this.quizAccess.getPurchasedQuizIds(actor?.id);
+    const { quizIds: purchased } = await this.quizAccess.getPurchasedQuizIds(actor?.id);
 
-    return mockTests.map((mt) => {
+    const data = mockTests.map((mt) => {
       const price = mt.quiz?.price ?? 0;
       let access: QuizAccessState;
 
@@ -103,6 +127,8 @@ export class MockTestsService {
 
       return { ...mt, access };
     });
+
+    return meta ? { data, ...meta } : data;
   }
 
   async findOne(id: string, actor?: AccessActor | null) {
@@ -112,7 +138,15 @@ export class MockTestsService {
         quiz: { include: { questions: true } },
         participants: {
           include: { user: { select: { name: true, avatarUrl: true } } },
-          orderBy: [{ score: 'desc' }],
+          // Same rule as `getLeaderboard` and the background rank recompute:
+          // highest score first, then the faster of two equal scores. A
+          // participant who has not submitted yet (`score`/`timeTakenMs` both
+          // null) sorts to the end rather than being ordered arbitrarily.
+          orderBy: [
+            { score: { sort: 'desc', nulls: 'last' } },
+            { timeTakenMs: { sort: 'asc', nulls: 'last' } },
+            { submittedAt: { sort: 'asc', nulls: 'last' } },
+          ],
         },
       },
     });
@@ -193,6 +227,13 @@ export class MockTestsService {
     const totalMarks = mockTest.quiz.totalMarks || 100;
     const percentage = Math.round((score / (totalMarks || 1)) * 100 * 100) / 100;
 
+    // Prefer the millisecond-precision duration the client sends; fall back to
+    // the whole-second one converted up, for a caller that has not been
+    // updated to send the finer value yet. Rank ties are broken on this, so it
+    // has to be the most precise figure available either way.
+    const timeTakenMs = payload.timeTakenMs ?? (payload.timeTakenSeconds ?? 0) * 1000;
+    const submittedAt = new Date();
+
     // The per-question tallies are already known from the scoring loop above;
     // persisting them (rather than zeros) is what lets the student dashboard
     // report a real accuracy for mock tests instead of an empty breakdown.
@@ -211,14 +252,14 @@ export class MockTestsService {
         unattempted,
         timeTakenSeconds: payload.timeTakenSeconds || 0,
         answers: (payload.answers || []) as unknown as Prisma.InputJsonValue,
-        startedAt: new Date(Date.now() - (payload.timeTakenSeconds || 0) * 1000),
-        submittedAt: new Date(),
+        startedAt: new Date(submittedAt.getTime() - timeTakenMs),
+        submittedAt,
       },
     });
 
     const updated = await this.prisma.mockTestParticipant.update({
       where: { mockTestId_userId: { mockTestId, userId } },
-      data: { score, submittedAt: new Date() },
+      data: { score, timeTakenMs, submittedAt },
     });
 
     // Rank recomputation is a background concern. The submission is already
@@ -244,7 +285,15 @@ export class MockTestsService {
     const participants = await this.prisma.mockTestParticipant.findMany({
       where: { mockTestId, submittedAt: { not: null } },
       include: { user: { select: { name: true, avatarUrl: true } } },
-      orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
+      // Highest score first; among equal scores, whoever finished in less
+      // wall-clock time ranks higher. `submittedAt` only breaks a tie between
+      // two participants that also tie on `timeTakenMs` (identical millisecond
+      // duration, or a submission from before this field existed).
+      orderBy: [
+        { score: 'desc' },
+        { timeTakenMs: { sort: 'asc', nulls: 'last' } },
+        { submittedAt: 'asc' },
+      ],
       take: 100,
     });
     return participants.map((p, idx) => ({
@@ -253,6 +302,7 @@ export class MockTestsService {
       userName: p.user.name || 'Student Participant',
       avatarUrl: p.user.avatarUrl,
       score: p.score ?? 0,
+      timeTakenMs: p.timeTakenMs,
       totalMarks,
     }));
   }

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardTitle, CardDescription, Button, Badge, Input, Pagination } from '@psc/ui';
 import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
@@ -60,9 +60,9 @@ function useCountdown(target: string) {
 
 function CountdownUnit({ value, label, urgent }: { value: number; label: string; urgent?: boolean }) {
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center shrink-0">
       <div
-        className={`w-11 h-11 sm:w-13 sm:h-13 rounded-2xl flex items-center justify-center font-mono font-black text-lg sm:text-xl shadow-xs border transition-all ${
+        className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center font-mono font-black text-sm sm:text-base shadow-xs border transition-all ${
           urgent
             ? 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-amber-500/10'
             : 'bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 text-slate-900 dark:text-white shadow-slate-200/50'
@@ -70,7 +70,7 @@ function CountdownUnit({ value, label, urgent }: { value: number; label: string;
       >
         {value.toString().padStart(2, '0')}
       </div>
-      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1.5">
+      <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mt-1">
         {label}
       </span>
     </div>
@@ -78,6 +78,14 @@ function CountdownUnit({ value, label, urgent }: { value: number; label: string;
 }
 
 export default function QuizzesPage() {
+  return (
+    <Suspense fallback={<QuizHubSkeleton />}>
+      <QuizzesPageContent />
+    </Suspense>
+  );
+}
+
+function QuizzesPageContent() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -240,6 +248,64 @@ export default function QuizzesPage() {
       return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
     });
 
+  const mockTestsRailRef = useRef<HTMLDivElement>(null);
+  const [canScrollMockLeft, setCanScrollMockLeft] = useState(false);
+  const [canScrollMockRight, setCanScrollMockRight] = useState(true);
+  const [isMockAutoScrollPaused, setIsMockAutoScrollPaused] = useState(false);
+  const mockAutoScrollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const checkMockScrollability = useCallback(() => {
+    const rail = mockTestsRailRef.current;
+    if (!rail) return;
+    const { scrollLeft, scrollWidth, clientWidth } = rail;
+    setCanScrollMockLeft(scrollLeft > 10);
+    setCanScrollMockRight(scrollLeft < scrollWidth - clientWidth - 10);
+  }, []);
+
+  useEffect(() => {
+    checkMockScrollability();
+    window.addEventListener('resize', checkMockScrollability);
+    return () => window.removeEventListener('resize', checkMockScrollability);
+  }, [checkMockScrollability, highlightedMockTests]);
+
+  // Automatic Smooth Scrolling for Live & Upcoming Mock Tests
+  useEffect(() => {
+    if (isMockAutoScrollPaused || highlightedMockTests.length <= 2) return;
+
+    mockAutoScrollTimerRef.current = setInterval(() => {
+      const rail = mockTestsRailRef.current;
+      if (!rail) return;
+
+      const maxScroll = rail.scrollWidth - rail.clientWidth;
+      if (maxScroll <= 0) return;
+
+      if (rail.scrollLeft >= maxScroll - 16) {
+        rail.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        const cardWidth = rail.clientWidth / 2 + 12;
+        const nextScroll = Math.min(rail.scrollLeft + cardWidth, maxScroll);
+        rail.scrollTo({ left: nextScroll, behavior: 'smooth' });
+      }
+    }, 4000);
+
+    return () => {
+      if (mockAutoScrollTimerRef.current) {
+        clearInterval(mockAutoScrollTimerRef.current);
+      }
+    };
+  }, [isMockAutoScrollPaused, highlightedMockTests.length]);
+
+  const scrollMockTests = (direction: 'left' | 'right') => {
+    const rail = mockTestsRailRef.current;
+    if (!rail) return;
+    setIsMockAutoScrollPaused(true);
+    const cardWidth = rail.clientWidth / 2 + 12;
+    const amount = direction === 'left' ? -cardWidth : cardWidth;
+    rail.scrollBy({ left: amount, behavior: 'smooth' });
+    setTimeout(checkMockScrollability, 350);
+    setTimeout(() => setIsMockAutoScrollPaused(false), 6000);
+  };
+
   const freeCount = quizzes.filter((q) => q.accessType === 'FREE').length;
   const premiumCount = quizzes.filter((q) => q.accessType === 'PAID').length;
   const completedMockTestCount = mockTests.filter((mt) => mt.status === 'COMPLETED').length;
@@ -281,6 +347,8 @@ export default function QuizzesPage() {
   const accessScopedQuizzes =
     accessFilter === 'ALL' ? quizzes : quizzes.filter((q) => q.accessType === accessFilter);
 
+  const accessLabel = accessFilter === 'PAID' ? 'Premium Quizzes' : accessFilter === 'FREE' ? 'Free Quizzes' : 'All Quizzes';
+
   // Top-level folders (those without a parentId, active, and containing at least 1 active quiz in this scope)
   const topDbFolders = dbFolders.filter(
     (f) => !f.parentId && f.isActive !== false && f.name.toLowerCase() !== 'root',
@@ -315,33 +383,104 @@ export default function QuizzesPage() {
       getFolderQuizCount(f.name, accessScopedQuizzes, dbFolders) > 0,
   );
 
-  const accessLabel = accessFilter === 'PAID' ? 'Premium Quizzes' : 'Free Quizzes';
+  const searchParams = useSearchParams();
+  const typeParam = searchParams.get('type');
+  const folderParam = searchParams.get('folder');
+
+  useEffect(() => {
+    if (typeParam === 'free') {
+      setAccessFilter('FREE');
+    } else if (typeParam === 'premium' || typeParam === 'paid') {
+      setAccessFilter('PAID');
+    } else {
+      setAccessFilter('ALL');
+    }
+
+    if (folderParam) {
+      setActiveFolderTab(folderParam);
+    } else {
+      setActiveFolderTab('ALL');
+    }
+  }, [typeParam, folderParam]);
 
   const openAccess = (next: 'FREE' | 'PAID') => {
     setAccessFilter(next);
     setActiveFolderTab('ALL');
+    const param = next === 'FREE' ? 'free' : 'premium';
+    router.push(`/quizzes?type=${param}`);
   };
+
   const backToAccess = () => {
     setAccessFilter('ALL');
     setActiveFolderTab('ALL');
+    router.push('/quizzes');
   };
 
-  const filteredQuizzes = quizzes.filter((quiz) => {
-    const matchesSearch =
-      quiz.title.toLowerCase().includes(searchTerm.toLowerCase());
+  const handleFolderSelect = (folderName: string) => {
+    setActiveFolderTab(folderName);
+    const param = accessFilter === 'FREE' ? 'free' : 'premium';
+    if (folderName === 'ALL') {
+      router.push(`/quizzes?type=${param}`);
+    } else {
+      router.push(`/quizzes?type=${param}&folder=${encodeURIComponent(folderName)}`);
+    }
+  };
 
-    const matchesFolder =
-      activeFolderTab === 'ALL' || quiz.folderName === activeFolderTab;
+  const breadcrumbs = React.useMemo(() => {
+    if (activeFolderTab === 'ALL') return [];
+    const crumbs: { id?: string; name: string }[] = [];
+    let curr = dbFolders.find((f) => f.name.toLowerCase() === activeFolderTab.toLowerCase());
+    while (curr) {
+      crumbs.unshift({ id: curr.id, name: curr.name });
+      if (curr.parentId) {
+        curr = dbFolders.find((f) => f.id === curr!.parentId);
+      } else {
+        break;
+      }
+    }
+    if (crumbs.length === 0 && activeFolderTab !== 'ALL') {
+      crumbs.push({ name: activeFolderTab });
+    }
+    return crumbs;
+  }, [activeFolderTab, dbFolders]);
 
-    const matchesAccess =
-      accessFilter === 'ALL' || quiz.accessType === accessFilter;
+  const handleBack = () => {
+    if (activeFolderTab !== 'ALL') {
+      if (breadcrumbs.length > 1) {
+        handleFolderSelect(breadcrumbs[breadcrumbs.length - 2].name);
+      } else {
+        handleFolderSelect('ALL');
+      }
+    } else {
+      backToAccess();
+    }
+  };
 
-    return matchesSearch && matchesFolder && matchesAccess;
-  });
+  const isSearching = searchTerm.trim().length > 0;
+  const searchMatchedQuizzes = accessScopedQuizzes.filter((quiz) =>
+    quiz.title.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
 
-  const totalItems = filteredQuizzes.length;
+  const directRootQuizzes = accessScopedQuizzes.filter(
+    (q) => !q.folderName || q.folderName.toLowerCase() === 'root' || q.folderName === 'Root / No Folder',
+  );
+
+  const currentFolderQuizzes = accessScopedQuizzes.filter(
+    (q) => q.folderName.toLowerCase() === activeFolderTab.toLowerCase(),
+  );
+
+  const activeQuizList = isSearching
+    ? searchMatchedQuizzes
+    : activeFolderTab === 'ALL'
+    ? directRootQuizzes
+    : currentFolderQuizzes;
+
+  const totalItems = activeQuizList.length;
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
-  const paginatedQuizzes = filteredQuizzes.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedQuizzes = activeQuizList.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   if (loading || authLoading) {
     return <QuizHubSkeleton />;
@@ -349,7 +488,6 @@ export default function QuizzesPage() {
 
   return (
     <div className="space-y-4 sm:space-y-8 py-2 sm:py-4 px-1 sm:px-0">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
@@ -376,78 +514,84 @@ export default function QuizzesPage() {
         </Button>
       </div>
 
-      {/* Live & Upcoming Mock Tests — pinned & highlighted */}
-      {highlightedMockTests.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
-            <Radio className="w-4 h-4 text-rose-500" />
-            <span>Live &amp; Upcoming Mock Tests</span>
-          </h2>
-          {/* A lone test gets the full viewport width instead of sitting in a
-              third of an otherwise empty row. */}
+      {browseLevel === 'ACCESS' && highlightedMockTests.length > 0 && (
+        <div className="space-y-3 sm:space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center space-x-2.5">
+              <Radio className="w-4 h-4 text-rose-500 animate-pulse" />
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                Live &amp; Upcoming Mock Tests
+              </h2>
+              <Badge variant="gold" className="text-[10px] font-black uppercase px-2 py-0.5">
+                {highlightedMockTests.length} {highlightedMockTests.length === 1 ? 'Test' : 'Tests'}
+              </Badge>
+            </div>
+
+            {highlightedMockTests.length > 2 && (
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => scrollMockTests('left')}
+                  disabled={!canScrollMockLeft}
+                  className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer shadow-xs"
+                  aria-label="Previous mock test"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollMockTests('right')}
+                  disabled={!canScrollMockRight}
+                  className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer shadow-xs"
+                  aria-label="Next mock test"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
           <div
+            ref={mockTestsRailRef}
+            onScroll={checkMockScrollability}
             className={
               highlightedMockTests.length === 1
-                ? 'grid grid-cols-1 gap-4'
-                : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+                ? 'w-full'
+                : 'flex gap-4 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700 scroll-smooth'
             }
+            style={highlightedMockTests.length > 1 ? { scrollbarGutter: 'stable' } : undefined}
           >
-            {highlightedMockTests.map((mt) => (
-              <MockTestCard key={mt.id} mockTest={mt} myAttempt={myMockAttempts[mt.id]} router={router} user={user} />
+            {highlightedMockTests.map((mockTest) => (
+              <div
+                key={mockTest.id}
+                className={
+                  highlightedMockTests.length === 1
+                    ? 'w-full flex flex-col'
+                    : 'w-[92vw] sm:w-[calc(50%-8px)] shrink-0 snap-start flex flex-col'
+                }
+              >
+                <MockTestCard
+                  mockTest={mockTest}
+                  myAttempt={myMockAttempts[mockTest.id]}
+                  router={router}
+                  user={user}
+                />
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Breadcrumb trail — only once the user has drilled in */}
-      {browseLevel !== 'ACCESS' && (
-        <div className="flex items-center flex-wrap gap-1.5 text-xs font-bold">
-          <button
-            onClick={backToAccess}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-300 hover:bg-slate-100 dark:hover:bg-[#0c152e] transition-colors cursor-pointer"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            <span>All Courses</span>
-          </button>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600" />
-          {browseLevel === 'QUIZ' ? (
-            <>
-              <button
-                onClick={() => setActiveFolderTab('ALL')}
-                className="px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-300 hover:bg-slate-100 dark:hover:bg-[#0c152e] transition-colors cursor-pointer"
-              >
-                {accessLabel}
-              </button>
-              {currentFolderRecord?.parentName && (
-                <>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600" />
-                  <button
-                    onClick={() => setActiveFolderTab(currentFolderRecord.parentName!)}
-                    className="px-2.5 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-300 hover:bg-slate-100 dark:hover:bg-[#0c152e] transition-colors cursor-pointer"
-                  >
-                    {currentFolderRecord.parentName}
-                  </button>
-                </>
-              )}
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-600" />
-              <span className="px-2.5 py-1.5 text-cyan-700 dark:text-cyan-300">
-                {activeFolderTab === 'Root / No Folder' ? '🏠 Root Level' : activeFolderTab}
-              </span>
-            </>
-          ) : (
-            <span className="px-2.5 py-1.5 text-cyan-700 dark:text-cyan-300">{accessLabel}</span>
-          )}
-        </div>
-      )}
-
-      {/* Level 1 — pick a course type */}
       {browseLevel === 'ACCESS' && (
-        <div className="space-y-3">
-          <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
-            <FolderOpen className="w-4 h-4 text-cyan-500" />
-            <span>Browse Question Banks</span>
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="space-y-4 sm:space-y-5">
+          <div className="flex items-center space-x-2">
+            <Folder className="w-4 h-4 text-cyan-500" />
+            <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+              Browse Question Banks
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <CourseTypeCard
               title="Free Quizzes"
               description="Practice question banks you can attempt right away, at no cost."
@@ -464,10 +608,8 @@ export default function QuizzesPage() {
               accent="premium"
               onClick={() => openAccess('PAID')}
             />
-            {/* Finished tests moved off the hub, but students still need their
-                rank — this is the way back to it. */}
             <CourseTypeCard
-              title="Completed Mock Tests"
+              title="All Mock Tests"
               description="Finished mock tests with your score, rank and the full rank list."
               count={completedMockTestCount}
               countLabel={completedMockTestCount === 1 ? 'Test' : 'Tests'}
@@ -479,239 +621,491 @@ export default function QuizzesPage() {
         </div>
       )}
 
-      {/* Level 2 — pick a top folder inside the chosen course type */}
-      {browseLevel === 'FOLDER' && (
-        <div className="space-y-3">
-          <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
-            <FolderOpen className={`w-4 h-4 ${accessFilter === 'PAID' ? 'text-amber-500' : 'text-emerald-500'}`} />
-            <span>{accessLabel} — Folders</span>
-          </h2>
-          {folders.length === 0 ? (
-            <EmptyBrowseState
-              title={`No ${accessFilter === 'PAID' ? 'premium' : 'free'} quizzes yet`}
-              message={`There are no ${accessFilter === 'PAID' ? 'premium' : 'free'} question banks published right now. Check back soon.`}
-            />
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {folders.map((folder) => (
-                <FolderCard
-                  key={folder}
-                  name={folder}
-                  count={getFolderQuizCount(folder, accessScopedQuizzes, dbFolders)}
-                  accent={accessFilter === 'PAID' ? 'premium' : 'free'}
-                  onClick={() => setActiveFolderTab(folder)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Level 3 — the quizzes and sub-folders inside the chosen folder */}
-      {browseLevel === 'QUIZ' && (
+      {browseLevel !== 'ACCESS' && (
         <div className="space-y-6">
-          {/* If the active folder contains sub-folders, display them */}
-          {currentSubFolders.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center space-x-2">
-                <FolderOpen className="w-4 h-4 text-amber-500" />
-                <span>Sub-folders in &ldquo;{activeFolderTab}&rdquo;</span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                {currentSubFolders.map((subFolder) => (
-                  <FolderCard
-                    key={subFolder.id}
-                    name={subFolder.name}
-                    count={getFolderQuizCount(subFolder.name, accessScopedQuizzes, dbFolders)}
-                    accent={accessFilter === 'PAID' ? 'premium' : 'free'}
-                    onClick={() => setActiveFolderTab(subFolder.name)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Quizzes inside this folder */}
-          {paginatedQuizzes.length === 0 && currentSubFolders.length === 0 ? (
-            <div className="py-16 text-center">
-              <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
-                <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
-                  <Search className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">No Quiz Match</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    No quizzes match your selected search or filter criteria. Try adjusting your search term or filters.
+          <div className="glass-panel rounded-3xl p-5 sm:p-6 space-y-4 relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center space-x-3.5 relative z-10">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBack}
+                  className="p-2.5 rounded-2xl border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:bg-cyan-500/10 hover:border-cyan-400/50 transition-all shadow-sm cursor-pointer"
+                  aria-label="Back"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ${
+                        accessFilter === 'PAID'
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                          : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+                      }`}
+                    >
+                      {accessFilter === 'PAID' ? <Crown className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      <span>{accessLabel}</span>
+                    </span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500 font-mono font-bold">
+                      {accessScopedQuizzes.length} {accessScopedQuizzes.length === 1 ? 'Quiz' : 'Quizzes'}
+                    </span>
+                  </div>
+                  <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white mt-1">
+                    {activeFolderTab === 'ALL'
+                      ? accessLabel
+                      : activeFolderTab === 'Root / No Folder'
+                      ? `${accessLabel} — Root Level`
+                      : activeFolderTab}
+                  </h1>
+                  <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-0.5">
+                    {activeFolderTab === 'ALL'
+                      ? accessFilter === 'PAID'
+                        ? 'Explore premium question bank folders curated by top rank holders.'
+                        : 'Select a folder to explore free question banks and practice tests.'
+                      : `Browse and practice quizzes inside "${activeFolderTab}".`}
                   </p>
                 </div>
               </div>
-            </div>
-          ) : paginatedQuizzes.length > 0 ? (
-            <div className="space-y-3">
-              {currentSubFolders.length > 0 && (
-                <h3 className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Quizzes in &ldquo;{activeFolderTab}&rdquo; ({paginatedQuizzes.length})
-                </h3>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {paginatedQuizzes.map((quiz) => {
-                  const isPaid = quiz.accessType === 'PAID';
-                  const isNew = isRecentlyUploaded(quiz.createdAt);
-                  const defaultCover = isPaid ? '/default-quiz-cover.svg' : '/default-free-quiz-cover.svg';
-                  const coverImage = quiz.imageUrl || defaultCover;
 
-                  return (
-                    <Card key={quiz.id} hoverEffect className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 p-5 rounded-2xl">
-                      <div className="space-y-3">
-                        <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-slate-950 group/img">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={coverImage}
-                            alt={quiz.title}
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).src = defaultCover;
-                            }}
-                            className="w-full h-full object-cover object-center transition-transform duration-500 group-hover/img:scale-105"
-                          />
-                          {/* Top Badges Overlay on Cover */}
-                          <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1.5 pointer-events-none">
-                            <div className="flex items-center gap-1.5">
-                              {isNew && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-md">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                                  New
-                                </span>
-                              )}
-                              {quiz.isLive && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500 text-white shadow-md">
-                                  <Radio className="w-2.5 h-2.5 animate-pulse" />
-                                  Live
-                                </span>
-                              )}
-                            </div>
-                            {isPaid ? (
-                              quiz.hasAccess || quiz.isPurchased ? (
-                                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-md flex items-center gap-1">
-                                  <Unlock className="w-2.5 h-2.5 text-emerald-400" />
-                                  <span>UNLOCKED</span>
-                                </span>
-                              ) : (
-                                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black font-mono bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-md flex items-center gap-1">
-                                  <Lock className="w-2.5 h-2.5 text-amber-400" />
-                                  <span>₹{quiz.price}</span>
-                                </span>
-                              )
-                            ) : (
-                              <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-md flex items-center gap-1">
-                                <Unlock className="w-2.5 h-2.5 text-emerald-400" />
-                                <span>FREE</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex justify-between items-center gap-2">
-                          <div className="flex items-center space-x-2">
-                            {isNew && (
-                              <Badge variant="success" className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span>NEW</span>
-                              </Badge>
-                            )}
-                            <Badge variant={quiz.isLive ? 'gold' : 'default'}>
-                              {quiz.isLive ? '🔥 Live Mock Test' : 'Quiz'}
-                            </Badge>
-                          {/* Free vs Paid Access Badge */}
-                          {quiz.accessType === 'FREE' ? (
-                            <Badge variant="success" className="font-bold flex items-center gap-1">
-                              <Unlock className="w-3 h-3" />
-                              <span>FREE</span>
-                            </Badge>
-                          ) : quiz.hasAccess || quiz.isPurchased ? (
-                            <Badge variant="success" className="font-bold flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
-                              <CheckCircle2 className="w-3 h-3" />
-                              <span>UNLOCKED</span>
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="font-bold flex items-center gap-1 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30">
-                              <Lock className="w-3 h-3 text-cyan-500" />
-                              <span>₹{quiz.price}</span>
-                            </Badge>
-                          )}
-                        </div>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 font-mono">
-                          <Timer className="w-3.5 h-3.5" />
-                          <span>{quiz.duration} mins</span>
-                        </span>
-                      </div>
-
-                      <div className="space-y-1">
-                        <h3 className="font-bold text-base text-slate-900 dark:text-white line-clamp-1 group-hover:text-cyan-500 transition-colors">
-                          {quiz.title}
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
-                          <span>{quiz.questions} Questions</span>
-                          <span>•</span>
-                          <span>{quiz.totalMarks} Marks</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-                      {attemptedQuizIds.has(quiz.id) ? (
-                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Attempted</span>
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
-                      )}
-                      {quiz.accessType === 'PAID' && !quiz.hasAccess && !quiz.isPurchased ? (
-                        <Button
-                          size="sm"
-                          variant="gold"
-                          className="font-bold cursor-pointer"
-                          onClick={() => handleStartQuiz(quiz)}
-                        >
-                          <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-                          <span>Buy Now</span>
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="gold"
-                          className="font-bold cursor-pointer"
-                          onClick={() => handleStartQuiz(quiz)}
-                        >
-                          <span>{attemptedQuizIds.has(quiz.id) ? 'Retake Quiz' : 'Start Quiz'}</span>
-                          <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                        </Button>
-                      )}
-                    </div>
-                    </Card>
-                  );
-                })}
+              <div className="relative w-full sm:w-72 shrink-0">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <Input
+                  placeholder={`Search ${accessLabel.toLowerCase()}...`}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-9 h-10 text-xs sm:text-sm rounded-xl bg-slate-50 dark:bg-[#091124] border-slate-200 dark:border-white/10"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
-          ) : null}
+
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex-wrap">
+              <button
+                type="button"
+                onClick={backToAccess}
+                className="hover:text-cyan-600 dark:hover:text-cyan-400 flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                <span>Quiz Hub</span>
+              </button>
+
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+
+              <button
+                type="button"
+                onClick={() => handleFolderSelect('ALL')}
+                className={`hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors cursor-pointer ${
+                  activeFolderTab === 'ALL' ? 'text-slate-900 dark:text-white font-black' : ''
+                }`}
+              >
+                {accessLabel}
+              </button>
+
+              {breadcrumbs.map((bc, idx) => {
+                const isLast = idx === breadcrumbs.length - 1;
+                return (
+                  <React.Fragment key={bc.name}>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                    {isLast ? (
+                      <span className="text-slate-900 dark:text-white font-black truncate max-w-xs">
+                        {bc.name}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleFolderSelect(bc.name)}
+                        className="hover:text-cyan-600 dark:hover:text-cyan-400 truncate max-w-xs cursor-pointer transition-colors"
+                      >
+                        {bc.name}
+                      </button>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Body: Search Results or Folder Drill-Down */}
+          {isSearching ? (
+            /* Search Results Mode */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <Search className="w-4 h-4 text-cyan-500" />
+                  <span>Search Results ({searchMatchedQuizzes.length})</span>
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline cursor-pointer"
+                >
+                  Clear Search
+                </button>
+              </div>
+
+              {searchMatchedQuizzes.length === 0 ? (
+                <div className="py-16 text-center">
+                  <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
+                      <Search className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-white">No Quizzes Found</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                        No quizzes match &ldquo;{searchTerm}&rdquo;. Try searching for another keyword.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSearchTerm('')}
+                      className="font-bold text-xs cursor-pointer"
+                    >
+                      Clear Search
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {paginatedQuizzes.map((quiz) => (
+                      <QuizCardItem
+                        key={quiz.id}
+                        quiz={quiz}
+                        isAttempted={attemptedQuizIds.has(quiz.id)}
+                        onStart={() => handleStartQuiz(quiz)}
+                      />
+                    ))}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="pt-4">
+                      <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        pageSize={pageSize}
+                        pageSizeOptions={[6, 12, 24]}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={(newSize) => {
+                          setPageSize(newSize);
+                          setCurrentPage(1);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : activeFolderTab === 'ALL' ? (
+            /* Level 1 of Category: Show Top-Level Folders */
+            <div className="space-y-8">
+              {folders.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <Folder className="w-4 h-4 text-cyan-500" />
+                      <span>Folders ({folders.length})</span>
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                    {folders.map((folder) => (
+                      <FolderCard
+                        key={folder}
+                        name={folder}
+                        count={getFolderQuizCount(folder, accessScopedQuizzes, dbFolders)}
+                        accent={accessFilter === 'PAID' ? 'premium' : 'free'}
+                        onClick={() => handleFolderSelect(folder)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Direct quizzes at root if any exist */}
+              {directRootQuizzes.length > 0 && (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <FileQuestion className="w-4 h-4 text-cyan-500" />
+                      <span>Direct Quizzes ({directRootQuizzes.length})</span>
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {paginatedQuizzes.map((quiz) => (
+                      <QuizCardItem
+                        key={quiz.id}
+                        quiz={quiz}
+                        isAttempted={attemptedQuizIds.has(quiz.id)}
+                        onStart={() => handleStartQuiz(quiz)}
+                      />
+                    ))}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="pt-4">
+                      <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        pageSize={pageSize}
+                        pageSizeOptions={[6, 12, 24]}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={(newSize) => {
+                          setPageSize(newSize);
+                          setCurrentPage(1);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {folders.length === 0 && directRootQuizzes.length === 0 && (
+                <EmptyBrowseState
+                  title={`No ${accessLabel} Found`}
+                  message={`There are no ${accessLabel.toLowerCase()} available at this time.`}
+                />
+              )}
+            </div>
+          ) : (
+            /* Level 2+: Inside a Specific Folder */
+            <div className="space-y-8">
+              {/* Sub-folders in active folder (if any) */}
+              {currentSubFolders.length > 0 && (
+                <div className="space-y-4">
+                  <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                    <FolderOpen className="w-4 h-4 text-cyan-500" />
+                    <span>Sub-folders in &ldquo;{activeFolderTab}&rdquo; ({currentSubFolders.length})</span>
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                    {currentSubFolders.map((subFolder) => (
+                      <FolderCard
+                        key={subFolder.id}
+                        name={subFolder.name}
+                        count={getFolderQuizCount(subFolder.name, accessScopedQuizzes, dbFolders)}
+                        accent={accessFilter === 'PAID' ? 'premium' : 'free'}
+                        onClick={() => handleFolderSelect(subFolder.name)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Direct Quizzes inside active folder */}
+              {currentFolderQuizzes.length > 0 && (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <FileQuestion className="w-4 h-4 text-cyan-500" />
+                      <span>Quizzes in &ldquo;{activeFolderTab}&rdquo; ({currentFolderQuizzes.length})</span>
+                    </h2>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {paginatedQuizzes.map((quiz) => (
+                      <QuizCardItem
+                        key={quiz.id}
+                        quiz={quiz}
+                        isAttempted={attemptedQuizIds.has(quiz.id)}
+                        onStart={() => handleStartQuiz(quiz)}
+                      />
+                    ))}
+                  </div>
+                  {totalPages > 1 && (
+                    <div className="pt-4">
+                      <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={totalItems}
+                        pageSize={pageSize}
+                        pageSizeOptions={[6, 12, 24]}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={(newSize) => {
+                          setPageSize(newSize);
+                          setCurrentPage(1);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {currentSubFolders.length === 0 && currentFolderQuizzes.length === 0 && (
+                <EmptyBrowseState
+                  title="No Quizzes In This Folder"
+                  message={`There are no quizzes uploaded in "${activeFolderTab}" yet.`}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
-
-      {browseLevel === 'QUIZ' && totalPages > 1 && (
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          totalItems={totalItems}
-          pageSize={pageSize}
-          pageSizeOptions={[6, 9, 12, 24]}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={(newSize) => {
-            setPageSize(newSize);
-            setCurrentPage(1);
-          }}
-        />
-      )}
     </div>
+  );
+}
+
+function QuizCardItem({
+  quiz,
+  isAttempted,
+  onStart,
+}: {
+  quiz: StudentQuiz;
+  isAttempted: boolean;
+  onStart: () => void;
+}) {
+  const isPaid = quiz.accessType === 'PAID';
+  const isNew = isRecentlyUploaded(quiz.createdAt);
+  const defaultCover = isPaid ? '/default-quiz-cover.svg' : '/default-free-quiz-cover.svg';
+  const coverImage = quiz.imageUrl || defaultCover;
+
+  return (
+    <Card
+      hoverEffect
+      className="flex flex-col justify-between space-y-4 bg-gradient-to-b from-white via-white to-slate-50/90 dark:bg-none dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] shadow-[0_4px_20px_-2px_rgba(15,23,42,0.05)] hover:shadow-[0_10px_30px_rgba(6,182,212,0.16)] hover:border-cyan-500/50 transition-all duration-300 p-5 rounded-2xl"
+    >
+      <div className="space-y-3">
+        <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-800 bg-slate-950 group/img">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={coverImage}
+            alt={quiz.title}
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = defaultCover;
+            }}
+            className="w-full h-full object-cover object-center transition-transform duration-500 group-hover/img:scale-105"
+          />
+          {/* Top Badges Overlay on Cover */}
+          <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-1.5 pointer-events-none">
+            <div className="flex items-center gap-1.5">
+              {isNew && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-white shadow-md">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                  New
+                </span>
+              )}
+              {quiz.isLive && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500 text-white shadow-md">
+                  <Radio className="w-2.5 h-2.5 animate-pulse" />
+                  Live
+                </span>
+              )}
+            </div>
+            {isPaid ? (
+              quiz.hasAccess || quiz.isPurchased ? (
+                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-md flex items-center gap-1">
+                  <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                  <span>UNLOCKED</span>
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black font-mono bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-md flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5 text-amber-400" />
+                  <span>₹{quiz.price}</span>
+                </span>
+              )
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-md flex items-center gap-1">
+                <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                <span>FREE</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center gap-2">
+          <div className="flex items-center space-x-2">
+            {isNew && (
+              <Badge
+                variant="success"
+                className="font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>NEW</span>
+              </Badge>
+            )}
+            <Badge variant={quiz.isLive ? 'gold' : 'default'}>
+              {quiz.isLive ? '🔥 Live Mock Test' : 'Quiz'}
+            </Badge>
+            {/* Free vs Paid Access Badge */}
+            {quiz.accessType === 'FREE' ? (
+              <Badge variant="success" className="font-bold flex items-center gap-1">
+                <Unlock className="w-3 h-3" />
+                <span>FREE</span>
+              </Badge>
+            ) : quiz.hasAccess || quiz.isPurchased ? (
+              <Badge
+                variant="success"
+                className="font-bold flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>UNLOCKED</span>
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="font-bold flex items-center gap-1 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30"
+              >
+                <Lock className="w-3 h-3 text-cyan-500" />
+                <span>₹{quiz.price}</span>
+              </Badge>
+            )}
+          </div>
+          <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1 font-mono">
+            <Timer className="w-3.5 h-3.5" />
+            <span>{quiz.duration} mins</span>
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <h3 className="font-bold text-base text-slate-900 dark:text-white line-clamp-1 group-hover:text-cyan-500 transition-colors">
+            {quiz.title}
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
+            <span>{quiz.questions} Questions</span>
+            <span>•</span>
+            <span>{quiz.totalMarks} Marks</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+        {isAttempted ? (
+          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Attempted</span>
+          </span>
+        ) : (
+          <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
+        )}
+        {quiz.accessType === 'PAID' && !quiz.hasAccess && !quiz.isPurchased ? (
+          <Button
+            size="sm"
+            variant="gold"
+            className="font-bold cursor-pointer"
+            onClick={onStart}
+          >
+            <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+            <span>Buy Now</span>
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="gold"
+            className="font-bold cursor-pointer"
+            onClick={onStart}
+          >
+            <span>{isAttempted ? 'Retake Quiz' : 'Start Quiz'}</span>
+            <ChevronRight className="w-3.5 h-3.5 ml-1" />
+          </Button>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -937,7 +1331,7 @@ function MockTestCard({
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-3xl transition-all duration-300 border backdrop-blur-xl ${
+      className={`group relative overflow-hidden rounded-3xl transition-all duration-300 border backdrop-blur-xl h-full flex flex-col justify-between ${
         isLive
           ? 'bg-gradient-to-b from-emerald-500/[0.06] via-white to-white dark:from-emerald-950/20 dark:via-[#091124] dark:to-[#091124] border-emerald-500/40 shadow-xl shadow-emerald-500/10'
           : isUpcoming
@@ -947,7 +1341,7 @@ function MockTestCard({
     >
       {/* Top Accent Gradient Bar */}
       <div
-        className={`h-1.5 w-full ${
+        className={`h-1.5 w-full shrink-0 ${
           isLive
             ? 'bg-gradient-to-r from-emerald-400 via-teal-500 to-emerald-600 animate-pulse'
             : isUpcoming
@@ -956,208 +1350,207 @@ function MockTestCard({
         }`}
       />
 
-      <div className="p-5 sm:p-7 space-y-5">
-        {/* Top Badges Row */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2">
-            {isLive ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+      <div className="p-5 sm:p-7 flex flex-col justify-between flex-1 space-y-5">
+        <div className="space-y-4">
+          {/* Top Badges Row */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              {isLive ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500 text-white shadow-lg shadow-emerald-500/30">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                  </span>
+                  LIVE NOW
                 </span>
-                LIVE NOW
-              </span>
-            ) : isUpcoming ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
-                <Radio className="w-3.5 h-3.5 text-cyan-500 animate-pulse" />
-                Scheduled Live Mock
-              </span>
-            ) : (
-              <Badge variant="success" className="font-bold flex items-center gap-1">
-                <Trophy className="w-3 h-3" />
-                <span>Completed</span>
-              </Badge>
-            )}
+              ) : isUpcoming ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
+                  <Radio className="w-3.5 h-3.5 text-cyan-500 animate-pulse" />
+                  Scheduled Live Mock
+                </span>
+              ) : (
+                <Badge variant="success" className="font-bold flex items-center gap-1">
+                  <Trophy className="w-3 h-3" />
+                  <span>Completed</span>
+                </Badge>
+              )}
 
-            {mockTest.access?.isPaid ? (
-              <Badge variant="gold" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
-                <Lock className="w-3 h-3" />
-                <span>₹{mockTest.access?.price ?? 0} Premium</span>
-              </Badge>
-            ) : (
-              <Badge variant="success" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
-                <Unlock className="w-3 h-3" />
-                <span>Free Access</span>
-              </Badge>
-            )}
-          </div>
-
-          <div>
-            {myAttempt ? (
-              <Badge
-                variant={hasSubmitted ? 'success' : 'warning'}
-                className="text-xs font-black flex items-center gap-1 px-2.5 py-1"
-              >
-                {hasSubmitted ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-                <span>{hasSubmitted ? (myAttempt.rank ? `Rank #${myAttempt.rank}` : 'Submitted') : 'In Progress'}</span>
-              </Badge>
-            ) : (
-              <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                Registration Open
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Title & Description */}
-        <div className="space-y-1.5">
-          <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-snug group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
-            {mockTest.title}
-          </h3>
-          <p className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400">
-            {mockTest.quiz?.title || 'Kerala PSC Comprehensive Syllabus'}
-          </p>
-        </div>
-
-        {/* Meta Highlights Row */}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-            <Calendar className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-            <span>{scheduledFormatted} at {scheduledTimeFormatted}</span>
-          </div>
-
-          {mockTest.quiz?.durationMinutes && (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-              <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span>{mockTest.quiz.durationMinutes} Mins</span>
-            </div>
-          )}
-
-          {mockTest.quiz?.totalQuestions && (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-              <FileQuestion className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span>{mockTest.quiz.totalQuestions} Questions</span>
-            </div>
-          )}
-
-          {mockTest.quiz?.totalMarks && (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-              <Award className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-              <span>{mockTest.quiz.totalMarks} Marks</span>
-            </div>
-          )}
-        </div>
-
-        {/* Live Arena or Countdown Box */}
-        {isLive ? (
-          <div className="rounded-2xl p-4 sm:p-5 border border-emerald-500/40 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-emerald-500/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-500/30 shrink-0 animate-pulse">
-                <Zap className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-black text-slate-900 dark:text-white">Exam Room is Live!</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Join now and compete on the real-time leaderboard.</p>
-              </div>
-            </div>
-            <Button
-              variant="gold"
-              size="md"
-              onClick={handleClick}
-              className="w-full sm:w-auto font-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white border-0 cursor-pointer"
-            >
-              <Zap className="w-4 h-4" />
-              <span>
-                {hasSubmitted
-                  ? 'View Live Rank List'
-                  : canResume
-                    ? 'Resume Test'
-                    : isLocked
-                      ? `Unlock & Start (₹${mockTest.access?.price ?? 0})`
-                      : 'Enter Live Arena'}
-              </span>
-            </Button>
-          </div>
-        ) : isUpcoming ? (
-          <div className="rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#070e20]/60 flex flex-col md:flex-row items-center justify-between gap-5">
-            <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-start">
-              <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 dark:bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shrink-0">
-                <Clock className="w-5 h-5 animate-pulse" />
-              </div>
-              <div>
-                <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  {countdown.isStartingNow ? 'Exam Room Ready' : 'Countdown to Start'}
-                </p>
-                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {countdown.isStartingNow ? 'The test is beginning right now' : 'Test will unlock automatically'}
-                </p>
-              </div>
+              {mockTest.access?.isPaid ? (
+                <Badge variant="gold" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
+                  <Lock className="w-3 h-3" />
+                  <span>₹{mockTest.access?.price ?? 0} Premium</span>
+                </Badge>
+              ) : (
+                <Badge variant="success" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
+                  <Unlock className="w-3 h-3" />
+                  <span>Free Access</span>
+                </Badge>
+              )}
             </div>
 
-            {countdown.isStartingNow ? (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="gold"
-                  size="md"
-                  onClick={handleClick}
-                  className="font-black flex items-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+            <div>
+              {myAttempt ? (
+                <Badge
+                  variant={hasSubmitted ? 'success' : 'warning'}
+                  className="text-xs font-black flex items-center gap-1 px-2.5 py-1"
                 >
-                  <Zap className="w-4 h-4" />
-                  <span>Join Exam Now</span>
-                </Button>
+                  {hasSubmitted ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                  <span>{hasSubmitted ? (myAttempt.rank ? `Rank #${myAttempt.rank}` : 'Submitted') : 'In Progress'}</span>
+                </Badge>
+              ) : (
+                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                  Registration Open
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Title & Description */}
+          <div className="space-y-1.5">
+            <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight leading-snug group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors line-clamp-2 min-h-[3rem] sm:min-h-[3.5rem] flex items-center">
+              {mockTest.title}
+            </h3>
+            <p className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400 line-clamp-1">
+              {mockTest.quiz?.title || 'Kerala PSC Comprehensive Syllabus'}
+            </p>
+          </div>
+
+          {/* Meta Highlights Row */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+              <Calendar className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+              <span>{scheduledFormatted} at {scheduledTimeFormatted}</span>
+            </div>
+
+            {mockTest.quiz?.durationMinutes && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+                <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span>{mockTest.quiz.durationMinutes} Mins</span>
               </div>
-            ) : (
-              <div className="flex items-center gap-2 sm:gap-3">
-                {countdown.days > 0 && (
-                  <>
-                    <CountdownUnit value={countdown.days} label="Days" urgent={countdown.isUrgent} />
-                    <span className="text-slate-400 dark:text-slate-600 font-black text-lg pb-3">:</span>
-                  </>
-                )}
-                <CountdownUnit value={countdown.hours} label="Hrs" urgent={countdown.isUrgent} />
-                <span className="text-slate-400 dark:text-slate-600 font-black text-lg pb-3">:</span>
-                <CountdownUnit value={countdown.minutes} label="Min" urgent={countdown.isUrgent} />
-                <span className="text-slate-400 dark:text-slate-600 font-black text-lg pb-3">:</span>
-                <CountdownUnit value={countdown.seconds} label="Sec" urgent={countdown.isUrgent} />
+            )}
+
+            {mockTest.quiz?.totalQuestions && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+                <FileQuestion className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                <span>{mockTest.quiz.totalQuestions} Questions</span>
+              </div>
+            )}
+
+            {mockTest.quiz?.totalMarks && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+                <Award className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <span>{mockTest.quiz.totalMarks} Marks</span>
               </div>
             )}
           </div>
-        ) : null}
 
-        {/* Card Footer Actions (for Upcoming and Completed) */}
-        {!isLive && (
-          <div className="pt-3 border-t border-slate-200/80 dark:border-[#1e2e56] flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-              <span>Real-time rank list available after submission</span>
+          {/* Status Box: Live Alert or Countdown Box */}
+          {isLive ? (
+            <div className="rounded-2xl p-4 sm:p-5 border border-emerald-500/40 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-emerald-500/10 flex items-center justify-between gap-4 min-h-[76px]">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-500/30 shrink-0 animate-pulse">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-slate-900 dark:text-white truncate">Exam Room is Live!</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">Join now and compete on the real-time leaderboard.</p>
+                </div>
+              </div>
             </div>
+          ) : isUpcoming ? (
+            <div className="rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#070e20]/60 flex flex-col sm:flex-row items-center justify-between gap-4 min-h-[76px]">
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-start min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 dark:bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shrink-0">
+                  <Clock className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">
+                    {countdown.isStartingNow ? 'Exam Room Ready' : 'Countdown to Start'}
+                  </p>
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">
+                    {countdown.isStartingNow ? 'The test is beginning right now' : 'Test will unlock automatically'}
+                  </p>
+                </div>
+              </div>
 
-            {mockTest.status === 'COMPLETED' && !myAttempt ? (
-              <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+              {countdown.isStartingNow ? (
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+                    <Zap className="w-3.5 h-3.5" />
+                    Starting Now
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  {countdown.days > 0 && (
+                    <>
+                      <CountdownUnit value={countdown.days} label="Days" urgent={countdown.isUrgent} />
+                      <span className="text-slate-400 dark:text-slate-600 font-black text-sm sm:text-base pb-2.5">:</span>
+                    </>
+                  )}
+                  <CountdownUnit value={countdown.hours} label="Hrs" urgent={countdown.isUrgent} />
+                  <span className="text-slate-400 dark:text-slate-600 font-black text-sm sm:text-base pb-2.5">:</span>
+                  <CountdownUnit value={countdown.minutes} label="Min" urgent={countdown.isUrgent} />
+                  <span className="text-slate-400 dark:text-slate-600 font-black text-sm sm:text-base pb-2.5">:</span>
+                  <CountdownUnit value={countdown.seconds} label="Sec" urgent={countdown.isUrgent} />
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Card Footer Actions — Uniform across all cards */}
+        <div className="pt-3 border-t border-slate-200/80 dark:border-[#1e2e56] flex flex-col sm:flex-row items-center justify-between gap-3 mt-auto">
+          <div className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-2">
+            <span className={`inline-block w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500 animate-ping' : 'bg-emerald-500'}`} />
+            <span>
+              {isLive
+                ? 'Real-time live leaderboard active'
+                : 'Real-time rank list available after submission'}
+            </span>
+          </div>
+
+          <Button
+            variant={isLive ? 'gold' : isLocked ? 'gold' : 'outline'}
+            size="sm"
+            className={`w-full sm:w-auto font-black cursor-pointer flex items-center justify-center gap-1.5 shadow-sm ${
+              isLive
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white border-0 shadow-lg shadow-emerald-500/25'
+                : ''
+            }`}
+            onClick={handleClick}
+          >
+            {isLive ? (
+              <>
+                <Zap className="w-3.5 h-3.5" />
+                <span>
+                  {hasSubmitted
+                    ? 'View Live Rank List'
+                    : canResume
+                      ? 'Resume Test'
+                      : isLocked
+                        ? `Unlock & Start (₹${mockTest.access?.price ?? 0})`
+                        : 'Enter Live Arena'}
+                </span>
+              </>
+            ) : mockTest.status === 'COMPLETED' ? (
+              <>
                 <Trophy className="w-3.5 h-3.5" />
-                Test Completed
-              </span>
+                <span>View Final Rank List</span>
+              </>
             ) : (
-              <Button
-                variant={isLocked ? 'gold' : 'outline'}
-                size="sm"
-                className="w-full sm:w-auto font-bold cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                onClick={handleClick}
-              >
+              <>
                 {isLocked && <Lock className="w-3.5 h-3.5" />}
                 <span>
-                  {mockTest.status === 'COMPLETED'
-                    ? 'View Final Rank List'
-                    : isLocked
-                      ? `Unlock Test (₹${mockTest.access?.price ?? 0})`
-                      : 'View Details & Syllabus'}
+                  {isLocked
+                    ? `Unlock Test (₹${mockTest.access?.price ?? 0})`
+                    : 'View Details & Syllabus'}
                 </span>
                 <ArrowRight className="w-3.5 h-3.5" />
-              </Button>
+              </>
             )}
-          </div>
-        )}
+          </Button>
+        </div>
       </div>
     </div>
   );

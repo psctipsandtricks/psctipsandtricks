@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/glass_card.dart';
+import '../../../core/widgets/liquid_glass.dart';
 import '../../../data/models/book.dart' show AccessState;
 import '../../checkout/purchase_sheet.dart';
 
@@ -67,7 +68,7 @@ class QuizPaywall extends ConsumerWidget {
     final needsLogin = access.needsLogin;
 
     return Scaffold(
-      appBar: AppBar(title: Text(appBarTitle ?? 'Premium question bank')),
+      appBar: GlassAppBar(title: Text(appBarTitle ?? 'Premium question bank')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [

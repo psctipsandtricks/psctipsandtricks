@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,10 +11,13 @@ import '../../core/config/app_config.dart';
 import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_glass.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/responsive.dart';
 import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/state_views.dart';
 import '../announcements/announcement_providers.dart';
@@ -20,14 +25,13 @@ import '../books/widgets/book_card.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../notifications/notifications_screen.dart';
 import '../quizzes/widgets/premium_quiz_carousel.dart';
+import '../shell/shell_scaffold.dart';
 import '../../data/models/book.dart';
 import 'home_providers.dart';
-import 'widgets/continue_reading_rail.dart';
 import 'widgets/home_book_carousel.dart';
 import 'widgets/live_mock_banner.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-
   const HomeScreen({super.key});
 
   @override
@@ -43,7 +47,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.initState();
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 950),
+      duration: const Duration(milliseconds: 900),
     )..forward();
   }
 
@@ -53,124 +57,210 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
+  Future<void> _refresh() async {
+    ref.invalidate(featuredBooksProvider);
+    ref.invalidate(premiumQuizzesProvider);
+    ref.invalidate(activeAnnouncementsProvider);
+    ref.invalidate(liveMockTestsProvider);
+    if (ref.read(authControllerProvider).isAuthenticated) {
+      ref.invalidate(dashboardProvider);
+    }
+    await Future.wait([
+      ref.read(featuredBooksProvider.future),
+      ref.read(liveMockTestsProvider.future),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = ref.watch(currentUserProvider);
     final booksAsync = ref.watch(featuredBooksProvider);
     final quizzesAsync = ref.watch(premiumQuizzesProvider);
-
-    return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(featuredBooksProvider);
-          ref.invalidate(premiumQuizzesProvider);
-          ref.invalidate(activeAnnouncementsProvider);
-          ref.invalidate(liveMockTestProvider);
-          if (ref.read(authControllerProvider).isAuthenticated) {
-            ref.invalidate(dashboardProvider);
-          }
-          await ref.read(featuredBooksProvider.future);
-        },
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics(),
-          ),
-          slivers: [
-            SliverAppBar(
-              pinned: true,
-              titleSpacing: 16,
-              toolbarHeight: 60,
-              backgroundColor: context.palette.background,
-              title: _BrandRow(name: user?.name),
-              actions: const [
-                _SearchButton(),
-                _NotificationsButton(),
-                _AvatarButton(),
-                SizedBox(width: 8),
-              ],
-            ),
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.05,
-                child: const _ShortcutStrip(),
-              ),
-            ),
-            const SliverToBoxAdapter(child: LiveMockBanner()),
-            const SliverToBoxAdapter(child: SizedBox(height: 8)),
-            // ── 3D Scrolled Book Showcase Carousel (mirrors website) ────────
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.12,
-                child: const HomeBookCarousel(),
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 18)),
-            // The rail carries its own leading gap, because a signed-in
-            // student with nothing started renders nothing here and a spacer
-            // out here would leave a double gap above the catalog.
-            if (user != null)
-              SliverToBoxAdapter(
-                child: _FadeSlide(
-                  animation: _entranceController,
-                  delay: 0.18,
-                  child: const ContinueReadingRail(),
+    // The hero runs under the status bar, so the icons up there have to suit
+    // the artwork rather than the page background.
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: (context.palette.isDark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark)
+          .copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+      ),
+      child: Scaffold(
+        // The bar is stacked over the page rather than given a slice of it, so
+        // the hero artwork runs the full height of the screen and up under the
+        // status bar. Anything else leaves a band of page colour above the
+        // image that no amount of blending can disguise.
+        body: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: _refresh,
+              // Clear of the bar, so the spinner is not caught behind it.
+              edgeOffset: _HomeTopBar.extentFor(context),
+              child: CustomScrollView(
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
                 ),
-              ),
-            const SliverToBoxAdapter(child: SizedBox(height: 26)),
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.28,
-                child: SectionHeader(
-                  title: 'E-Book catalog',
-                  subtitle: 'Audio narrations, notes and video classes',
-                  icon: Icons.auto_stories_rounded,
-                  actionLabel: 'See all',
-                  onAction: () => context.go(AppRoutes.books),
-                ),
+                slivers: [
+                  // Page above the artwork, so the bar starts on the page and
+                  // only its last quarter falls across the cover.
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: _HomeTopBar.heroTopFor(context)),
+                  ),
+                  SliverToBoxAdapter(
+                    child: HomeBookCarousel(
+                      topOverlay: _HomeTopBar.heroOverlapFor(context),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: const LiveMockBanner(),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 26)),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: _FadeSlide(
+                        animation: _entranceController,
+                        delay: 0.28,
+                        child: SectionHeader(
+                          title: 'E-Book catalog',
+                          subtitle: 'Audio narrations, notes and video classes',
+                          icon: Icons.auto_stories_rounded,
+                          actionLabel: 'See all',
+                          onAction: () => context.go(AppRoutes.books),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: _FadeSlide(
+                        animation: _entranceController,
+                        delay: 0.32,
+                        child: _BooksRail(booksAsync: booksAsync),
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 26)),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: _FadeSlide(
+                        animation: _entranceController,
+                        delay: 0.38,
+                        child: SectionHeader(
+                          title: 'Premium question banks',
+                          subtitle:
+                              'Top 10 newest question banks & test series',
+                          icon: Icons.workspace_premium_rounded,
+                          actionLabel: 'Quiz Hub',
+                          onAction: () => context.go(AppRoutes.quizzes),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: _FadeSlide(
+                        animation: _entranceController,
+                        delay: 0.42,
+                        child: PremiumQuizCarousel(quizzesAsync: quizzesAsync),
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 26)),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: _FadeSlide(
+                        animation: _entranceController,
+                        delay: 0.48,
+                        child: const _SupportBanner(),
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: 32 + ShellScaffold.dockExtent),
+                  ),
+                ],
               ),
             ),
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.32,
-                child: _BooksRail(booksAsync: booksAsync),
-              ),
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _HomeTopBar(),
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 26)),
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.38,
-                child: SectionHeader(
-                  title: 'Premium question banks',
-                  subtitle: 'Top 10 newest question banks & test series',
-                  icon: Icons.workspace_premium_rounded,
-                  actionLabel: 'Quiz Hub',
-                  onAction: () => context.go(AppRoutes.quizzes),
-                ),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.42,
-                child: PremiumQuizCarousel(quizzesAsync: quizzesAsync),
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 26)),
-            SliverToBoxAdapter(
-              child: _FadeSlide(
-                animation: _entranceController,
-                delay: 0.48,
-                child: const _SupportBanner(),
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 32)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The top bar: brand mark, quick actions, and the shortcut strip that takes
+/// the place of the reference design's category tabs.
+class _HomeTopBar extends ConsumerWidget {
+  const _HomeTopBar();
+
+  /// Toolbar plus tab strip, excluding the status bar.
+  static const double contentHeight = 58 + _ShortcutStrip.height + 6;
+
+  /// Everything the bar covers: the status bar and its two rows.
+  static double extentFor(BuildContext context) =>
+      MediaQuery.paddingOf(context).top + contentHeight;
+
+  /// How far down the screen the artwork begins: starts approximately 85%
+  /// down the top bar so only the bottom rounded curve overlaps the top edge.
+  static double heroTopFor(BuildContext context) => extentFor(context) * 0.85;
+
+  /// The slice of artwork that runs up behind the bar's bottom rounded curve.
+  static double heroOverlapFor(BuildContext context) =>
+      extentFor(context) - heroTopFor(context);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(currentUserProvider);
+    final topInset = MediaQuery.paddingOf(context).top;
+    return SizedBox(
+      height: extentFor(context),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const GlassBarSurface(bottomRadius: 24),
+          Padding(
+            padding: EdgeInsets.only(top: topInset),
+            child: Responsive.centered(
+              maxWidth: Responsive.maxContentWidth,
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 58,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: Row(
+                        children: [
+                          Expanded(child: _BrandRow(name: user?.name)),
+                          const _SearchButton(),
+                          const SizedBox(width: 8),
+                          const _NotificationsButton(),
+                          const SizedBox(width: 8),
+                          const _AvatarButton(),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const _ShortcutStrip(),
+                  const SizedBox(height: 6),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -234,22 +324,32 @@ class _BrandRow extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // The logo art is a white roundel, so on a light bar it needs a plate
+        // and a hairline of its own or it dissolves into the glass.
         Container(
-          width: 36,
-          height: 36,
+          width: 40,
+          height: 40,
+          padding: const EdgeInsets.all(1.5),
           decoration: BoxDecoration(
-            gradient: AppColors.brandGradient,
-            borderRadius: BorderRadius.circular(11),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: const Color(0xFF38BDF8).withValues(alpha: 0.40),
+              width: 1.2,
+            ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.cyan.withValues(alpha: 0.32),
-                blurRadius: 14,
-                offset: const Offset(0, 5),
+                color: AppColors.cyan.withValues(alpha: 0.22),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
-          alignment: Alignment.center,
-          child: const Icon(Icons.school_rounded, color: Colors.white, size: 20),
+          child: ClipOval(
+            child: Image.asset(
+              'assets/icon/app_logo.png',
+              fit: BoxFit.contain,
+            ),
+          ),
         ),
         const SizedBox(width: 11),
         Flexible(
@@ -260,7 +360,7 @@ class _BrandRow extends StatelessWidget {
               Text(
                 name == null ? 'Welcome to' : _partOfDay,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: context.palette.textMuted,
+                      color: context.palette.textSecondary,
                       letterSpacing: 0.3,
                       fontSize: 10.5,
                     ),
@@ -282,52 +382,12 @@ class _BrandRow extends StatelessWidget {
   }
 }
 
-/// Compact circular action button, sized to sit comfortably in a row of three.
-class _HeaderAction extends StatelessWidget {
-  const _HeaderAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.badgeCount = 0,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  /// Drawn as a count on the icon when above zero.
-  final int badgeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(9),
-          child: Badge.count(
-            count: badgeCount,
-            isLabelVisible: badgeCount > 0,
-            // Rose rather than the app's cyan: a count of things waiting is the
-            // one place on this bar that should pull the eye.
-            backgroundColor: AppColors.rose,
-            textColor: Colors.white,
-            child: Icon(icon, size: 22, color: context.palette.textSecondary),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SearchButton extends StatelessWidget {
   const _SearchButton();
 
   @override
   Widget build(BuildContext context) {
-    return _HeaderAction(
+    return GlassIconButton(
       icon: Icons.search_rounded,
       // The catalog is where the search field lives; this is a jump to it, not
       // a separate global search the API does not offer.
@@ -347,7 +407,7 @@ class _NotificationsButton extends ConsumerWidget {
     // session, so watching it as a guest is a guaranteed 401 on every launch.
     final unread = signedIn ? ref.watch(unreadNotificationCountProvider) : 0;
 
-    return _HeaderAction(
+    return GlassIconButton(
       icon: unread > 0
           ? Icons.notifications_active_rounded
           : Icons.notifications_none_rounded,
@@ -371,49 +431,91 @@ class _AvatarButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: InkWell(
-        onTap: () => context.go(user == null ? AppRoutes.login : AppRoutes.account),
-        customBorder: const CircleBorder(),
-        child: user == null
-            ? Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: context.palette.elevated,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: context.palette.border),
-                ),
-                child: Icon(Icons.person_rounded,
-                    size: 19, color: context.palette.textMuted),
-              )
-            : AppAvatar(
-                imageUrl: user.avatarUrl,
-                name: user.name,
-                size: 34,
-              ),
+    if (user == null) {
+      return GlassIconButton(
+        icon: Icons.person_rounded,
+        tooltip: 'Sign in',
+        onTap: () => context.go(AppRoutes.login),
+      );
+    }
+
+    return LiquidGlassTappable(
+      onTap: () => context.go(AppRoutes.account),
+      borderRadius: BorderRadius.circular(999),
+      blurSigma: AppGlass.blurRaised,
+      intensity: 0.85,
+      elevation: 0.5,
+      isCardScale: false,
+      pressScale: 0.9,
+      padding: const EdgeInsets.all(2),
+      child: AppAvatar(
+        imageUrl: user.avatarUrl,
+        name: user.name,
+        size: 34,
       ),
     );
   }
 }
 
-/// Tiles for the student surfaces that do not own a bottom-nav tab.
-/// Shortcuts to the student surfaces that do not own a bottom-nav tab.
-///
-/// Laid out as a scrolling icon-over-label strip so the row can grow past the
-/// four items a fixed grid allows without shrinking each target.
+/// Shortcuts to the student surfaces that do not own a bottom-nav tab, laid out
+/// as the reference design's category strip: icon over label, scrolling
+/// horizontally so the row can grow past the four items a fixed grid allows
+/// without shrinking each target.
 class _ShortcutStrip extends StatefulWidget {
   const _ShortcutStrip();
 
+  static const double height = 76;
+
+  // Each tint is picked so no two tiles read as the same colour at a glance —
+  // the palette only has a handful of hues, and cyan/sky and red/rose are
+  // close enough that neighbouring tiles in the old assignment (Videos next
+  // to PDFs, Progress far from but still echoing Orders) were hard to tell
+  // apart by colour alone.
   static const _items = <_Shortcut>[
-    _Shortcut(Icons.insights_rounded, 'Progress', AppColors.cyan, AppRoutes.dashboard),
-    _Shortcut(Icons.emoji_events_rounded, 'Mock tests', AppColors.amber, AppRoutes.mockTests),
-    _Shortcut(Icons.forum_rounded, 'Community', AppColors.indigo, AppRoutes.community),
-    _Shortcut(Icons.history_rounded, 'Attempts', AppColors.emerald, AppRoutes.quizHistory),
-    _Shortcut(Icons.smart_display_rounded, 'Videos', AppColors.red, AppRoutes.libraryVideos),
-    _Shortcut(Icons.picture_as_pdf_rounded, 'PDFs', AppColors.rose, AppRoutes.libraryPdfs),
-    _Shortcut(Icons.receipt_long_rounded, 'Orders', AppColors.sky, AppRoutes.orders),
+    _Shortcut(
+      Icons.insights_rounded,
+      'Progress',
+      AppColors.cyan,
+      AppRoutes.dashboard,
+    ),
+    // Its "LIVE" badge isn't part of this static list — `_ShortcutButtonState`
+    // adds it only when a mock test is actually live right now.
+    _Shortcut(
+      Icons.emoji_events_rounded,
+      'Mock tests',
+      AppColors.amber,
+      AppRoutes.mockTests,
+    ),
+    _Shortcut(
+      Icons.forum_rounded,
+      'Community',
+      AppColors.indigo,
+      AppRoutes.community,
+    ),
+    _Shortcut(
+      Icons.history_rounded,
+      'Attempts',
+      AppColors.emerald,
+      AppRoutes.quizHistory,
+    ),
+    _Shortcut(
+      Icons.smart_display_rounded,
+      'Videos',
+      AppColors.red,
+      AppRoutes.libraryVideos,
+    ),
+    _Shortcut(
+      Icons.picture_as_pdf_rounded,
+      'PDFs',
+      AppColors.blue,
+      AppRoutes.libraryPdfs,
+    ),
+    _Shortcut(
+      Icons.receipt_long_rounded,
+      'Orders',
+      AppColors.gold,
+      AppRoutes.orders,
+    ),
   ];
 
   @override
@@ -421,20 +523,23 @@ class _ShortcutStrip extends StatefulWidget {
 }
 
 class _ShortcutStripState extends State<_ShortcutStrip>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   /// Drives the one-off entrance: each tile fades up a beat after the one to
-  /// its left. Deliberately a single pass — a strip that keeps moving is the
-  /// kind of decoration a student stops seeing and starts resenting.
+  /// its left.
   late final AnimationController _entrance = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 720),
   );
 
+  /// Drives subtle continuous floating and breathing micro-animations.
+  late final AnimationController _idle = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2800),
+  )..repeat(reverse: true);
+
   @override
   void initState() {
     super.initState();
-    // After the first frame, so the stagger starts with the strip on screen
-    // rather than already part-way through it.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _entrance.forward();
     });
@@ -443,32 +548,27 @@ class _ShortcutStripState extends State<_ShortcutStrip>
   @override
   void dispose() {
     _entrance.dispose();
+    _idle.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          height: 76,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: _ShortcutStrip._items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 4),
-            itemBuilder: (context, index) => _ShortcutButton(
-              item: _ShortcutStrip._items[index],
-              entrance: _entrance,
-              index: index,
-            ),
-          ),
+    return SizedBox(
+      height: _ShortcutStrip.height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        itemCount: _ShortcutStrip._items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        itemBuilder: (context, index) => _ShortcutButton(
+          item: _ShortcutStrip._items[index],
+          entrance: _entrance,
+          idle: _idle,
+          index: index,
         ),
-        Divider(height: 1, thickness: 1, color: palette.border),
-      ],
+      ),
     );
   }
 }
@@ -486,6 +586,7 @@ class _ShortcutButton extends ConsumerStatefulWidget {
   const _ShortcutButton({
     required this.item,
     required this.entrance,
+    required this.idle,
     required this.index,
   });
 
@@ -494,6 +595,10 @@ class _ShortcutButton extends ConsumerStatefulWidget {
   /// The strip's shared entrance timeline; this tile animates over its own
   /// slice of it.
   final Animation<double> entrance;
+
+  /// Looping animation for floating and glow pulse effects.
+  final Animation<double> idle;
+
   final int index;
 
   @override
@@ -502,8 +607,8 @@ class _ShortcutButton extends ConsumerStatefulWidget {
 
 class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
   /// How far into the strip's timeline this tile starts, and how long it takes.
-  static const _stagger = 0.08;
-  static const _span = 0.42;
+  static const _stagger = 0.07;
+  static const _span = 0.40;
 
   bool _pressed = false;
 
@@ -513,6 +618,7 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
   }
 
   void _open() {
+    HapticFeedback.lightImpact();
     final route = widget.item.route;
     if (route.startsWith(AppRoutes.library)) {
       context.go(route);
@@ -533,65 +639,165 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
     // Anyone who has asked the system to stop animations gets the tiles as
     // they always were: in place, and still under the finger.
     final still = MediaQuery.disableAnimationsOf(context);
+    final palette = context.palette;
     final begin = (widget.index * _stagger).clamp(0.0, 1.0 - _span);
 
-    return InkWell(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: _open,
       onTapDown: (_) => _setPressed(true),
       onTapUp: (_) => _setPressed(false),
       onTapCancel: () => _setPressed(false),
-      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: AnimatedBuilder(
-        animation: widget.entrance,
+        animation: Listenable.merge([widget.entrance, widget.idle]),
         builder: (context, child) {
           if (still) return child!;
-          final progress =
+
+          final enterProgress =
               ((widget.entrance.value - begin) / _span).clamp(0.0, 1.0);
-          final eased = Curves.easeOutCubic.transform(progress);
+          final enterEased = Curves.easeOutBack.transform(enterProgress);
+
+          // Subtle organic phase offset per item so they float harmoniously
+          final idleProgress =
+              (widget.idle.value + (widget.index * 0.16)) % 1.0;
+          final floatOffset = math.sin(idleProgress * 2 * math.pi) * 1.5;
+          final pulse = 0.5 + 0.5 * math.sin(idleProgress * 2 * math.pi);
+
           return Opacity(
-            opacity: eased,
-            // Rises into place rather than sliding sideways: a horizontal
-            // entrance on a horizontally scrolling strip reads as a scroll.
+            opacity: enterProgress,
             child: Transform.translate(
-              offset: Offset(0, (1 - eased) * 14),
-              child: child,
+              offset: Offset(0, (1 - enterEased) * 16 + floatOffset),
+              child: _buildTile(context, palette, still, pulse),
             ),
           );
         },
-        child: SizedBox(
-          width: 72,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Only the icon tile answers the touch — scaling the label too
-              // makes the whole strip feel rubbery.
-              AnimatedScale(
-                scale: _pressed && !still ? 0.90 : 1.0,
-                duration: const Duration(milliseconds: 130),
-                curve: Curves.easeOut,
-                child: Container(
-                  padding: const EdgeInsets.all(9),
+        child: _buildTile(context, palette, still, 0.5),
+      ),
+    );
+  }
+
+  Widget _buildTile(
+      BuildContext context, dynamic palette, bool still, double pulse) {
+    final color = widget.item.color;
+    final isDark = palette.isDark as bool;
+
+    // The Mock tests tile's badge reflects whether a mock is actually running
+    // right now, rather than a permanent "LIVE" label that would say the same
+    // thing whether or not that were true.
+    final hasLiveMock = widget.item.route == AppRoutes.mockTests &&
+        (ref.watch(liveMockTestsProvider).valueOrNull?.isNotEmpty ?? false);
+    final badge = hasLiveMock ? 'LIVE' : null;
+
+    return SizedBox(
+      width: 68,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedScale(
+            scale: _pressed && !still ? 0.88 : 1.0,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOutBack,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Frosted Liquid Glass Pod for the Icon
+                Container(
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: widget.item.color.withValues(alpha: 0.13),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Icon(widget.item.icon,
-                      color: widget.item.color, size: 20),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                widget.item.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 10.5,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        color.withValues(alpha: isDark ? 0.28 : 0.18),
+                        color.withValues(alpha: isDark ? 0.12 : 0.06),
+                      ],
                     ),
-              ),
-            ],
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: color.withValues(
+                        alpha: isDark
+                            ? (0.40 + (pulse * 0.14)).clamp(0.0, 1.0)
+                            : (0.28 + (pulse * 0.10)).clamp(0.0, 1.0),
+                      ),
+                      width: 1.1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(
+                          alpha: isDark
+                              ? (0.26 + (pulse * 0.12)).clamp(0.0, 1.0)
+                              : (0.16 + (pulse * 0.08)).clamp(0.0, 1.0),
+                        ),
+                        blurRadius: 10 + (pulse * 4),
+                        spreadRadius: -1,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Icon(
+                      widget.item.icon,
+                      color: color,
+                      size: 22,
+                    ),
+                  ),
+                ),
+                // Optional Live / Feature Badge
+                if (badge != null)
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4.5,
+                        vertical: 1.5,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            color,
+                            color.withValues(alpha: 0.85),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withValues(alpha: 0.45),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        badge,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 7.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(height: 5),
+          Text(
+            widget.item.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10.5,
+                  letterSpacing: -0.1,
+                  color: palette.textSecondary,
+                ),
+          ),
+        ],
       ),
     );
   }
@@ -695,7 +901,7 @@ class _BooksRailState extends State<_BooksRail> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 246,
+      height: 268,
       child: widget.booksAsync.when(
         skipLoadingOnRefresh: true,
         loading: () => ListView.separated(
@@ -739,7 +945,8 @@ class _BooksRailState extends State<_BooksRail> {
                 controller: _scrollController,
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 itemCount: books.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 14),
                 itemBuilder: (context, index) {
@@ -758,8 +965,6 @@ class _BooksRailState extends State<_BooksRail> {
     );
   }
 }
-
-
 
 class _SupportBanner extends StatelessWidget {
   const _SupportBanner();
