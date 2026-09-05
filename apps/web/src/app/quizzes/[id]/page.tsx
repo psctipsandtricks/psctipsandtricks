@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, Button, Badge, Dialog, ConfirmDialog } from '@psc/ui';
 import {
   Timer,
@@ -64,8 +64,17 @@ function loadSavedProgress(quizId: string, attemptId?: string): SavedQuizProgres
 }
 
 export default function QuizTakingPage({ params }: { params: { id: string } }) {
+  return (
+    <Suspense fallback={<QuizTakingSkeleton />}>
+      <QuizTakingPageContent params={params} />
+    </Suspense>
+  );
+}
+
+function QuizTakingPageContent({ params }: { params: { id: string } }) {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [quizTitle, setQuizTitle] = useState('');
@@ -96,6 +105,26 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   const [pendingNavUrl, setPendingNavUrl] = useState<string | null>(null);
   const isNavigatingAway = React.useRef(false);
   const [isPremiumQuiz, setIsPremiumQuiz] = useState(false);
+  // The folder this quiz itself belongs to, per the API — a fallback for when
+  // the student didn't arrive via the hub's folder-browsing URL (e.g. from the
+  // home page carousel, quiz history, or a mock-test result link), so "Back to
+  // Quiz Hub" can still land them inside the right folder either way.
+  const [quizFolderName, setQuizFolderName] = useState<string | null>(null);
+
+  // The quiz hub encodes which access-tab/folder the student was browsing as
+  // ?type=&folder= — carry it through so "Back to Quiz Hub" returns them to
+  // that same folder instead of dropping them back at the root hub. When the
+  // URL doesn't carry that (a different entry point into this page), fall
+  // back to the folder the quiz itself is filed under.
+  const backHref = React.useMemo(() => {
+    const type = searchParams.get('type') || (quizFolderName ? (isPremiumQuiz ? 'premium' : 'free') : null);
+    const folder = searchParams.get('folder') || quizFolderName;
+    const qp = new URLSearchParams();
+    if (type) qp.set('type', type);
+    if (folder) qp.set('folder', folder);
+    const qs = qp.toString();
+    return qs ? `/quizzes?${qs}` : '/quizzes';
+  }, [searchParams, quizFolderName, isPremiumQuiz]);
   const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
   const [access, setAccess] = useState<QuizAccessState | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -114,9 +143,12 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   // Require login to take quiz
   useEffect(() => {
     if (!authLoading && !user) {
-      router.replace(`/login?redirect=${encodeURIComponent(`/quizzes/${params.id}`)}`);
+      const qs = searchParams.toString();
+      router.replace(
+        `/login?redirect=${encodeURIComponent(`/quizzes/${params.id}${qs ? `?${qs}` : ''}`)}`
+      );
     }
-  }, [user, authLoading, params.id, router]);
+  }, [user, authLoading, params.id, router, searchParams]);
 
   // Fetch quiz and questions from API & Start/Resume attempt
   useEffect(() => {
@@ -130,6 +162,12 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         setStartError('');
         const quiz = (await ApiClient.getQuizById(params.id)) as any;
         setQuizTitle(quiz.title);
+        const folderName = (quiz.folderName || '').trim();
+        setQuizFolderName(
+          folderName && folderName.toLowerCase() !== 'root' && folderName.toLowerCase() !== 'root / no folder'
+            ? folderName
+            : null
+        );
         const isPaid = Boolean(quiz.isPremium || quiz.accessType === 'PAID' || (quiz.price && quiz.price > 0));
         setIsPremiumQuiz(isPaid);
         const resolvedAccess =
@@ -175,12 +213,27 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
 
         // Check if there is an active attempt in progress on the server or in local storage
         let serverActive: any = null;
+        let serverCheckFailed = false;
         try {
           serverActive = await ApiClient.getActiveQuizAttempt(params.id);
-        } catch {}
+        } catch {
+          serverCheckFailed = true;
+        }
 
-        const localSaved = loadSavedProgress(params.id);
-        if ((serverActive && serverActive.attemptStatus === 'IN_PROGRESS') || localSaved) {
+        const isServerInProgress = Boolean(serverActive && serverActive.attemptStatus === 'IN_PROGRESS');
+        // Local progress is only trustworthy when it matches the attempt the
+        // server still considers in progress — otherwise it's a leftover from
+        // an attempt that has since been completed (finished elsewhere, timed
+        // out, etc.), and must not make a fresh "Retake" look like "Resume".
+        // The only exception is when the server couldn't be reached at all,
+        // where local storage is the only signal we have.
+        const localSaved = isServerInProgress
+          ? loadSavedProgress(params.id, serverActive.id)
+          : serverCheckFailed
+            ? loadSavedProgress(params.id)
+            : null;
+
+        if (isServerInProgress || localSaved) {
           setActiveAttempt(serverActive);
           setHasSavedProgress(true);
         } else {
@@ -202,6 +255,16 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000);
     return () => clearInterval(timer);
   }, [hasStarted, timeLeft, isSubmitted, isSubmitting, loading, user]);
+
+  // The countdown effect above stops ticking at 00:00 but never used to end
+  // the attempt — a stalled timer left the student stuck on the last question.
+  // This must run unconditionally alongside the other hooks (i.e. before any
+  // early `return` below) so the hook order never changes between renders.
+  useEffect(() => {
+    if (!hasStarted || isSubmitted || isSubmitting || timeLeft > 0 || loading || !user) return;
+    handleSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft, hasStarted, isSubmitted, isSubmitting, loading, user]);
 
   // Track exactly where the student is and save progress locally with elapsed and remaining time.
   useEffect(() => {
@@ -227,7 +290,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     const handlePopState = () => {
       if (isNavigatingAway.current) return;
       window.history.pushState({ quizActive: true }, '', window.location.href);
-      setPendingNavUrl('/quizzes');
+      setPendingNavUrl(backHref);
       setShowExitModal(true);
     };
 
@@ -281,7 +344,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
       document.removeEventListener('click', handleAnchorClick, true);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [hasStarted, isSubmitted, isSubmitting, attemptId, currentIndex, selectedAnswers, timeLeft, quizDuration, questions, params.id]);
+  }, [hasStarted, isSubmitted, isSubmitting, attemptId, currentIndex, selectedAnswers, timeLeft, quizDuration, questions, params.id, backHref]);
 
   // Begins or Resumes the attempt: continues with remaining time from where they left off
   const handleStartAttempt = async () => {
@@ -294,7 +357,13 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         setAttemptId(attempt.id);
         setAttemptNumber(attempt.attemptNumber || 1);
 
-        const saved = loadSavedProgress(params.id, attempt.id) || loadSavedProgress(params.id);
+        // The attemptId-agnostic fallback is only safe when we already believe
+        // there's a genuinely resumable attempt — otherwise a fresh "Start Quiz"
+        // (e.g. a Retake right after finishing) could inherit stale answers left
+        // over in localStorage from a previous, unrelated attempt.
+        const saved =
+          loadSavedProgress(params.id, attempt.id) ||
+          (hasSavedProgress ? loadSavedProgress(params.id) : null);
 
         // Restore answers from saved local progress or backend attempt.answers
         if (saved && saved.selectedAnswers && Object.keys(saved.selectedAnswers).length > 0) {
@@ -371,7 +440,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
       setIsExiting(false);
       setShowExitModal(false);
       isNavigatingAway.current = true;
-      const destination = pendingNavUrl || '/quizzes';
+      const destination = pendingNavUrl || backHref;
       router.push(destination);
     }
   };
@@ -386,7 +455,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         quizId={params.id}
         title={quizTitle}
         access={access}
-        loginRedirect={`/quizzes/${params.id}`}
+        loginRedirect={`/quizzes/${params.id}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}
         subtitle="This question bank is premium. Complete the payment to unlock the questions and attempt it."
         onUnlocked={() => setReloadKey((k) => k + 1)}
       />
@@ -399,7 +468,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         <h2 className="text-xl font-bold text-slate-900 dark:text-white">
           {error || 'No questions available for this quiz yet.'}
         </h2>
-        <Link href="/quizzes">
+        <Link href={backHref}>
           <Button variant="gold" className="flex items-center space-x-2 mx-auto">
             <ChevronLeft className="w-4 h-4" />
             <span>Back to Quiz Hub</span>
@@ -412,7 +481,9 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
   // Access is confirmed but the attempt has not begun — show the intro screen.
   // Nothing here starts a timer; that only happens on the Start button.
   if (!hasStarted) {
-    const savedElapsed = activeAttempt?.timeTakenSeconds ?? (loadSavedProgress(params.id)?.elapsedSeconds ?? 0);
+    const savedElapsed =
+      activeAttempt?.timeTakenSeconds ??
+      (loadSavedProgress(params.id, activeAttempt?.id)?.elapsedSeconds ?? 0);
     const savedRemaining = Math.max(0, quizDuration - savedElapsed);
     return (
       <QuizStartScreen
@@ -427,6 +498,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
         isStarting={isStartingAttempt}
         error={startError}
         onStart={handleStartAttempt}
+        backHref={backHref}
       />
     );
   }
@@ -535,17 +607,9 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
     }
   };
 
-  // The countdown effect above stops ticking at 00:00 but never used to end
-  // the attempt — a stalled timer left the student stuck on the last question.
-  useEffect(() => {
-    if (!hasStarted || isSubmitted || isSubmitting || timeLeft > 0 || loading || !user) return;
-    handleSubmit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeLeft, hasStarted, isSubmitted, isSubmitting, loading, user]);
-
   const handleCloseModal = () => {
     setIsSubmitted(false);
-    router.push('/quizzes');
+    router.push(backHref);
   };
 
   const handleDownloadPDF = async () => {
@@ -591,7 +655,7 @@ export default function QuizTakingPage({ params }: { params: { id: string } }) {
             variant="outline"
             size="sm"
             onClick={() => {
-              setPendingNavUrl('/quizzes');
+              setPendingNavUrl(backHref);
               setShowExitModal(true);
             }}
             className="flex items-center space-x-1.5 py-1.5 px-2.5 sm:px-3 text-xs font-semibold text-slate-300 hover:text-white border-slate-700 hover:bg-slate-800 shrink-0 cursor-pointer"
@@ -934,6 +998,7 @@ function QuizStartScreen({
   isStarting,
   error,
   onStart,
+  backHref,
 }: {
   title: string;
   questionCount: number;
@@ -946,6 +1011,7 @@ function QuizStartScreen({
   isStarting: boolean;
   error: string;
   onStart: () => void;
+  backHref: string;
 }) {
   const durationMin = Math.max(1, Math.round(durationSeconds / 60));
   const effectiveRemaining = remainingSeconds !== undefined ? remainingSeconds : durationSeconds;
@@ -954,6 +1020,13 @@ function QuizStartScreen({
 
   return (
     <div className="max-w-2xl mx-auto py-10 sm:py-16 px-4">
+      <Link
+        href={backHref}
+        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-amber-500 dark:text-slate-400 dark:hover:text-amber-400 transition-colors mb-4"
+      >
+        <ChevronLeft className="w-4 h-4" />
+        <span>Back to Quiz Hub</span>
+      </Link>
       <Card className="p-6 sm:p-8 space-y-6 border border-amber-500/30">
         <div className="text-center space-y-3">
           <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-500 flex items-center justify-center mx-auto">
@@ -1026,7 +1099,7 @@ function QuizStartScreen({
           <span>{isStarting ? 'Starting…' : hasSavedProgress ? 'Resume Quiz' : 'Start Quiz'}</span>
         </Button>
 
-        <Link href="/quizzes" className="block">
+        <Link href={backHref} className="block">
           <Button variant="outline" className="w-full font-bold flex items-center justify-center gap-2">
             <ChevronLeft className="w-4 h-4" />
             <span>Back to Quiz Hub</span>

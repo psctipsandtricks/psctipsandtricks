@@ -4,11 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
-import '../../core/utils/pdf_downloader.dart';
 import '../../core/utils/responsive.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/library.dart';
+import '../pdfs/pdf_viewer_screen.dart';
 import '../shell/library_providers.dart';
 import 'video_player_screen.dart';
 import '../shell/shell_scaffold.dart';
@@ -261,6 +261,7 @@ class _VideoRow extends StatelessWidget {
           description: video.description,
           pdfUrl: video.pdfUrl,
           pdfFileName: video.pdfFileName,
+          thumbnailUrl: video.effectiveThumbnailUrl,
         ),
       ),
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
@@ -311,15 +312,15 @@ class _VideoRow extends StatelessWidget {
             ),
             if (video.hasNotes)
               IconButton(
-                icon: const Icon(Icons.download_rounded, size: 20),
-                color: AppColors.cyan,
-                tooltip: 'Download notes PDF',
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+                color: AppColors.rose,
+                tooltip: 'View notes PDF',
                 visualDensity: VisualDensity.compact,
-                onPressed: () => PdfDownloader.download(
+                onPressed: () => openPdf(
                   context,
                   url: video.pdfUrl!,
                   title: video.pdfFileName ?? '${video.title} notes',
-                  customFileName: video.pdfFileName,
+                  minimal: true,
                 ),
               ),
             Icon(Icons.chevron_right_rounded, color: palette.textMuted),

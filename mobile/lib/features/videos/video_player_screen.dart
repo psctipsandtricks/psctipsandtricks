@@ -1,10 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/utils/pdf_downloader.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../data/models/library.dart';
 import '../../features/pdfs/pdf_viewer_screen.dart';
@@ -18,6 +17,7 @@ class VideoPlayerArgs {
     this.description,
     this.pdfUrl,
     this.pdfFileName,
+    this.thumbnailUrl,
   });
 
   final String youtubeUrl;
@@ -25,143 +25,147 @@ class VideoPlayerArgs {
   final String? description;
   final String? pdfUrl;
   final String? pdfFileName;
+  final String? thumbnailUrl;
 }
 
-class VideoPlayerScreen extends StatefulWidget {
+/// A number of these lessons were uploaded with embedding turned off on
+/// YouTube's side, so an in-app embedded player just shows YouTube's own
+/// broken "Video unavailable" screen with no way out. Rather than gamble on
+/// that per video, this screen always shows the thumbnail and sends the
+/// student to the YouTube app (or browser) to actually watch it.
+class VideoPlayerScreen extends StatelessWidget {
   const VideoPlayerScreen({super.key, required this.video});
 
   final VideoPlayerArgs video;
 
-  @override
-  State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
-}
+  String get _videoId => extractYoutubeId(video.youtubeUrl);
 
-class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
-  YoutubePlayerController? _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    try {
-      final id = YoutubePlayer.convertUrlToId(widget.video.youtubeUrl) ??
-          widget.video.youtubeUrl;
-      if (id.isNotEmpty) {
-        _controller = YoutubePlayerController(
-          initialVideoId: id,
-          flags: const YoutubePlayerFlags(
-            autoPlay: true,
-            mute: false,
-            enableCaption: true,
-            forceHD: false,
-            useHybridComposition: true,
-          ),
-        );
-      }
-    } catch (_) {}
+  String get _thumbnailUrl {
+    final thumb = (video.thumbnailUrl ?? '').trim();
+    if (thumb.isNotEmpty) return thumb;
+    final id = _videoId;
+    return id.isNotEmpty ? 'https://img.youtube.com/vi/$id/hqdefault.jpg' : '';
   }
 
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
+  Future<void> _openOnYoutube() async {
+    final uri = Uri.tryParse(video.youtubeUrl);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final controller = _controller;
+    final thumb = _thumbnailUrl;
 
-    if (controller == null) {
-      return Scaffold(
-        appBar: const GlassAppBar(title: Text('Video')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Text(
-              'This video link could not be read.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: palette.textSecondary,
-                  ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return YoutubePlayerBuilder(
-      player: YoutubePlayer(
-        controller: controller,
-        showVideoProgressIndicator: true,
-        progressIndicatorColor: AppColors.cyan,
-        progressColors: const ProgressBarColors(
-          playedColor: AppColors.cyan,
-          handleColor: AppColors.sky,
-        ),
+    return Scaffold(
+      appBar: GlassAppBar(
+        title: Text(video.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      builder: (context, player) => Scaffold(
-        appBar: GlassAppBar(
-          title: Text(
-            widget.video.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        body: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            player,
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          GestureDetector(
+            onTap: _openOnYoutube,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  Text(
-                    widget.video.title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          height: 1.3,
-                        ),
+                  if (thumb.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl: thumb,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => Container(color: palette.elevated),
+                      errorWidget: (_, __, ___) =>
+                          Container(color: palette.elevated),
+                    )
+                  else
+                    Container(color: palette.elevated),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.75),
+                          Colors.black.withValues(alpha: 0.05),
+                        ],
+                      ),
+                    ),
                   ),
-                  if ((widget.video.description ?? '').trim().isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      widget.video.description!,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: palette.textSecondary,
-                            height: 1.6,
-                          ),
-                    ),
-                  ],
-                  if ((widget.video.pdfUrl ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    Text(
-                      'Class notes',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    PdfAttachmentTile(
-                      title: widget.video.pdfFileName ?? 'Notes for this class',
-                      subtitle: 'Tap to read · Download available',
-                      onTap: () => openPdf(
-                        context,
-                        url: widget.video.pdfUrl!,
-                        title: widget.video.pdfFileName ?? widget.video.title,
+                  Center(
+                    child: ElevatedButton.icon(
+                      onPressed: _openOnYoutube,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
                       ),
-                      onDownload: () => PdfDownloader.download(
-                        context,
-                        url: widget.video.pdfUrl!,
-                        title: widget.video.pdfFileName ?? widget.video.title,
+                      icon: const Icon(Icons.play_arrow_rounded,
+                          color: AppColors.red),
+                      label: const Text(
+                        'Watch on YouTube',
+                        style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  video.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        height: 1.3,
+                      ),
+                ),
+                if ((video.description ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    video.description!,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: palette.textSecondary,
+                          height: 1.6,
+                        ),
+                  ),
+                ],
+                if ((video.pdfUrl ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Class notes',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  PdfAttachmentTile(
+                    title: video.pdfFileName ?? 'Notes for this class',
+                    subtitle: 'Tap to view notes',
+                    onTap: () => openPdf(
+                      context,
+                      url: video.pdfUrl!,
+                      title: video.pdfFileName ?? video.title,
+                      minimal: true,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

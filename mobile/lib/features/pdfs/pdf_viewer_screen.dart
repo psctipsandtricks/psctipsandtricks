@@ -21,6 +21,7 @@ class PdfViewerArgs {
     this.initialPage,
     this.syncCues,
     this.minimal = false,
+    this.allowDownload = false,
   });
 
   final String url;
@@ -41,9 +42,12 @@ class PdfViewerArgs {
 
   /// True for a standalone sample/preview PDF, which has no narration to
   /// follow and nothing of the student's own to download or resume — just the
-  /// pages. Hides the download button, auto-turn chip, page counter, and the
-  /// audio mini-player, leaving the document and a way back.
+  /// pages. Hides auto-turn chip and audio mini-player, leaving the document.
   final bool minimal;
+
+  /// Controls whether a download action is shown in the app bar.
+  /// Defaults to false so library documents are view-only.
+  final bool allowDownload;
 }
 
 /// Renders a remote PDF with the platform viewer.
@@ -94,57 +98,57 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        actions: minimal
-            ? null
-            : [
-                IconButton(
-                  icon: const Icon(Icons.download_rounded),
-                  tooltip: 'Download PDF',
-                  onPressed: () => PdfDownloader.download(
-                    context,
-                    url: widget.args.url,
-                    title: widget.args.title,
-                  ),
-                ),
-                // Watches the loaded clip rather than reading `hasAudio` once:
-                // the narration can finish loading, fail, or be swapped for
-                // another topic's while this screen is open.
-                ValueListenableBuilder<String?>(
-                  valueListenable: ref.read(readerAudioProvider).title,
-                  builder: (context, loaded, _) => loaded == null
-                      ? const SizedBox.shrink()
-                      : AutoTurnChip(
-                          enabled: ref.watch(autoScrollProvider),
-                          onTap: () {
-                            ref.read(autoScrollProvider.notifier).toggle();
-                            // Switching it back on should catch the document
-                            // up rather than wait for the next page boundary.
-                            _documentKey.currentState?.syncNow();
-                          },
-                        ),
-                ),
-                if (_state.isReady)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 16),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: context.palette.elevated,
-                          borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                        ),
-                        child: Text(
-                          '${_state.currentPage + 1} / ${_state.pageCount}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ),
+        actions: [
+          if (widget.args.allowDownload)
+            IconButton(
+              icon: const Icon(Icons.download_rounded),
+              tooltip: 'Download PDF',
+              onPressed: () => PdfDownloader.download(
+                context,
+                url: widget.args.url,
+                title: widget.args.title,
+              ),
+            ),
+          // Watches the loaded clip rather than reading `hasAudio` once:
+          // the narration can finish loading, fail, or be swapped for
+          // another topic's while this screen is open.
+          if (!minimal)
+            ValueListenableBuilder<String?>(
+              valueListenable: ref.read(readerAudioProvider).title,
+              builder: (context, loaded, _) => loaded == null
+                  ? const SizedBox.shrink()
+                  : AutoTurnChip(
+                      enabled: ref.watch(autoScrollProvider),
+                      onTap: () {
+                        ref.read(autoScrollProvider.notifier).toggle();
+                        // Switching it back on should catch the document
+                        // up rather than wait for the next page boundary.
+                        _documentKey.currentState?.syncNow();
+                      },
                     ),
+            ),
+          if (_state.isReady)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: context.palette.elevated,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSm),
                   ),
-              ],
+                  child: Text(
+                    '${_state.currentPage + 1} / ${_state.pageCount}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: SafeArea(
         child: PdfDocumentView(
@@ -234,6 +238,7 @@ Future<void> openPdf(
   int? initialPage,
   PdfSyncMap? syncCues,
   bool minimal = false,
+  bool allowDownload = false,
 }) {
   return Navigator.of(context, rootNavigator: true).push(
     MaterialPageRoute(
@@ -245,6 +250,7 @@ Future<void> openPdf(
           initialPage: initialPage,
           syncCues: syncCues,
           minimal: minimal,
+          allowDownload: allowDownload,
         ),
       ),
     ),
@@ -259,12 +265,14 @@ class PdfAttachmentTile extends StatelessWidget {
     required this.onTap,
     this.subtitle,
     this.onDownload,
+    this.actionLabel = 'View',
   });
 
   final String title;
   final String? subtitle;
   final VoidCallback onTap;
   final VoidCallback? onDownload;
+  final String? actionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -329,6 +337,35 @@ class PdfAttachmentTile extends StatelessWidget {
                     padding: const EdgeInsets.all(6),
                     constraints: const BoxConstraints(),
                     onPressed: onDownload,
+                  ),
+                ] else if (actionLabel != null && actionLabel!.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.cyan.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                      border: Border.all(
+                        color: AppColors.cyan.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.visibility_rounded,
+                            size: 13, color: AppColors.cyan),
+                        const SizedBox(width: 4),
+                        Text(
+                          actionLabel!,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: AppColors.cyan,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                      ],
+                    ),
                   ),
                 ] else ...[
                   const SizedBox(width: 6),

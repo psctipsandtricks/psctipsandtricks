@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
-import '../../core/utils/pdf_downloader.dart';
 import '../../core/utils/responsive.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
@@ -123,12 +122,7 @@ class PdfDocumentsScreen extends ConsumerWidget {
                                   context,
                                   url: directDocuments[i].fileUrl!,
                                   title: directDocuments[i].title,
-                                ),
-                                onDownload: () => PdfDownloader.download(
-                                  context,
-                                  url: directDocuments[i].fileUrl!,
-                                  title: directDocuments[i].title,
-                                  customFileName: directDocuments[i].fileName,
+                                  minimal: true,
                                 ),
                               ),
                             ),
@@ -261,12 +255,7 @@ class _DocumentList extends ConsumerWidget {
                       context,
                       url: document.fileUrl!,
                       title: document.title,
-                    ),
-                    onDownload: () => PdfDownloader.download(
-                      context,
-                      url: document.fileUrl!,
-                      title: document.title,
-                      customFileName: document.fileName,
+                      minimal: true,
                     ),
                   ),
                 ),

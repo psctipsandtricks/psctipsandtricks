@@ -116,8 +116,18 @@ function QuizzesPageContent() {
     const isPaid = quiz.accessType === 'PAID';
     const isUnlocked = quiz.hasAccess || quiz.isPurchased;
 
+    // Carry the folder/tab the student was browsing so "Back to Quiz Hub" on
+    // the quiz page can return them to the same folder instead of the root hub.
+    const backParams = new URLSearchParams();
+    if (accessFilter === 'FREE') backParams.set('type', 'free');
+    else if (accessFilter === 'PAID') backParams.set('type', 'premium');
+    if (activeFolderTab !== 'ALL') backParams.set('folder', activeFolderTab);
+    const backQuery = backParams.toString();
+
     const targetUrl =
-      isPaid && !isUnlocked ? `/checkout?type=quiz&id=${quiz.id}` : `/quizzes/${quiz.id}`;
+      isPaid && !isUnlocked
+        ? `/checkout?type=quiz&id=${quiz.id}`
+        : `/quizzes/${quiz.id}${backQuery ? `?${backQuery}` : ''}`;
 
     if (!user) {
       router.push(`/login?redirect=${encodeURIComponent(targetUrl)}`);

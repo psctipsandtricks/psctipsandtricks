@@ -15,7 +15,6 @@ import {
   ChevronRight,
   X,
   ExternalLink,
-  Download,
   BookOpen,
   GraduationCap,
 } from 'lucide-react';
@@ -324,19 +323,6 @@ function PdfsContent() {
                     ) : (
                       <span className="text-[11px] text-slate-400">Document unavailable</span>
                     )}
-
-                    {doc.fileUrl && (
-                      <a
-                        href={doc.fileUrl}
-                        download={doc.fileName || `${doc.title}.pdf`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        title="Download PDF"
-                      >
-                        <Download className="w-4 h-4" />
-                      </a>
-                    )}
                   </div>
                 </div>
               ))}
@@ -447,19 +433,6 @@ function PdfsContent() {
                           </button>
                         ) : (
                           <span className="text-[11px] text-slate-400">Document unavailable</span>
-                        )}
-
-                        {doc.fileUrl && (
-                          <a
-                            href={doc.fileUrl}
-                            download={doc.fileName || `${doc.title}.pdf`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="Download PDF"
-                          >
-                            <Download className="w-4 h-4" />
-                          </a>
                         )}
                       </div>
                     </div>

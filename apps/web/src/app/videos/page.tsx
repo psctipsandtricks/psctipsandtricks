@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ApiClient } from '@/lib/api-client';
 import { Card, Input, Button, Badge } from '@psc/ui';
@@ -17,9 +18,23 @@ import {
   X,
   ExternalLink,
   GraduationCap,
+  Youtube,
 } from 'lucide-react';
 import type { VideoFolder, Video } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
+
+const SecurePdfViewer = dynamic(
+  () => import('@/components/secure-pdf-viewer').then((mod) => mod.SecurePdfViewer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex-1 min-h-[300px] flex flex-col items-center justify-center p-12 text-slate-400">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500 mb-3" />
+        <p className="text-xs font-bold font-mono">Loading Document Reader…</p>
+      </div>
+    ),
+  }
+);
 
 function VideoFolderSkeleton() {
   return (
@@ -79,6 +94,8 @@ function VideosContent() {
 
   // Video Modal
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  // Notes PDF Modal — notes are view-only in-app, never a direct download link
+  const [selectedPdfVideo, setSelectedPdfVideo] = useState<Video | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -310,15 +327,14 @@ function VideosContent() {
                       <span>Watch</span>
                     </button>
                     {vid.pdfUrl && (
-                      <a
-                        href={vid.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPdfVideo(vid)}
+                        className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <FileText className="w-3.5 h-3.5" />
                         <span>Notes</span>
-                      </a>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -430,15 +446,14 @@ function VideosContent() {
                         </button>
 
                         {vid.pdfUrl && (
-                          <a
-                            href={vid.pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPdfVideo(vid)}
+                            className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                           >
                             <FileText className="w-3.5 h-3.5" />
                             <span>Notes PDF</span>
-                          </a>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -477,20 +492,59 @@ function VideosContent() {
               <button
                 type="button"
                 onClick={() => setSelectedVideo(null)}
-                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                className="text-slate-400 hover:text-white p-1 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="relative aspect-video rounded-2xl overflow-hidden bg-black shadow-inner">
-              <iframe
-                src={`https://www.youtube-nocookie.com/embed/${selectedVideo.youtubeVideoId}?autoplay=1`}
-                title={selectedVideo.title}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="w-full h-full border-0"
+            {/* Many of these lessons were uploaded with embedding turned off on
+                YouTube's side, so an <iframe> just shows YouTube's own broken
+                "Video unavailable" screen. Rather than gamble on that per video,
+                always send the student straight to YouTube to watch it. */}
+            <a
+              href={`https://www.youtube.com/watch?v=${selectedVideo.youtubeVideoId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative aspect-video rounded-2xl overflow-hidden bg-black shadow-inner block group"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={selectedVideo.thumbnailUrl}
+                alt={selectedVideo.title}
+                className="w-full h-full object-cover"
               />
-            </div>
+              <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white text-slate-900 font-bold text-sm shadow-xl group-hover:scale-105 transition-transform">
+                  <Youtube className="w-5 h-5 text-red-600" />
+                  <span>Watch on YouTube</span>
+                </span>
+              </span>
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Notes PDF Modal — rendered page-by-page via SecurePdfViewer so notes
+          stay view-only in-app; no raw file link is ever exposed to download. */}
+      {selectedPdfVideo?.pdfUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-2 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Notes PDF: ${selectedPdfVideo.title}`}
+          onClick={() => setSelectedPdfVideo(null)}
+        >
+          <div
+            className="w-full max-w-5xl h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl p-3 sm:p-4 shadow-2xl overflow-hidden flex flex-col transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SecurePdfViewer
+              url={selectedPdfVideo.pdfUrl}
+              title={`${selectedPdfVideo.title} — Notes`}
+              user={user ? { id: user.id, name: user.name, email: user.email, phone: user.phoneNumber || undefined } : null}
+              onClose={() => setSelectedPdfVideo(null)}
+            />
           </div>
         </div>
       )}
