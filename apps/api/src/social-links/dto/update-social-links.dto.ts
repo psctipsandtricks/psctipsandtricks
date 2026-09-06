@@ -47,4 +47,22 @@ export class UpdateSocialLinksDto {
     message: 'Twitter link must point to twitter.com or x.com',
   })
   twitterUrl?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => !!o.playStoreUrl)
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true }, { message: 'Enter a valid Play Store link (e.g. https://play.google.com/store/apps/details?id=com.example)' })
+  @Matches(/^https?:\/\/(play\.google\.com\/store\/apps\/|play\.app\.goo\.gl\/)/i, {
+    message: 'Play Store link must be a play.google.com/store/apps/… listing',
+  })
+  playStoreUrl?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => !!o.appStoreUrl)
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true }, { message: 'Enter a valid App Store link (e.g. https://apps.apple.com/app/id123456789)' })
+  // itunes.apple.com is the legacy host Apple still redirects from, so a link
+  // copied out of an older listing is accepted rather than rejected.
+  @Matches(/^https?:\/\/([a-z]{2}(-[a-z]{2})?\.)?(apps|itunes)\.apple\.com\//i, {
+    message: 'App Store link must point to apps.apple.com',
+  })
+  appStoreUrl?: string;
 }

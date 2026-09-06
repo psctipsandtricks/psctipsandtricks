@@ -157,6 +157,19 @@ void main() {
       final container = await containerWith({'reader_auto_scroll': true});
       expect(container.read(autoScrollProvider), isTrue);
     });
+
+    test('turning it on is what the control does, and it sticks', () async {
+      // The other half of the default: off to begin with, but one tap away,
+      // and remembered so the choice does not have to be made every session.
+      final container = await containerWith({});
+      expect(container.read(autoScrollProvider), isFalse);
+
+      container.read(autoScrollProvider.notifier).toggle();
+      expect(container.read(autoScrollProvider), isTrue);
+
+      final prefs = container.read(sharedPrefsProvider);
+      expect(prefs.getBool('reader_auto_scroll'), isTrue);
+    });
   });
 
   testWidgets('the page eases towards the narration rather than jumping to it',

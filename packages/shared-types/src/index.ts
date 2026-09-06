@@ -732,6 +732,10 @@ export interface SocialLinks {
   youtubeUrl: string | null;
   facebookUrl: string | null;
   twitterUrl: string | null;
+  /** Store listings for the mobile apps — these drive the home page's download
+   * call to action, not the "follow us" cards. */
+  playStoreUrl: string | null;
+  appStoreUrl: string | null;
   updatedAt: string | null;
 }
 

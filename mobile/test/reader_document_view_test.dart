@@ -282,6 +282,22 @@ void main() {
       expect(find.byTooltip('Follow the audio'), findsNothing);
     });
 
+    testWidgets('it arrives switched off, offering rather than imposing',
+        (tester) async {
+      final audio = ReaderAudioController();
+      addTearDown(audio.dispose);
+      await pump(tester, size: const Size(400, 860), audio: audio);
+
+      audio.playing.value = true;
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Playing narration puts the control on screen but leaves the page
+      // still: following is offered, not imposed.
+      expect(find.byTooltip('Follow the audio'), findsOneWidget);
+      expect(find.byTooltip('Pages follow the audio — tap to stop'),
+          findsNothing);
+    });
+
     testWidgets('landscape is the same bare page', (tester) async {
       await pump(tester, size: const Size(880, 410));
 

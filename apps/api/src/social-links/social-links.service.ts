@@ -20,6 +20,8 @@ export class SocialLinksService {
         youtubeUrl: null,
         facebookUrl: null,
         twitterUrl: null,
+        playStoreUrl: null,
+        appStoreUrl: null,
         updatedAt: null,
       }
     );
@@ -43,6 +45,8 @@ export class SocialLinksService {
       youtubeUrl: normalize(dto.youtubeUrl),
       facebookUrl: normalize(dto.facebookUrl),
       twitterUrl: normalize(dto.twitterUrl),
+      playStoreUrl: normalize(dto.playStoreUrl),
+      appStoreUrl: normalize(dto.appStoreUrl),
     };
 
     return this.prisma.socialLinks.upsert({

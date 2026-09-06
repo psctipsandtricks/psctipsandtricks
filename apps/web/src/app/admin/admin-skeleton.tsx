@@ -445,39 +445,69 @@ export function CouponsPageSkeleton() {
 /** Accurate Social Media Links Skeleton Loader */
 export function SocialLinksPageSkeleton() {
   return (
-    <div className="space-y-6 max-w-3xl animate-pulse">
+    <div className="space-y-6 max-w-6xl animate-pulse">
       {/* Header */}
       <div className="space-y-1.5">
-        <div className="h-8 w-60 bg-slate-200 dark:bg-[#1e2e56] rounded-xl" />
+        <div className="h-8 w-64 bg-slate-200 dark:bg-[#1e2e56] rounded-xl" />
         <div className="h-4 w-96 max-w-full bg-slate-100 dark:bg-[#132044] rounded-lg" />
       </div>
 
-      {/* Card Form */}
-      <Card className="p-6 space-y-5 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] rounded-2xl shadow-sm">
-        <div className="space-y-1">
-          <div className="h-6 w-36 bg-slate-200 dark:bg-[#1e2e56] rounded-lg" />
-          <div className="h-3.5 w-72 bg-slate-100 dark:bg-[#132044] rounded-md" />
-        </div>
-
-        <div className="space-y-4 pt-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="p-4 rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/50 dark:bg-[#0c152e]/40 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-[#1a2b58]" />
-                  <div className="h-3.5 w-24 bg-slate-200 dark:bg-[#1e2e56] rounded" />
-                </div>
-                <div className="h-3 w-16 bg-slate-200 dark:bg-[#1e2e56] rounded" />
-              </div>
-              <div className="h-10 w-full bg-slate-200 dark:bg-[#1a2b58] rounded-xl" />
+      {/* 2-Column Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column (7 cols) */}
+        <div className="lg:col-span-7 space-y-5">
+          <Card className="p-6 space-y-5 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] rounded-2xl shadow-sm">
+            <div className="space-y-1">
+              <div className="h-6 w-44 bg-slate-200 dark:bg-[#1e2e56] rounded-lg" />
+              <div className="h-3.5 w-64 bg-slate-100 dark:bg-[#132044] rounded-md" />
             </div>
-          ))}
+
+            <div className="space-y-4 pt-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="p-4 rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/50 dark:bg-[#0c152e]/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-[#1a2b58]" />
+                      <div className="h-3.5 w-24 bg-slate-200 dark:bg-[#1e2e56] rounded" />
+                    </div>
+                  </div>
+                  <div className="h-10 w-full bg-slate-200 dark:bg-[#1a2b58] rounded-xl" />
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
 
-        <div className="pt-2">
-          <div className="h-10 w-36 bg-slate-200 dark:bg-[#1e2e56] rounded-xl" />
+        {/* Right Column (5 cols) */}
+        <div className="lg:col-span-5 space-y-5">
+          <Card className="p-6 space-y-5 border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] rounded-2xl shadow-sm">
+            <div className="space-y-1">
+              <div className="h-6 w-40 bg-slate-200 dark:bg-[#1e2e56] rounded-lg" />
+              <div className="h-3.5 w-56 bg-slate-100 dark:bg-[#132044] rounded-md" />
+            </div>
+
+            <div className="space-y-4 pt-2">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="p-4 rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/50 dark:bg-[#0c152e]/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-[#1a2b58]" />
+                      <div className="h-3.5 w-24 bg-slate-200 dark:bg-[#1e2e56] rounded" />
+                    </div>
+                  </div>
+                  <div className="h-10 w-full bg-slate-200 dark:bg-[#1a2b58] rounded-xl" />
+                </div>
+              ))}
+            </div>
+
+            <div className="h-28 w-full bg-slate-100 dark:bg-[#0c152e]/60 rounded-2xl border border-slate-200/50 dark:border-[#1e2e56]/50" />
+          </Card>
         </div>
-      </Card>
+      </div>
+
+      <div className="pt-2">
+        <div className="h-10 w-36 bg-slate-200 dark:bg-[#1e2e56] rounded-xl" />
+      </div>
     </div>
   );
 }

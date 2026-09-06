@@ -831,6 +831,11 @@ model SocialLinks {
   youtubeUrl   String?
   facebookUrl  String?
   twitterUrl   String?
+  /// Store listings for the mobile apps. Kept on this record because they are
+  /// configured on the same admin screen, but they drive a download call to
+  /// action on the home page rather than the "follow us" cards.
+  playStoreUrl String?
+  appStoreUrl  String?
   updatedAt    DateTime @updatedAt
 }
 

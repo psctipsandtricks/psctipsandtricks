@@ -880,6 +880,8 @@ export const ApiClient = {
     youtubeUrl?: string;
     facebookUrl?: string;
     twitterUrl?: string;
+    playStoreUrl?: string;
+    appStoreUrl?: string;
   }) =>
     fetcher<SocialLinks>('/social-links', { method: 'PATCH', body: JSON.stringify(payload) }),
 
