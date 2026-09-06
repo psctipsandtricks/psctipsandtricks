@@ -27,33 +27,44 @@ import {
   getMinMockTestTime,
   todayLocalDateStr,
 } from '@psc/ui';
-import { Radio, ChevronLeft, Plus, Users, Calendar, Trash2, Edit3, Loader2, Trophy, Search } from 'lucide-react';
+import { Radio, ChevronLeft, Plus, Users, Calendar, Trash2, Edit3, Loader2, Trophy, Search, Send, Clock } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { QuizPicker } from './quiz-picker';
 
 const mockTestSchema = Yup.object({
   title: Yup.string().trim().required('Mock test title is required'),
   quizId: Yup.string().required('Please select a quiz'),
-  scheduledDate: Yup.string()
-    .required('Scheduled date is required')
-    .test('not-past-date', 'Scheduled date cannot be in the past', function (date) {
-      if (!date) return true;
-      return date >= todayLocalDateStr();
-    }),
-  scheduledTime: Yup.string()
-    .required('Scheduled time is required')
-    .test(
-      'at-least-1-min-future',
-      'Scheduled date and time must be at least 1 minute after the current time.',
-      function (time) {
-        const date = (this.parent as any).scheduledDate;
-        if (!date || !time) return true;
-        const iso = combineDateAndTime(date, time);
-        if (!iso) return true;
-        const minAllowedTime = Date.now() + 60_000 - 5_000;
-        return new Date(iso).getTime() >= minAllowedTime;
-      },
-    ),
+  isScheduled: Yup.boolean(),
+  scheduledDate: Yup.string().when('isScheduled', {
+    is: true,
+    then: (schema) =>
+      schema
+        .required('Release date is required')
+        .test('not-past-date', 'Release date cannot be in the past', function (date) {
+          if (!date) return true;
+          return date >= todayLocalDateStr();
+        }),
+    otherwise: (schema) => schema.notRequired(),
+  }),
+  scheduledTime: Yup.string().when('isScheduled', {
+    is: true,
+    then: (schema) =>
+      schema
+        .required('Release time is required')
+        .test(
+          'at-least-1-min-future',
+          'Release date and time must be at least 1 minute after the current time.',
+          function (time) {
+            const date = (this.parent as any).scheduledDate;
+            if (!date || !time) return true;
+            const iso = combineDateAndTime(date, time);
+            if (!iso) return true;
+            const minAllowedTime = Date.now() + 60_000 - 5_000;
+            return new Date(iso).getTime() >= minAllowedTime;
+          },
+        ),
+    otherwise: (schema) => schema.notRequired(),
+  }),
 });
 
 export default function AdminMockTestsPage() {
@@ -66,6 +77,7 @@ export default function AdminMockTestsPage() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isReleaseScheduled, setIsReleaseScheduled] = useState(true);
   const [editingMockTest, setEditingMockTest] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
@@ -123,11 +135,22 @@ export default function AdminMockTestsPage() {
   }, [loadData]);
 
   const formik = useFormik({
-    initialValues: { title: '', quizId: '', scheduledDate: '', scheduledTime: '' },
+    initialValues: {
+      title: '',
+      quizId: '',
+      isScheduled: true,
+      scheduledDate: '',
+      scheduledTime: '',
+    },
     validationSchema: mockTestSchema,
     onSubmit: async (values, { setSubmitting, resetForm }) => {
       try {
-        const fullScheduledIso = combineDateAndTime(values.scheduledDate, values.scheduledTime);
+        let fullScheduledIso: string | null;
+        if (!isReleaseScheduled) {
+          fullScheduledIso = new Date().toISOString();
+        } else {
+          fullScheduledIso = combineDateAndTime(values.scheduledDate, values.scheduledTime);
+        }
         const payload = {
           title: values.title.trim(),
           quizId: values.quizId,
@@ -152,12 +175,14 @@ export default function AdminMockTestsPage() {
 
   const handleOpenCreateDialog = () => {
     setEditingMockTest(null);
+    setIsReleaseScheduled(true);
     const today = todayLocalDateStr();
     const minTime = getMinMockTestTime(today) || '10:00';
     formik.resetForm({
       values: {
         title: '',
         quizId: '',
+        isScheduled: true,
         scheduledDate: today,
         scheduledTime: minTime,
       },
@@ -167,10 +192,12 @@ export default function AdminMockTestsPage() {
 
   const handleEdit = (mockTest: any) => {
     setEditingMockTest(mockTest);
+    setIsReleaseScheduled(true);
     const { date: schDate, time: schTime } = splitIsoToDateAndTime(mockTest.scheduledAt);
     formik.setValues({
       title: mockTest.title || '',
       quizId: mockTest.quizId || '',
+      isScheduled: true,
       scheduledDate: schDate,
       scheduledTime: schTime,
     });
@@ -498,28 +525,87 @@ export default function AdminMockTestsPage() {
             onBlur={() => formik.setFieldTouched('quizId', true, true)}
             error={formik.touched.quizId && formik.errors.quizId ? formik.errors.quizId : undefined}
           />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <DatePicker
-              label="Scheduled Date"
-              value={formik.values.scheduledDate}
-              onChange={(d) => {
-                formik.setFieldValue('scheduledDate', d, true);
-                formik.setFieldTouched('scheduledDate', true, false);
-              }}
-              minDate={todayLocalDateStr()}
-              error={formik.touched.scheduledDate && formik.errors.scheduledDate ? (formik.errors.scheduledDate as string) : undefined}
-            />
-            <TimePicker
-              label="Scheduled Time"
-              value={formik.values.scheduledTime}
-              onChange={(t) => {
-                formik.setFieldValue('scheduledTime', t, true);
-                formik.setFieldTouched('scheduledTime', true, false);
-              }}
-              minTime={getMinMockTestTime(formik.values.scheduledDate)}
-              error={formik.touched.scheduledTime && formik.errors.scheduledTime ? (formik.errors.scheduledTime as string) : undefined}
-            />
+          {/* Release Timing / Schedule */}
+          <div className="space-y-2.5 p-3 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-cyan-500" />
+              <span>Release Timing</span>
+            </label>
+
+            {/* Timing Mode Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReleaseScheduled(false);
+                  formik.setFieldValue('isScheduled', false);
+                }}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                  !isReleaseScheduled
+                    ? 'border-cyan-500/80 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 shadow-xs ring-1 ring-cyan-500/30'
+                    : 'border-slate-200 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <Send className="w-4 h-4 shrink-0 text-cyan-500" />
+                <div>
+                  <span className="block text-xs font-extrabold">Immediate</span>
+                  <span className="block text-[10px] text-slate-400">Publish right away</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReleaseScheduled(true);
+                  formik.setFieldValue('isScheduled', true);
+                  if (!formik.values.scheduledDate) {
+                    const today = todayLocalDateStr();
+                    const minTime = getMinMockTestTime(today) || '10:00';
+                    formik.setFieldValue('scheduledDate', today);
+                    formik.setFieldValue('scheduledTime', minTime);
+                  }
+                }}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                  isReleaseScheduled
+                    ? 'border-cyan-500/80 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 shadow-xs ring-1 ring-cyan-500/30'
+                    : 'border-slate-200 dark:border-[#1e2e56] bg-white dark:bg-[#091124] text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <Clock className="w-4 h-4 shrink-0 text-cyan-500" />
+                <div>
+                  <span className="block text-xs font-extrabold">Schedule Later</span>
+                  <span className="block text-[10px] text-slate-400">Pick date & time</span>
+                </div>
+              </button>
+            </div>
+
+            {/* Date & Time Pickers only shown when Schedule Later is chosen */}
+            {isReleaseScheduled && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                <DatePicker
+                  label="Release Date"
+                  value={formik.values.scheduledDate}
+                  onChange={(d) => {
+                    formik.setFieldValue('scheduledDate', d, true);
+                    formik.setFieldTouched('scheduledDate', true, false);
+                  }}
+                  minDate={todayLocalDateStr()}
+                  error={formik.touched.scheduledDate && formik.errors.scheduledDate ? (formik.errors.scheduledDate as string) : undefined}
+                />
+                <TimePicker
+                  label="Release Time"
+                  value={formik.values.scheduledTime}
+                  onChange={(t) => {
+                    formik.setFieldValue('scheduledTime', t, true);
+                    formik.setFieldTouched('scheduledTime', true, false);
+                  }}
+                  minTime={getMinMockTestTime(formik.values.scheduledDate)}
+                  error={formik.touched.scheduledTime && formik.errors.scheduledTime ? (formik.errors.scheduledTime as string) : undefined}
+                />
+              </div>
+            )}
           </div>
+
           <Button type="submit" variant="gold" className="w-full font-bold shadow-md shadow-amber-500/20" disabled={formik.isSubmitting}>
             {formik.isSubmitting
               ? editingMockTest
@@ -527,7 +613,9 @@ export default function AdminMockTestsPage() {
                 : 'Scheduling…'
               : editingMockTest
               ? 'Save Changes'
-              : 'Schedule Mock Test 🔴'}
+              : isReleaseScheduled
+              ? 'Schedule Mock Test 🔴'
+              : 'Publish Live Mock Test 🔴'}
           </Button>
         </form>
       </Dialog>
