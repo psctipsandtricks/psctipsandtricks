@@ -402,7 +402,7 @@ export default function NotificationsPage() {
                             e.stopPropagation();
                             setPreviewImage(n.imageUrl!);
                           }}
-                          className="relative group/thumb shrink-0 rounded-xl overflow-hidden border border-slate-200 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#070e20] w-20 h-16 sm:w-24 sm:h-20 shadow-xs cursor-pointer hover:border-cyan-500/60 hover:shadow-md transition-all self-start"
+                          className="relative group/thumb shrink-0 rounded-xl overflow-hidden border border-slate-200 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#070e20] w-24 sm:w-32 aspect-[16/10] shadow-xs cursor-pointer hover:border-cyan-500/60 hover:shadow-md transition-all self-start"
                           title="Click to view full image"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
