@@ -387,39 +387,39 @@ export default function NotificationsPage() {
                       </div>
                     </div>
 
-                    {/* Notification Body Text */}
-                    {n.body && (
-                      <div className="pl-11 sm:pl-11.5">
-                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line font-medium">
+                    {/* Notification Body Text & Compact Thumbnail */}
+                    <div className="pl-11 sm:pl-11.5 flex flex-col sm:flex-row gap-3 sm:gap-4 items-start justify-between">
+                      {n.body && (
+                        <p className="flex-1 min-w-0 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line font-medium">
                           {n.body}
                         </p>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Media Banner Image Preview */}
-                    {n.imageUrl && (
-                      <div className="pl-11 sm:pl-11.5 pt-1">
-                        <div className="relative group/img rounded-2xl overflow-hidden border border-slate-200/90 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#070e20] aspect-[16/9] max-h-72 w-full max-w-xl shadow-sm">
+                      {/* Very Small Media Thumbnail */}
+                      {n.imageUrl && (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewImage(n.imageUrl!);
+                          }}
+                          className="relative group/thumb shrink-0 rounded-xl overflow-hidden border border-slate-200 dark:border-[#1e2e56] bg-slate-100 dark:bg-[#070e20] w-20 h-16 sm:w-24 sm:h-20 shadow-xs cursor-pointer hover:border-cyan-500/60 hover:shadow-md transition-all self-start"
+                          title="Click to view full image"
+                        >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={n.imageUrl}
                             alt={n.title || 'Notification media'}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover/img:scale-105"
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover/thumb:scale-110"
                           />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPreviewImage(n.imageUrl!);
-                            }}
-                            className="absolute top-3 right-3 p-2 rounded-xl bg-black/60 hover:bg-black/80 text-white backdrop-blur-md opacity-0 group-hover/img:opacity-100 transition-opacity cursor-pointer shadow-md"
-                            title="Expand Image"
-                          >
-                            <Maximize2 className="w-4 h-4" />
-                          </button>
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white backdrop-blur-[1px]">
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="absolute bottom-1 right-1 px-1 py-0.5 rounded text-[8px] font-bold bg-black/60 text-white backdrop-blur-xs leading-none">
+                            View
+                          </span>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
                     {/* Actions Row */}
                     <div className="pl-11 sm:pl-11.5 pt-2 flex items-center justify-between gap-3 border-t border-slate-100 dark:border-[#1e2e56]/60 flex-wrap">
