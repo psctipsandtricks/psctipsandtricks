@@ -51,7 +51,9 @@ export class MockTestSchedulerService implements OnModuleInit, OnModuleDestroy {
       });
 
       for (const test of liveTests) {
-        const endsAt = new Date(test.scheduledAt.getTime() + test.quiz.durationMinutes * 60_000);
+        const endsAt = test.endsAt
+          ? new Date(test.endsAt)
+          : new Date(test.scheduledAt.getTime() + 24 * 60 * 60_000);
         if (now >= endsAt) {
           await this.queueService.send('mock-tests', { mockTestId: test.id });
         }

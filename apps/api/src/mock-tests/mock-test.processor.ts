@@ -73,7 +73,9 @@ export class MockTestProcessor extends QueuePoller<RecomputeRankMessage> {
     });
     if (!mockTest || mockTest.status === MockTestStatus.COMPLETED) return;
 
-    const endsAt = new Date(mockTest.scheduledAt.getTime() + mockTest.quiz.durationMinutes * 60_000);
+    const endsAt = mockTest.endsAt
+      ? new Date(mockTest.endsAt)
+      : new Date(mockTest.scheduledAt.getTime() + 24 * 60 * 60_000);
     const now = new Date();
     if (now >= endsAt) {
       await this.prisma.mockTest.update({ where: { id: mockTestId }, data: { status: MockTestStatus.COMPLETED } });

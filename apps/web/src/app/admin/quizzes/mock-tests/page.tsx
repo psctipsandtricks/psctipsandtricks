@@ -31,6 +31,28 @@ import { Radio, ChevronLeft, Plus, Users, Calendar, Trash2, Edit3, Loader2, Trop
 import { ApiClient } from '@/lib/api-client';
 import { QuizPicker } from './quiz-picker';
 
+function addDaysToDateStr(dateStr: string, days: number = 1): string {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const nextY = dt.getFullYear();
+  const nextM = String(dt.getMonth() + 1).padStart(2, '0');
+  const nextD = String(dt.getDate()).padStart(2, '0');
+  return `${nextY}-${nextM}-${nextD}`;
+}
+
+function getDefaultEndDateTime(releaseDateStr?: string, releaseTimeStr?: string): { endDate: string; endTime: string } {
+  const now = new Date();
+  const relDate = releaseDateStr || todayLocalDateStr();
+  const relTime =
+    releaseTimeStr || `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return {
+    endDate: addDaysToDateStr(relDate, 1),
+    endTime: relTime,
+  };
+}
+
 const mockTestSchema = Yup.object({
   title: Yup.string().trim().required('Mock test title is required'),
   quizId: Yup.string().required('Please select a quiz'),
@@ -65,6 +87,25 @@ const mockTestSchema = Yup.object({
         ),
     otherwise: (schema) => schema.notRequired(),
   }),
+  endDate: Yup.string().required('End date is required'),
+  endTime: Yup.string().required('End time is required').test(
+    'after-release-time',
+    'End date and time must be after the release date and time.',
+    function (endTime) {
+      const parent = this.parent as any;
+      const isSched = parent.isScheduled;
+      const startDate = isSched ? parent.scheduledDate : todayLocalDateStr();
+      const startTime = isSched
+        ? parent.scheduledTime
+        : `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
+      const endDate = parent.endDate;
+      if (!startDate || !startTime || !endDate || !endTime) return true;
+      const startIso = combineDateAndTime(startDate, startTime);
+      const endIso = combineDateAndTime(endDate, endTime);
+      if (!startIso || !endIso) return true;
+      return new Date(endIso).getTime() > new Date(startIso).getTime();
+    },
+  ),
 });
 
 export default function AdminMockTestsPage() {
@@ -141,6 +182,8 @@ export default function AdminMockTestsPage() {
       isScheduled: true,
       scheduledDate: '',
       scheduledTime: '',
+      endDate: '',
+      endTime: '',
     },
     validationSchema: mockTestSchema,
     onSubmit: async (values, { setSubmitting, resetForm }) => {
@@ -151,10 +194,12 @@ export default function AdminMockTestsPage() {
         } else {
           fullScheduledIso = combineDateAndTime(values.scheduledDate, values.scheduledTime);
         }
+        const fullEndsIso = combineDateAndTime(values.endDate, values.endTime);
         const payload = {
           title: values.title.trim(),
           quizId: values.quizId,
           scheduledAt: fullScheduledIso,
+          endsAt: fullEndsIso,
         };
         if (editingMockTest) {
           await ApiClient.updateMockTest(editingMockTest.id, payload);
@@ -178,6 +223,7 @@ export default function AdminMockTestsPage() {
     setIsReleaseScheduled(true);
     const today = todayLocalDateStr();
     const minTime = getMinMockTestTime(today) || '10:00';
+    const endDefault = getDefaultEndDateTime(today, minTime);
     formik.resetForm({
       values: {
         title: '',
@@ -185,6 +231,8 @@ export default function AdminMockTestsPage() {
         isScheduled: true,
         scheduledDate: today,
         scheduledTime: minTime,
+        endDate: endDefault.endDate,
+        endTime: endDefault.endTime,
       },
     });
     setIsDialogOpen(true);
@@ -194,12 +242,25 @@ export default function AdminMockTestsPage() {
     setEditingMockTest(mockTest);
     setIsReleaseScheduled(true);
     const { date: schDate, time: schTime } = splitIsoToDateAndTime(mockTest.scheduledAt);
+    let endDate = '';
+    let endTime = '';
+    if (mockTest.endsAt) {
+      const split = splitIsoToDateAndTime(mockTest.endsAt);
+      endDate = split.date;
+      endTime = split.time;
+    } else {
+      const endDefault = getDefaultEndDateTime(schDate, schTime);
+      endDate = endDefault.endDate;
+      endTime = endDefault.endTime;
+    }
     formik.setValues({
       title: mockTest.title || '',
       quizId: mockTest.quizId || '',
       isScheduled: true,
       scheduledDate: schDate,
       scheduledTime: schTime,
+      endDate,
+      endTime,
     });
     setIsDialogOpen(true);
   };
@@ -406,9 +467,25 @@ export default function AdminMockTestsPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-xs font-mono text-slate-700 dark:text-slate-300 py-3.5 whitespace-nowrap">
-                        <div className="flex items-center space-x-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                          <span>{scheduledFormatted}</span>
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-1.5" title="Release Date & Time">
+                            <Calendar className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                            <span>{scheduledFormatted}</span>
+                          </div>
+                          {mt.endsAt && (
+                            <div className="flex items-center space-x-1.5 text-[11px] text-slate-500 dark:text-slate-400" title="End Date & Time">
+                              <Clock className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                              <span>
+                                {new Date(mt.endsAt).toLocaleString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="py-3.5 whitespace-nowrap">
@@ -539,6 +616,9 @@ export default function AdminMockTestsPage() {
                 onClick={() => {
                   setIsReleaseScheduled(false);
                   formik.setFieldValue('isScheduled', false);
+                  const endDefault = getDefaultEndDateTime();
+                  formik.setFieldValue('endDate', endDefault.endDate);
+                  formik.setFieldValue('endTime', endDefault.endTime);
                 }}
                 className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
                   !isReleaseScheduled
@@ -558,12 +638,13 @@ export default function AdminMockTestsPage() {
                 onClick={() => {
                   setIsReleaseScheduled(true);
                   formik.setFieldValue('isScheduled', true);
-                  if (!formik.values.scheduledDate) {
-                    const today = todayLocalDateStr();
-                    const minTime = getMinMockTestTime(today) || '10:00';
-                    formik.setFieldValue('scheduledDate', today);
-                    formik.setFieldValue('scheduledTime', minTime);
-                  }
+                  const today = formik.values.scheduledDate || todayLocalDateStr();
+                  const minTime = formik.values.scheduledTime || getMinMockTestTime(today) || '10:00';
+                  formik.setFieldValue('scheduledDate', today);
+                  formik.setFieldValue('scheduledTime', minTime);
+                  const endDefault = getDefaultEndDateTime(today, minTime);
+                  formik.setFieldValue('endDate', endDefault.endDate);
+                  formik.setFieldValue('endTime', endDefault.endTime);
                 }}
                 className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
                   isReleaseScheduled
@@ -588,6 +669,13 @@ export default function AdminMockTestsPage() {
                   onChange={(d) => {
                     formik.setFieldValue('scheduledDate', d, true);
                     formik.setFieldTouched('scheduledDate', true, false);
+                    if (d) {
+                      const endDefault = getDefaultEndDateTime(d, formik.values.scheduledTime || '10:00');
+                      formik.setFieldValue('endDate', endDefault.endDate);
+                      if (!formik.values.endTime) {
+                        formik.setFieldValue('endTime', endDefault.endTime);
+                      }
+                    }
                   }}
                   minDate={todayLocalDateStr()}
                   error={formik.touched.scheduledDate && formik.errors.scheduledDate ? (formik.errors.scheduledDate as string) : undefined}
@@ -598,12 +686,48 @@ export default function AdminMockTestsPage() {
                   onChange={(t) => {
                     formik.setFieldValue('scheduledTime', t, true);
                     formik.setFieldTouched('scheduledTime', true, false);
+                    if (t) {
+                      formik.setFieldValue('endTime', t);
+                    }
                   }}
                   minTime={getMinMockTestTime(formik.values.scheduledDate)}
                   error={formik.touched.scheduledTime && formik.errors.scheduledTime ? (formik.errors.scheduledTime as string) : undefined}
                 />
               </div>
             )}
+          </div>
+
+          {/* End Date and Time */}
+          <div className="space-y-2.5 p-3 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-slate-50/50 dark:bg-[#0c152e]/50">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-rose-500" />
+                <span>End Date &amp; Time (Closing Window)</span>
+              </label>
+              <span className="text-[10px] text-slate-400 font-medium">Default: 1 day after release</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
+              <DatePicker
+                label="End Date"
+                value={formik.values.endDate}
+                onChange={(d) => {
+                  formik.setFieldValue('endDate', d, true);
+                  formik.setFieldTouched('endDate', true, false);
+                }}
+                minDate={isReleaseScheduled ? formik.values.scheduledDate || todayLocalDateStr() : todayLocalDateStr()}
+                error={formik.touched.endDate && formik.errors.endDate ? (formik.errors.endDate as string) : undefined}
+              />
+              <TimePicker
+                label="End Time"
+                value={formik.values.endTime}
+                onChange={(t) => {
+                  formik.setFieldValue('endTime', t, true);
+                  formik.setFieldTouched('endTime', true, false);
+                }}
+                error={formik.touched.endTime && formik.errors.endTime ? (formik.errors.endTime as string) : undefined}
+              />
+            </div>
           </div>
 
           <Button type="submit" variant="gold" className="w-full font-bold shadow-md shadow-amber-500/20" disabled={formik.isSubmitting}>

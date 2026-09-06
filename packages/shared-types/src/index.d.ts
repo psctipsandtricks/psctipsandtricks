@@ -549,6 +549,7 @@ export interface MockTest {
     quizId: string;
     quiz?: Quiz;
     scheduledAt: string;
+    endsAt?: string | null;
     status: MockTestStatus;
     createdById: string;
     createdAt: string;

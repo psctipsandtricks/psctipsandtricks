@@ -116,7 +116,25 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
     final progress = ref.watch(bookProgressProvider(bookId)).valueOrNull;
     final audioResume = ref.watch(audioResumeProvider(bookId));
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        try {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+            return;
+          }
+        } catch (_) {}
+        try {
+          context.go(AppRoutes.books);
+        } catch (_) {
+          try {
+            Navigator.of(context).maybePop();
+          } catch (_) {}
+        }
+      },
+      child: Scaffold(
       body: AsyncView(
         value: bookAsync,
         onRetry: () => ref.invalidate(bookDetailProvider(bookId)),
@@ -295,8 +313,9 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _CoverHeader extends StatelessWidget {
@@ -364,7 +383,19 @@ class _CoverBackButton extends StatelessWidget {
     // tap does not, and popping there would leave the student on a blank route.
     void goBack() {
       HapticFeedback.selectionClick();
-      context.canPop() ? context.pop() : context.go(AppRoutes.books);
+      try {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+          return;
+        }
+      } catch (_) {}
+      try {
+        context.go(AppRoutes.books);
+      } catch (_) {
+        try {
+          Navigator.of(context).maybePop();
+        } catch (_) {}
+      }
     }
 
     Widget disc = Material(

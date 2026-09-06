@@ -22,6 +22,7 @@ class MockTest {
     required this.quizId,
     required this.scheduledAt,
     required this.status,
+    this.endsAt,
     this.quiz,
     this.access,
     this.participantCount = 0,
@@ -33,6 +34,7 @@ class MockTest {
   final String title;
   final String quizId;
   final DateTime scheduledAt;
+  final DateTime? endsAt;
   final MockTestStatus status;
   final Quiz? quiz;
 
@@ -48,6 +50,7 @@ class MockTest {
   bool get isLive => status == MockTestStatus.live;
   bool get isUpcoming => status == MockTestStatus.upcoming;
   Duration get startsIn => scheduledAt.difference(DateTime.now());
+  Duration get endsIn => (endsAt ?? scheduledAt.add(const Duration(days: 1))).difference(DateTime.now());
 
   /// The test is sold rather than free.
   bool get isPaid => access?.isPaid ?? (quiz?.isPaid ?? false);
@@ -64,6 +67,7 @@ class MockTest {
         title: J.str(json['title']),
         quizId: J.str(json['quizId']),
         scheduledAt: J.date(json['scheduledAt']),
+        endsAt: json['endsAt'] != null ? J.date(json['endsAt']) : null,
         status: mockStatusFrom(json['status']),
         quiz: json['quiz'] is Map ? Quiz.fromJson(J.map(json['quiz'])) : null,
         access: json['access'] is Map

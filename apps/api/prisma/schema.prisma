@@ -440,6 +440,7 @@ model MockTest {
   quizId       String
   quiz         Quiz                  @relation(fields: [quizId], references: [id], onDelete: Cascade)
   scheduledAt  DateTime
+  endsAt       DateTime?
   status       MockTestStatus        @default(UPCOMING)
   createdById  String
   createdBy    User                  @relation(fields: [createdById], references: [id])

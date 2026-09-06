@@ -4,9 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_glass.dart';
 import '../../core/theme/app_theme.dart';
@@ -734,6 +736,22 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     });
   }
 
+  void _navigateBack() {
+    try {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+        return;
+      }
+    } catch (_) {}
+    try {
+      context.go(AppRoutes.bookDetail(widget.bookId));
+    } catch (_) {
+      try {
+        Navigator.of(context).maybePop();
+      } catch (_) {}
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final sourceAsync = ref.watch(readerSourceProvider(widget.bookId));
@@ -753,9 +771,15 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     // about a sixth of a sideways phone's height.
     _syncImmersive(isShort);
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      key: _scaffoldKey,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _navigateBack();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        key: _scaffoldKey,
       // No drawer when the panel is already pinned open — two copies of the
       // contents, one hidden behind an edge swipe, would be worse than one.
       drawer: isWide
@@ -835,7 +859,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
               isOffline: source.isOffline,
               hasAudio: unit.hasAudio,
               onExpandAudio: () => _openFullPageAudioPlayer(content.title),
-              onBack: () => Navigator.of(context).maybePop(),
+              onBack: _navigateBack,
               onContents: isWide
                   ? null
                   : () => _scaffoldKey.currentState?.openDrawer(),
@@ -878,6 +902,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
                 progress: percent,
                 position: '${_activeIndex + 1} / ${_units.length}',
                 isOffline: source.isOffline,
+                onBack: _navigateBack,
                 // Only meaningful where there is narration to follow.
                 showAutoScroll: unit.hasAudio,
                 autoScroll: ref.watch(autoScrollProvider),
@@ -1070,8 +1095,9 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
           );
         },
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 /// The reading page proper: the document, edge to edge, and nothing else but
@@ -1481,6 +1507,7 @@ class _ReaderAppBar extends StatelessWidget {
     required this.isCompact,
     required this.onPrev,
     required this.onNext,
+    this.onBack,
   });
 
   final String bookTitle;
@@ -1504,6 +1531,7 @@ class _ReaderAppBar extends StatelessWidget {
   /// Null at either end of the book.
   final VoidCallback? onPrev;
   final VoidCallback? onNext;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -1536,7 +1564,22 @@ class _ReaderAppBar extends StatelessWidget {
                       // height of the whole bar on its own.
                       visualDensity:
                           isCompact ? VisualDensity.compact : null,
-                      onPressed: () => Navigator.of(context).maybePop(),
+                      onPressed: onBack ??
+                          () {
+                            try {
+                              if (Navigator.of(context).canPop()) {
+                                Navigator.of(context).pop();
+                                return;
+                              }
+                            } catch (_) {}
+                            try {
+                              context.go(AppRoutes.books);
+                            } catch (_) {
+                              try {
+                                Navigator.of(context).maybePop();
+                              } catch (_) {}
+                            }
+                          },
                     ),
                     Expanded(
                       child: Column(
@@ -1886,7 +1929,21 @@ class _ReaderFooter extends StatelessWidget {
                       : Icons.chevron_right_rounded,
                   onPressed: canGoForward
                       ? onNext
-                      : () => Navigator.of(context).maybePop(),
+                      : () {
+                          try {
+                            if (Navigator.of(context).canPop()) {
+                              Navigator.of(context).pop();
+                              return;
+                            }
+                          } catch (_) {}
+                          try {
+                            context.go(AppRoutes.books);
+                          } catch (_) {
+                            try {
+                              Navigator.of(context).maybePop();
+                            } catch (_) {}
+                          }
+                        },
                 ),
               ),
             ],

@@ -539,8 +539,44 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       questions: quiz.questions,
       answers: Map.of(_answers),
     ).then((_) {
-      if (mounted) context.pop();
+      if (mounted) {
+        _navigateBackToQuizzes();
+      }
     });
+  }
+
+  void _navigateBackToQuizzes() {
+    try {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+        return;
+      }
+    } catch (_) {}
+    try {
+      context.go(AppRoutes.quizzes);
+    } catch (_) {
+      try {
+        Navigator.of(context).maybePop();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _handleExit(Quiz quiz) async {
+    final leave = await showGlassConfirm(
+      context,
+      title: 'Are you sure you want to exit this quiz?',
+      message:
+          'Your current progress and remaining time will be saved, so you can resume this quiz later.',
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Exit',
+      icon: Icons.exit_to_app_rounded,
+    );
+    if (leave && mounted) {
+      await _pauseAndExit(quiz);
+      if (mounted) {
+        _navigateBackToQuizzes();
+      }
+    }
   }
 
   @override
@@ -580,7 +616,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
           title: 'No questions yet',
           message: 'This question bank has no published questions right now.',
           action: OutlinedButton(
-            onPressed: () => context.pop(),
+            onPressed: _navigateBackToQuizzes,
             child: const Text('Back to Quiz Hub'),
           ),
         ),
@@ -614,18 +650,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        final leave = await showGlassConfirm(
-          context,
-          title: 'Are you sure you want to exit this quiz?',
-          message: 'Your current progress and remaining time will be saved, so you can resume this quiz later.',
-          cancelLabel: 'Cancel',
-          confirmLabel: 'Exit',
-          icon: Icons.exit_to_app_rounded,
-        );
-        if (leave && context.mounted) {
-          await _pauseAndExit(quiz);
-          if (context.mounted) context.pop();
-        }
+        _handleExit(quiz);
       },
       child: Scaffold(
         // A blocking overlay while the attempt is being persisted — the
@@ -646,7 +671,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
                       answered: _answers.length,
                       onSubmit: _confirmSubmit,
                       onGrid: () => _showQuestionGrid(quiz),
-                      onExit: () => Navigator.of(context).maybePop(),
+                      onExit: () => _handleExit(quiz),
                     ),
                     Expanded(
                       child: ListView(
@@ -1352,7 +1377,21 @@ class _QuizIntroScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
-                      onPressed: () => context.pop(),
+                      onPressed: () {
+                        try {
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).pop();
+                            return;
+                          }
+                        } catch (_) {}
+                        try {
+                          context.go(AppRoutes.quizzes);
+                        } catch (_) {
+                          try {
+                            Navigator.of(context).maybePop();
+                          } catch (_) {}
+                        }
+                      },
                       icon: const Icon(Icons.arrow_back_rounded, size: 18),
                       label: const Text('Back to Quiz Hub'),
                     ),

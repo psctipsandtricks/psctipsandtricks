@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
+import '../router/app_router.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_glass.dart';
 import '../theme/app_theme.dart';
@@ -514,6 +516,8 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.toolbarHeight = kToolbarHeight,
     this.foregroundColor,
     this.bottomRadius = 24,
+    this.fallbackRoute,
+    this.onBackPressed,
   });
 
   final Widget? title;
@@ -526,6 +530,22 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final double toolbarHeight;
   final Color? foregroundColor;
   final double bottomRadius;
+  final String? fallbackRoute;
+  final VoidCallback? onBackPressed;
+
+  String _defaultFallback(BuildContext context) {
+    try {
+      final location = GoRouterState.of(context).uri.path;
+      if (location.startsWith('/books')) return AppRoutes.books;
+      if (location.startsWith('/attempt') || location.startsWith('/quizzes')) return AppRoutes.quizzes;
+      if (location.startsWith('/mock-tests')) return AppRoutes.mockTests;
+      if (location.startsWith('/library')) return AppRoutes.library;
+      if (location.startsWith('/community')) return AppRoutes.community;
+      if (location.startsWith('/orders') || location.startsWith('/profile') || location.startsWith('/dashboard')) return AppRoutes.account;
+      if (location.startsWith('/notifications')) return AppRoutes.home;
+    } catch (_) {}
+    return AppRoutes.home;
+  }
 
   @override
   Size get preferredSize => Size.fromHeight(
@@ -534,14 +554,62 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppBar(
+    final ModalRoute<dynamic>? parentRoute = ModalRoute.of(context);
+    final bool canPop = parentRoute?.canPop ?? false;
+    final bool hasDrawer = Scaffold.maybeOf(context)?.hasDrawer ?? false;
+
+    bool isRootTab = false;
+    try {
+      final path = GoRouterState.of(context).uri.path;
+      isRootTab = path == AppRoutes.home ||
+          path == AppRoutes.books ||
+          path == AppRoutes.quizzes ||
+          path == AppRoutes.library ||
+          path == AppRoutes.account;
+    } catch (_) {}
+
+    void handleBack() {
+      if (onBackPressed != null) {
+        onBackPressed!();
+        return;
+      }
+      try {
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+          return;
+        }
+      } catch (_) {}
+      try {
+        context.go(fallbackRoute ?? _defaultFallback(context));
+      } catch (_) {
+        try {
+          Navigator.of(context).maybePop();
+        } catch (_) {}
+      }
+    }
+
+    Widget? effectiveLeading = leading;
+
+    if (effectiveLeading == null && automaticallyImplyLeading) {
+      if (!hasDrawer) {
+        if (canPop || !isRootTab) {
+          effectiveLeading = IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+            onPressed: handleBack,
+          );
+        }
+      }
+    }
+
+    final appBar = AppBar(
       title: title,
       actions: actions,
-      leading: leading,
+      leading: effectiveLeading,
       bottom: bottom,
       titleSpacing: titleSpacing,
       centerTitle: centerTitle,
-      automaticallyImplyLeading: automaticallyImplyLeading,
+      automaticallyImplyLeading: false,
       toolbarHeight: toolbarHeight,
       foregroundColor: foregroundColor,
       backgroundColor: Colors.transparent,
@@ -550,6 +618,19 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       scrolledUnderElevation: 0,
       flexibleSpace: GlassBarSurface(bottomRadius: bottomRadius),
     );
+
+    if (!isRootTab) {
+      return PopScope(
+        canPop: canPop,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          handleBack();
+        },
+        child: appBar,
+      );
+    }
+
+    return appBar;
   }
 }
 

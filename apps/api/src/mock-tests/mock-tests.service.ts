@@ -21,11 +21,17 @@ export class MockTestsService {
     const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId } });
     if (!quiz) throw new NotFoundException('Quiz not found');
 
+    const scheduledAt = new Date(dto.scheduledAt);
+    const endsAt = dto.endsAt
+      ? new Date(dto.endsAt)
+      : new Date(scheduledAt.getTime() + 24 * 60 * 60 * 1000);
+
     return this.prisma.mockTest.create({
       data: {
         title: dto.title,
         quizId: dto.quizId,
-        scheduledAt: new Date(dto.scheduledAt),
+        scheduledAt,
+        endsAt,
         createdById,
       },
     });
@@ -49,6 +55,7 @@ export class MockTestsService {
       data.quiz = { connect: { id: dto.quizId } };
     }
     if (dto.scheduledAt !== undefined) data.scheduledAt = new Date(dto.scheduledAt);
+    if (dto.endsAt !== undefined) data.endsAt = dto.endsAt ? new Date(dto.endsAt) : null;
     if (dto.status !== undefined) data.status = dto.status;
 
     return this.prisma.mockTest.update({
@@ -177,7 +184,16 @@ export class MockTestsService {
     // A premium mock test cannot be entered without a settled payment.
     await this.quizAccess.assertCanAttempt(actor, mockTest.quiz);
 
-    if (mockTest.status === MockTestStatus.UPCOMING && new Date() >= mockTest.scheduledAt) {
+    const now = new Date();
+    const endsAt = mockTest.endsAt ? new Date(mockTest.endsAt) : new Date(mockTest.scheduledAt.getTime() + 24 * 60 * 60 * 1000);
+    if (now >= endsAt || mockTest.status === MockTestStatus.COMPLETED) {
+      if (mockTest.status !== MockTestStatus.COMPLETED) {
+        await this.prisma.mockTest.update({ where: { id: mockTestId }, data: { status: MockTestStatus.COMPLETED } });
+      }
+      throw new BadRequestException('This live mock test session has ended.');
+    }
+
+    if (mockTest.status === MockTestStatus.UPCOMING && now >= mockTest.scheduledAt) {
       await this.prisma.mockTest.update({ where: { id: mockTestId }, data: { status: MockTestStatus.LIVE } });
     }
 

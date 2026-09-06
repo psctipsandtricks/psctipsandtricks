@@ -118,6 +118,28 @@ export interface QuizItem {
   questions: QuizQuestion[];
 }
 
+function addDaysToDateStr(dateStr: string, days: number = 1): string {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const nextY = dt.getFullYear();
+  const nextM = String(dt.getMonth() + 1).padStart(2, '0');
+  const nextD = String(dt.getDate()).padStart(2, '0');
+  return `${nextY}-${nextM}-${nextD}`;
+}
+
+function getDefaultEndDateTime(releaseDateStr?: string, releaseTimeStr?: string): { endDate: string; endTime: string } {
+  const now = new Date();
+  const relDate = releaseDateStr || todayLocalDateStr();
+  const relTime =
+    releaseTimeStr || `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return {
+    endDate: addDaysToDateStr(relDate, 1),
+    endTime: relTime,
+  };
+}
+
 interface QuizFormValues {
   title: string;
   releaseDate: string;
@@ -129,6 +151,8 @@ interface QuizFormValues {
   mockTestTitle: string;
   mockTestDate: string;
   mockTestTime: string;
+  mockTestEndDate: string;
+  mockTestEndTime: string;
   showCorrectAnswerAfterSelection: boolean;
   selectedFolder: string;
   accessType: 'FREE' | 'PAID' | '';
@@ -152,6 +176,8 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   mockTestTitle: '',
   mockTestDate: '',
   mockTestTime: '',
+  mockTestEndDate: '',
+  mockTestEndTime: '',
   showCorrectAnswerAfterSelection: true,
   selectedFolder: 'Root',
   accessType: 'FREE',
@@ -309,6 +335,41 @@ const makeQuizSchema = (originalReleaseIso?: string) =>
             if (!iso) return true;
             return new Date(iso).getTime() >= Date.now() + 55_000;
           }),
+      otherwise: (schema) => schema.notRequired(),
+    }),
+    mockTestEndDate: Yup.string().when('isLive', {
+      is: true,
+      then: (schema) =>
+        schema
+          .trim()
+          .required('End date is required.')
+          .test('not-past-date', 'End date cannot be in the past.', function (date) {
+            if (!date) return true;
+            return date >= todayLocalDateStr();
+          }),
+      otherwise: (schema) => schema.notRequired(),
+    }),
+    mockTestEndTime: Yup.string().when('isLive', {
+      is: true,
+      then: (schema) =>
+        schema
+          .trim()
+          .required('End time is required.')
+          .test(
+            'mock-end-after-start',
+            'End date and time must be after the scheduled date and time.',
+            function (endTime) {
+              const parent = this.parent as QuizFormValues;
+              const startDate = parent.mockTestDate;
+              const startTime = parent.mockTestTime;
+              const endDate = parent.mockTestEndDate;
+              if (!startDate || !startTime || !endDate || !endTime) return true;
+              const startIso = combineDateAndTime(startDate, startTime);
+              const endIso = combineDateAndTime(endDate, endTime);
+              if (!startIso || !endIso) return true;
+              return new Date(endIso).getTime() > new Date(startIso).getTime();
+            },
+          ),
       otherwise: (schema) => schema.notRequired(),
     }),
   });
@@ -752,8 +813,13 @@ export default function AdminFolderQuizzesPage() {
       if (!values.isLive) return;
       const scheduledAt = combineDateAndTime(values.mockTestDate, values.mockTestTime);
       if (!scheduledAt) return;
+      const endsAt = combineDateAndTime(values.mockTestEndDate, values.mockTestEndTime);
 
-      const payload = { title: values.mockTestTitle.trim() || values.title.trim(), scheduledAt };
+      const payload = {
+        title: values.mockTestTitle.trim() || values.title.trim(),
+        scheduledAt,
+        endsAt: endsAt || undefined,
+      };
       const existing = mockTestByQuizId[quizId];
 
       if (existing?.id) {
@@ -895,9 +961,16 @@ export default function AdminFolderQuizzesPage() {
     setFormSubmitError('');
     setImageUploadError('');
     setQuizImageDimensions(null);
+    const today = todayLocalDateStr();
+    const minTime = getMinMockTestTime(today) || '10:00';
+    const endDefault = getDefaultEndDateTime(today, minTime);
     formik.resetForm({
       values: {
         ...DEFAULT_QUIZ_FORM_VALUES,
+        mockTestDate: today,
+        mockTestTime: minTime,
+        mockTestEndDate: endDefault.endDate,
+        mockTestEndTime: endDefault.endTime,
         selectedFolder: currentFolder,
       },
     });
@@ -916,6 +989,23 @@ export default function AdminFolderQuizzesPage() {
 
     const existingMockTest = mockTestByQuizId[quiz.id];
     const { date: mockDate, time: mockTime } = splitIsoToDateAndTime(existingMockTest?.scheduledAt);
+    let mockEndDate = '';
+    let mockEndTime = '';
+    if (existingMockTest?.endsAt) {
+      const split = splitIsoToDateAndTime(existingMockTest.endsAt);
+      mockEndDate = split.date;
+      mockEndTime = split.time;
+    } else if (mockDate) {
+      const endDefault = getDefaultEndDateTime(mockDate, mockTime);
+      mockEndDate = endDefault.endDate;
+      mockEndTime = endDefault.endTime;
+    } else {
+      const today = todayLocalDateStr();
+      const minTime = getMinMockTestTime(today) || '10:00';
+      const endDefault = getDefaultEndDateTime(today, minTime);
+      mockEndDate = endDefault.endDate;
+      mockEndTime = endDefault.endTime;
+    }
 
     formik.resetForm({
       values: {
@@ -929,6 +1019,8 @@ export default function AdminFolderQuizzesPage() {
         mockTestTitle: existingMockTest?.title || quiz.title,
         mockTestDate: mockDate,
         mockTestTime: mockTime,
+        mockTestEndDate: mockEndDate,
+        mockTestEndTime: mockEndTime,
         showCorrectAnswerAfterSelection: quiz.showCorrectAnswerAfterSelection ?? true,
         selectedFolder: currentFolder,
         accessType: quiz.accessType,
@@ -2208,8 +2300,19 @@ export default function AdminFolderQuizzesPage() {
               checked={formik.values.isLive}
               onChange={(checked) => {
                 formik.setFieldValue('isLive', checked);
-                if (checked && !formik.values.mockTestTitle) {
-                  formik.setFieldValue('mockTestTitle', formik.values.title);
+                if (checked) {
+                  if (!formik.values.mockTestTitle) {
+                    formik.setFieldValue('mockTestTitle', formik.values.title);
+                  }
+                  if (!formik.values.mockTestDate) {
+                    const baseDate = formik.values.releaseDate || todayLocalDateStr();
+                    const baseTime = formik.values.releaseTime || getMinMockTestTime(baseDate) || '10:00';
+                    formik.setFieldValue('mockTestDate', baseDate);
+                    formik.setFieldValue('mockTestTime', baseTime);
+                    const endDefault = getDefaultEndDateTime(baseDate, baseTime);
+                    formik.setFieldValue('mockTestEndDate', endDefault.endDate);
+                    formik.setFieldValue('mockTestEndTime', endDefault.endTime);
+                  }
                 }
               }}
             />
@@ -2226,13 +2329,52 @@ export default function AdminFolderQuizzesPage() {
                   <DatePicker
                     label="Scheduled Date"
                     value={formik.values.mockTestDate}
-                    onChange={(val) => formik.setFieldValue('mockTestDate', val)}
+                    onChange={(val) => {
+                      formik.setFieldValue('mockTestDate', val);
+                      if (val) {
+                        const endDefault = getDefaultEndDateTime(val, formik.values.mockTestTime || '10:00');
+                        formik.setFieldValue('mockTestEndDate', endDefault.endDate);
+                        if (!formik.values.mockTestEndTime) {
+                          formik.setFieldValue('mockTestEndTime', endDefault.endTime);
+                        }
+                      }
+                    }}
+                    minDate={todayLocalDateStr()}
                   />
                   <TimePicker
                     label="Scheduled Time"
                     value={formik.values.mockTestTime}
-                    onChange={(val) => formik.setFieldValue('mockTestTime', val)}
+                    onChange={(val) => {
+                      formik.setFieldValue('mockTestTime', val);
+                      if (val) {
+                        formik.setFieldValue('mockTestEndTime', val);
+                      }
+                    }}
                   />
+                </div>
+
+                {/* End Date & Time for Live Mock Test */}
+                <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-rose-500" />
+                      <span>End Date &amp; Time (Closing Window)</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-medium">Default: 1 day after scheduled</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <DatePicker
+                      label="End Date"
+                      value={formik.values.mockTestEndDate}
+                      onChange={(val) => formik.setFieldValue('mockTestEndDate', val)}
+                      minDate={formik.values.mockTestDate || todayLocalDateStr()}
+                    />
+                    <TimePicker
+                      label="End Time"
+                      value={formik.values.mockTestEndTime}
+                      onChange={(val) => formik.setFieldValue('mockTestEndTime', val)}
+                    />
+                  </div>
                 </div>
               </div>
             )}

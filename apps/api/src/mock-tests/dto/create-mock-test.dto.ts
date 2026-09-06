@@ -1,4 +1,4 @@
-import { IsDateString, IsString } from 'class-validator';
+import { IsDateString, IsOptional, IsString } from 'class-validator';
 
 export class CreateMockTestDto {
   @IsString()
@@ -9,4 +9,8 @@ export class CreateMockTestDto {
 
   @IsDateString()
   scheduledAt: string;
+
+  @IsOptional()
+  @IsDateString()
+  endsAt?: string;
 }
