@@ -57,7 +57,10 @@ class AppImage extends StatelessWidget {
         // avoidable memory cost in a catalog grid.
         memCacheWidth: memCacheW,
         placeholder: (_, __) => _placeholder(context),
-        errorWidget: (_, __, ___) => _fallback(context),
+        errorWidget: (_, url, error) {
+          debugPrint('AppImage error loading $url: $error');
+          return _fallback(context);
+        },
       ),
     );
   }

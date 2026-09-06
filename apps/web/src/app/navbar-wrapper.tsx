@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Navbar } from '@psc/ui';
 import { useAuth } from './auth-provider';
 import { useTheme } from './theme-provider';
+import { NotificationBell } from './notification-bell';
 
 const MAIN_NAV_ROUTES = [
   '/',
@@ -38,7 +39,7 @@ export function NavbarWrapper() {
     });
   }, [router]);
 
-  if (pathname.startsWith('/admin') || pathname.includes('/read')) {
+  if (pathname.startsWith('/admin')) {
     return null;
   }
 
@@ -55,6 +56,10 @@ export function NavbarWrapper() {
         ]
       : []),
   ];
+
+  // Shown only after mount, and only to a signed-in student: the inbox needs a
+  // session, and a bell that popped in on hydration would shift the action row.
+  const showBell = mounted && !!user;
 
   return (
     <Navbar
@@ -78,6 +83,7 @@ export function NavbarWrapper() {
             }
           : undefined
       }
+      actions={showBell ? <NotificationBell /> : undefined}
       theme={mounted ? theme : 'dark'}
       onToggleTheme={toggleTheme}
       onLogout={logout}

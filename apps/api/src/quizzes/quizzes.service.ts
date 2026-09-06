@@ -850,7 +850,7 @@ export class QuizzesService {
         orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }],
       }),
       this.prisma.quiz.groupBy({
-        by: ['folderName'],
+        by: ['folderName', 'accessType'],
         _count: { _all: true },
         where: isCurator
           ? {}
@@ -867,20 +867,52 @@ export class QuizzesService {
     ]);
 
     const countMap: Record<string, number> = {};
+    const directFreeMap: Record<string, number> = {};
+    const directPaidMap: Record<string, number> = {};
     for (const group of quizFolderCounts) {
       const name = (!group.folderName || group.folderName === 'Root / No Folder' || group.folderName === 'Root')
         ? 'Root'
         : group.folderName;
       countMap[name] = (countMap[name] || 0) + group._count._all;
+      const bucket = group.accessType === 'PAID' ? directPaidMap : directFreeMap;
+      bucket[name] = (bucket[name] || 0) + group._count._all;
     }
 
     // Map sub-folder counts
     const subFolderCountMap: Record<string, number> = {};
+    const childrenByParent: Record<string, typeof dbFolders> = {};
     for (const f of dbFolders) {
       if (f.parentId) {
         subFolderCountMap[f.parentId] = (subFolderCountMap[f.parentId] || 0) + 1;
+        (childrenByParent[f.parentId] ||= []).push(f);
       }
     }
+
+    /**
+     * Free/paid totals roll up through the tree: a parent whose own quizzes all
+     * live in its sub-folders still has to survive an access-type filter, so it
+     * counts every descendant's quizzes as well as its own.
+     */
+    const accessTotals = new Map<string, { free: number; paid: number }>();
+    const inProgress = new Set<string>();
+    const rollUpAccessTotals = (folder: (typeof dbFolders)[number]): { free: number; paid: number } => {
+      const cached = accessTotals.get(folder.id);
+      if (cached) return cached;
+      // Guards a corrupt parent chain that loops back on itself.
+      if (inProgress.has(folder.id)) return { free: 0, paid: 0 };
+      inProgress.add(folder.id);
+      let free = directFreeMap[folder.name] || 0;
+      let paid = directPaidMap[folder.name] || 0;
+      for (const child of childrenByParent[folder.id] || []) {
+        const childTotals = rollUpAccessTotals(child);
+        free += childTotals.free;
+        paid += childTotals.paid;
+      }
+      inProgress.delete(folder.id);
+      const totals = { free, paid };
+      accessTotals.set(folder.id, totals);
+      return totals;
+    };
 
     const seenNames = new Set<string>();
     const result: any[] = [];
@@ -888,6 +920,7 @@ export class QuizzesService {
     // Map stored db folders
     for (const f of dbFolders) {
       seenNames.add(f.name);
+      const access = rollUpAccessTotals(f);
       result.push({
         id: f.id,
         name: f.name,
@@ -899,6 +932,8 @@ export class QuizzesService {
         isActive: f.isActive,
         quizCount: countMap[f.name] || 0,
         subFolderCount: subFolderCountMap[f.id] || 0,
+        freeQuizCount: access.free,
+        paidQuizCount: access.paid,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       });
@@ -919,6 +954,9 @@ export class QuizzesService {
           isActive: true,
           quizCount: count,
           subFolderCount: 0,
+          // Discovered from quiz.folderName alone, so it can have no children.
+          freeQuizCount: directFreeMap[folderName] || 0,
+          paidQuizCount: directPaidMap[folderName] || 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });

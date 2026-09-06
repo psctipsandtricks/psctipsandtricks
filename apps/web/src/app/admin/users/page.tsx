@@ -96,6 +96,7 @@ export default function AdminUsersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMethod, setFilterMethod] = useState<string>('ALL');
   const [confirmTarget, setConfirmTarget] = useState<{ type: 'suspend' | 'delete'; student: StudentUser } | null>(null);
+  const [isConfirmLoading, setIsConfirmLoading] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentUser | null>(null);
 
@@ -209,22 +210,28 @@ export default function AdminUsersPage() {
   const handleConfirmAction = async () => {
     if (!confirmTarget) return;
     const target = confirmTarget;
-    setConfirmTarget(null);
+    setIsConfirmLoading(true);
 
     if (target.type === 'suspend') {
       try {
         const nextStatus = target.student.status === 'Active' ? 'SUSPENDED' : 'ACTIVE';
         await ApiClient.adminUpdateUser(target.student.id, { status: nextStatus });
+        setConfirmTarget(null);
         await loadStudents();
       } catch (err: any) {
         alert(err.message || 'Failed to update student account status.');
+      } finally {
+        setIsConfirmLoading(false);
       }
     } else {
       try {
         await ApiClient.deleteUser(target.student.id);
+        setConfirmTarget(null);
         await loadStudents();
       } catch (err: any) {
         alert(err.message || 'Failed to delete student account.');
+      } finally {
+        setIsConfirmLoading(false);
       }
     }
   };
@@ -240,9 +247,9 @@ export default function AdminUsersPage() {
           phoneNumber: values.phoneNumber.trim() || undefined,
           isPremium: values.isPremium,
         });
-        await loadStudents();
-        resetForm();
         setIsCreateDialogOpen(false);
+        resetForm();
+        await loadStudents();
       } catch (err: any) {
         alert(err.message || 'Failed to create student account.');
       } finally {
@@ -269,8 +276,8 @@ export default function AdminUsersPage() {
           isPremium: values.isPremium,
           status: values.status === 'Active' ? 'ACTIVE' : 'SUSPENDED',
         });
-        await loadStudents();
         setEditingStudent(null);
+        await loadStudents();
       } catch (err: any) {
         alert(err.message || 'Failed to update student account.');
       } finally {
@@ -520,8 +527,9 @@ export default function AdminUsersPage() {
         }
         confirmLabel={confirmTarget?.type === 'delete' ? 'Delete' : confirmTarget?.student.status === 'Active' ? 'Suspend' : 'Activate'}
         variant={confirmTarget?.type === 'delete' || confirmTarget?.student.status === 'Active' ? 'danger' : 'default'}
+        isLoading={isConfirmLoading}
         onConfirm={handleConfirmAction}
-        onCancel={() => setConfirmTarget(null)}
+        onCancel={() => !isConfirmLoading && setConfirmTarget(null)}
       />
 
       <Dialog isOpen={isCreateDialogOpen} onClose={() => setIsCreateDialogOpen(false)} title="Add New Student Account">

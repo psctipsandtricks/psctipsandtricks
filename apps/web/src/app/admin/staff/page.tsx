@@ -28,16 +28,10 @@ import {
   Plus,
   Edit3,
   Trash2,
-  KeyRound,
   Sliders,
   CheckCircle2,
   XCircle,
-  Copy,
-  Check,
-  Eye,
-  EyeOff,
   RefreshCw,
-  Mail,
   Calendar,
   Clock,
   BookOpen,
@@ -53,8 +47,12 @@ import {
   Star,
   Share2,
   LayoutDashboard,
-  Lock,
   Smartphone,
+  KeyRound,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { StaffMember, StaffPermission } from '@psc/shared-types';
@@ -99,11 +97,11 @@ const staffFormSchema = Yup.object({
   phoneNumber: Yup.string().trim().optional(),
   password: Yup.string()
     .trim()
-    .when('$isNew', {
-      is: true,
-      then: (schema) => schema.min(6, 'Password must be at least 6 characters').optional(),
-      otherwise: (schema) => schema.min(6, 'Password must be at least 6 characters').optional(),
-    }),
+    .test('min-length-if-present', 'Password must be at least 6 characters', (value) => {
+      if (!value || value.length === 0) return true;
+      return value.length >= 6;
+    })
+    .optional(),
   role: Yup.string().oneOf(['ADMIN', 'STAFF']).required('Role is required'),
   status: Yup.string().oneOf(['ACTIVE', 'SUSPENDED']).required('Status is required'),
 });
@@ -122,16 +120,12 @@ export default function StaffManagementPage() {
   // Modals state
   const [isAddEditOpen, setIsAddEditOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [passwordCopied, setPasswordCopied] = useState(false);
+  const [showFormPassword, setShowFormPassword] = useState(false);
 
   const [isPermModalOpen, setIsPermModalOpen] = useState(false);
   const [permStaff, setPermStaff] = useState<StaffMember | null>(null);
   const [permValues, setPermValues] = useState<Record<string, boolean>>({});
-
-  const [isResetPassOpen, setIsResetPassOpen] = useState(false);
-  const [resetStaff, setResetStaff] = useState<StaffMember | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const [deleteConfirmStaff, setDeleteConfirmStaff] = useState<StaffMember | null>(null);
   const [statusConfirmStaff, setStatusConfirmStaff] = useState<{ staff: StaffMember; nextStatus: 'ACTIVE' | 'SUSPENDED' } | null>(null);
@@ -141,6 +135,24 @@ export default function StaffManagementPage() {
   const [successBanner, setSuccessBanner] = useState('');
 
   const { adminUser, refreshAdminUser } = useAdminAuth();
+
+  const handleGenerateFormPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let pass = '';
+    for (let i = 0; i < 12; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    formik.setFieldValue('password', pass);
+    setShowFormPassword(true);
+    setPasswordCopied(false);
+  };
+
+  const handleCopyFormPassword = () => {
+    if (!formik.values.password) return;
+    navigator.clipboard.writeText(formik.values.password);
+    setPasswordCopied(true);
+    setTimeout(() => setPasswordCopied(false), 2000);
+  };
 
   const fetchStaff = useCallback(async (silent = false) => {
     try {
@@ -184,12 +196,12 @@ export default function StaffManagementPage() {
   // Formik for Add / Edit
   const formik = useFormik({
     initialValues: {
-      name: '',
-      email: '',
-      phoneNumber: '',
+      name: editingStaff?.name || '',
+      email: editingStaff?.email || '',
+      phoneNumber: editingStaff?.phoneNumber || '',
       password: '',
-      role: 'STAFF',
-      status: 'ACTIVE',
+      role: editingStaff?.role || 'STAFF',
+      status: editingStaff?.status || 'ACTIVE',
     },
     validationSchema: staffFormSchema,
     enableReinitialize: true,
@@ -225,6 +237,8 @@ export default function StaffManagementPage() {
         setIsAddEditOpen(false);
         resetForm();
         setEditingStaff(null);
+        setPasswordCopied(false);
+        setShowFormPassword(false);
         fetchStaff();
       } catch (err: any) {
         setErrorBanner(err?.message || 'Failed to save staff member');
@@ -237,6 +251,8 @@ export default function StaffManagementPage() {
 
   const handleOpenAdd = () => {
     setEditingStaff(null);
+    setPasswordCopied(false);
+    setShowFormPassword(false);
     formik.resetForm({
       values: {
         name: '',
@@ -252,6 +268,8 @@ export default function StaffManagementPage() {
 
   const handleOpenEdit = (staff: StaffMember) => {
     setEditingStaff(staff);
+    setPasswordCopied(false);
+    setShowFormPassword(false);
     formik.resetForm({
       values: {
         name: staff.name,
@@ -306,60 +324,11 @@ export default function StaffManagementPage() {
     setPermValues(updated);
   };
 
-  const handleOpenResetPass = (staff: StaffMember) => {
-    setResetStaff(staff);
-    setNewPassword('');
-    setShowPassword(false);
-    setCopied(false);
-    setIsResetPassOpen(true);
-  };
-
-  const handleGeneratePassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-    let pass = '';
-    for (let i = 0; i < 12; i++) {
-      pass += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setNewPassword(pass);
-    setShowPassword(true);
-    setCopied(false);
-  };
-
-  const handleSaveResetPassword = async () => {
-    if (!resetStaff || !newPassword.trim()) return;
-    setActionLoading(true);
-    setErrorBanner('');
-    try {
-      await ApiClient.resetStaffPassword(resetStaff.id, newPassword.trim());
-      setSuccessBanner(`Password reset for ${resetStaff.name}`);
-      setIsResetPassOpen(false);
-    } catch (err: any) {
-      setErrorBanner(err?.message || 'Failed to reset password');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleCopyPassword = () => {
-    if (!newPassword) return;
-    navigator.clipboard.writeText(newPassword);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleExecuteStatusToggle = async () => {
     if (!statusConfirmStaff) return;
     const target = statusConfirmStaff;
-    const previous = staffList;
-    setStaffList((prev) =>
-      prev.map((s) => (s.id === target.staff.id ? { ...s, status: target.nextStatus } : s)),
-    );
-    setStatusConfirmStaff(null);
-    setSuccessBanner(
-      target.nextStatus === 'SUSPENDED'
-        ? `Suspended account for ${target.staff.name}`
-        : `Reactivated account for ${target.staff.name}`,
-    );
+    setActionLoading(true);
+    setErrorBanner('');
 
     try {
       if (target.nextStatus === 'SUSPENDED') {
@@ -367,30 +336,35 @@ export default function StaffManagementPage() {
       } else {
         await ApiClient.reactivateStaff(target.staff.id);
       }
+      setStatusConfirmStaff(null);
+      setSuccessBanner(
+        target.nextStatus === 'SUSPENDED'
+          ? `Suspended account for ${target.staff.name}`
+          : `Reactivated account for ${target.staff.name}`,
+      );
       await fetchStaff();
     } catch (err: any) {
-      setStaffList(previous);
       setErrorBanner(err?.message || 'Failed to update account status');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleExecuteDelete = async () => {
     if (!deleteConfirmStaff) return;
     const target = deleteConfirmStaff;
-    const previous = staffList;
-    const prevTotal = totalItems;
-    setStaffList((prev) => prev.filter((s) => s.id !== target.id));
-    setTotalItems((prev) => Math.max(0, prev - 1));
-    setDeleteConfirmStaff(null);
-    setSuccessBanner(`Deleted staff account for ${target.name}`);
+    setActionLoading(true);
+    setErrorBanner('');
 
     try {
       await ApiClient.deleteStaff(target.id);
+      setDeleteConfirmStaff(null);
+      setSuccessBanner(`Deleted staff account for ${target.name}`);
       await fetchStaff();
     } catch (err: any) {
-      setStaffList(previous);
-      setTotalItems(prevTotal);
       setErrorBanner(err?.message || 'Failed to delete staff member');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -499,7 +473,7 @@ export default function StaffManagementPage() {
 
       {/* ── Staff Table ────────────────────────────────────────────── */}
       <Card className="flex-1 flex flex-col min-h-0 overflow-hidden border border-slate-200 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card p-0">
-        <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0 custom-scrollbar">
           <Table className="w-full">
             <TableHeader className="sticky top-0 z-10 bg-slate-50/95 dark:bg-[#0c152e]/95 backdrop-blur-sm shadow-xs">
               <TableRow className="border-b border-slate-200/80 dark:border-[#1e2e56]">
@@ -526,6 +500,7 @@ export default function StaffManagementPage() {
                 </TableRow>
               ) : (
                 staffList.map((staff) => {
+                  const isOwner = staff.email?.toLowerCase() === 'psctipsandtricksapp@gmail.com';
                   const isCurrentAdmin = adminUser?.id === staff.id;
                   const perm = staff.staffPermission;
                   const activePermCount = perm
@@ -542,7 +517,11 @@ export default function StaffManagementPage() {
                       {/* Name & Contact */}
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-xs">
+                          <div className={`w-9 h-9 rounded-xl text-white font-black text-xs flex items-center justify-center shrink-0 shadow-xs ${
+                            isOwner
+                              ? 'bg-gradient-to-tr from-amber-500 to-yellow-500 text-slate-950 font-black'
+                              : 'bg-gradient-to-tr from-cyan-500 to-blue-600'
+                          }`}>
                             {staff.name.slice(0, 1).toUpperCase()}
                           </div>
                           <div className="min-w-0">
@@ -550,11 +529,15 @@ export default function StaffManagementPage() {
                               <span className="font-black text-slate-900 dark:text-white text-xs truncate">
                                 {staff.name}
                               </span>
-                              {isCurrentAdmin && (
+                              {isOwner ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                  Owner
+                                </span>
+                              ) : isCurrentAdmin ? (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-cyan-500/15 text-cyan-600 dark:text-cyan-300">
                                   You
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
                               {staff.email}
@@ -570,7 +553,11 @@ export default function StaffManagementPage() {
 
                       {/* Role */}
                       <TableCell>
-                        {staff.role === 'ADMIN' ? (
+                        {isOwner ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-500/20 via-amber-400/15 to-yellow-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40 shadow-xs">
+                            <ShieldCheck className="w-3 h-3 text-amber-500" /> Owner
+                          </span>
+                        ) : staff.role === 'ADMIN' ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs">
                             <ShieldCheck className="w-3 h-3" /> Admin
                           </span>
@@ -583,7 +570,11 @@ export default function StaffManagementPage() {
 
                       {/* Permissions Summary */}
                       <TableCell>
-                        {staff.role === 'ADMIN' ? (
+                        {isOwner ? (
+                          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-amber-500" /> Full Owner Access
+                          </span>
+                        ) : staff.role === 'ADMIN' ? (
                           <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" /> Full Administrator Access
                           </span>
@@ -632,75 +623,87 @@ export default function StaffManagementPage() {
 
                       {/* Action Buttons */}
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Manage Permissions */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleOpenPermissions(staff)}
-                            className="p-1.5 text-xs text-slate-600 dark:text-slate-300 hover:text-cyan-500"
-                            title="Manage Permissions"
-                          >
-                            <Sliders className="w-3.5 h-3.5" />
-                          </Button>
-
-                          {/* Reset Password */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleOpenResetPass(staff)}
-                            className="p-1.5 text-xs text-slate-600 dark:text-slate-300 hover:text-amber-500"
-                            title="Reset Password"
-                          >
-                            <KeyRound className="w-3.5 h-3.5" />
-                          </Button>
-
-                          {/* Edit Details */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleOpenEdit(staff)}
-                            className="p-1.5 text-xs text-slate-600 dark:text-slate-300 hover:text-blue-500"
-                            title="Edit Staff Member"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </Button>
-
-                          {/* Toggle Active / Suspended */}
-                          {!isCurrentAdmin && (
+                        {isOwner ? (
+                          <div className="flex items-center justify-end gap-1.5" title="Owner account actions are protected and disabled">
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() =>
-                                setStatusConfirmStaff({
-                                  staff,
-                                  nextStatus: staff.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
-                                })
-                              }
-                              className={`p-1.5 text-xs ${
-                                staff.status === 'ACTIVE'
-                                  ? 'text-slate-600 dark:text-slate-300 hover:text-rose-500'
-                                  : 'text-emerald-600 hover:text-emerald-500'
-                              }`}
-                              title={staff.status === 'ACTIVE' ? 'Suspend Account' : 'Reactivate Account'}
+                              disabled={true}
+                              className="p-1.5 text-xs text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-40 hover:bg-transparent"
+                              title="Owner account is protected"
                             >
-                              {staff.status === 'ACTIVE' ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                              <Sliders className="w-3.5 h-3.5" />
                             </Button>
-                          )}
-
-                          {/* Delete Account */}
-                          {!isCurrentAdmin && (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setDeleteConfirmStaff(staff)}
-                              className="p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-500/10"
-                              title="Delete Account"
+                              disabled={true}
+                              className="p-1.5 text-xs text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-40 hover:bg-transparent"
+                              title="Owner account is protected"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Edit3 className="w-3.5 h-3.5" />
                             </Button>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Manage Permissions */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenPermissions(staff)}
+                              className="p-1.5 text-xs text-slate-600 dark:text-slate-300 hover:text-cyan-500"
+                              title="Manage Permissions"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </Button>
+
+                            {/* Edit Details */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenEdit(staff)}
+                              className="p-1.5 text-xs text-slate-600 dark:text-slate-300 hover:text-blue-500"
+                              title="Edit Staff Member"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </Button>
+
+                            {/* Toggle Active / Suspended */}
+                            {!isCurrentAdmin && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setStatusConfirmStaff({
+                                    staff,
+                                    nextStatus: staff.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
+                                  })
+                                }
+                                className={`p-1.5 text-xs ${
+                                  staff.status === 'ACTIVE'
+                                    ? 'text-slate-600 dark:text-slate-300 hover:text-rose-500'
+                                    : 'text-emerald-600 hover:text-emerald-500'
+                                }`}
+                                title={staff.status === 'ACTIVE' ? 'Suspend Account' : 'Reactivate Account'}
+                              >
+                                {staff.status === 'ACTIVE' ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                              </Button>
+                            )}
+
+                            {/* Delete Account */}
+                            {!isCurrentAdmin && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setDeleteConfirmStaff(staff)}
+                                className="p-1.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-500/10"
+                                title="Delete Account"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -769,16 +772,70 @@ export default function StaffManagementPage() {
             onBlur={formik.handleBlur}
           />
 
-          <Input
-            label={editingStaff ? 'New Password (Leave empty to keep existing)' : 'Set Password (Optional - auto-generates if empty)'}
-            type="password"
-            name="password"
-            placeholder="Minimum 6 characters"
-            value={formik.values.password}
-            onChange={formik.handleChange}
-            onBlur={formik.handleBlur}
-            error={formik.touched.password && formik.errors.password ? formik.errors.password : undefined}
-          />
+          {/* Password Field with Auto-Generator & Copy Icon */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                {editingStaff ? 'New Password (Optional)' : 'Password'}
+              </label>
+              <button
+                type="button"
+                onClick={handleGenerateFormPassword}
+                className="inline-flex items-center gap-1 text-xs font-bold text-amber-500 hover:text-amber-400 cursor-pointer transition-colors"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Generate Password</span>
+              </button>
+            </div>
+
+            <div className="relative flex items-center">
+              <input
+                type={showFormPassword ? 'text' : 'password'}
+                name="password"
+                placeholder={editingStaff ? 'Leave empty to keep existing password' : 'Enter password or click Generate'}
+                value={formik.values.password}
+                onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
+                className={`flex h-11 w-full rounded-xl border border-slate-400 dark:border-slate-800 bg-slate-100 dark:bg-[#070b18]/70 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500/60 transition-all duration-200 shadow-xs ${
+                  formik.values.password ? 'pr-20' : 'pr-11'
+                } ${formik.touched.password && formik.errors.password ? 'border-rose-500 focus:ring-rose-500' : ''}`}
+              />
+
+              <div className="absolute right-2.5 flex items-center gap-1">
+                {formik.values.password && (
+                  <button
+                    type="button"
+                    onClick={handleCopyFormPassword}
+                    className="p-1.5 text-slate-400 hover:text-cyan-500 dark:hover:text-cyan-400 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    title={passwordCopied ? 'Copied!' : 'Copy Password'}
+                  >
+                    {passwordCopied ? (
+                      <Check className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowFormPassword(!showFormPassword)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title={showFormPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showFormPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {formik.touched.password && formik.errors.password ? (
+              <p className="text-xs text-rose-500 font-medium">{formik.errors.password}</p>
+            ) : passwordCopied ? (
+              <p className="text-[11px] text-emerald-500 font-bold flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" /> Password copied to clipboard!
+              </p>
+            ) : null}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Select
@@ -922,97 +979,12 @@ export default function StaffManagementPage() {
         </div>
       </Dialog>
 
-      {/* ── 3. Reset Password Modal ─────────────────────────────────── */}
-      <Dialog
-        isOpen={isResetPassOpen}
-        onClose={() => {
-          setIsResetPassOpen(false);
-          setResetStaff(null);
-        }}
-        title={`Reset Password: ${resetStaff?.name}`}
-      >
-        <div className="space-y-4">
-          <p className="text-xs text-slate-600 dark:text-slate-400">
-            Set a custom password or auto-generate a secure random password for this staff account.
-          </p>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-              New Password *
-            </label>
-            <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Enter or generate password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="pr-20"
-              />
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-                {newPassword && (
-                  <button
-                    type="button"
-                    onClick={handleCopyPassword}
-                    className="p-1 text-slate-400 hover:text-cyan-500"
-                    title="Copy to clipboard"
-                  >
-                    {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleGeneratePassword}
-              className="text-xs font-bold"
-            >
-              <KeyRound className="w-3.5 h-3.5 mr-1" /> Generate Strong Password
-            </Button>
-            {copied && <span className="text-[11px] font-bold text-emerald-500">Copied to clipboard!</span>}
-          </div>
-
-          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2.5">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setIsResetPassOpen(false);
-                setResetStaff(null);
-              }}
-              disabled={actionLoading}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="gold"
-              onClick={handleSaveResetPassword}
-              disabled={actionLoading || !newPassword.trim() || newPassword.length < 6}
-            >
-              {actionLoading ? 'Updating...' : 'Set New Password'}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-
-      {/* ── 4. Account Status Toggle Confirmation ───────────────────── */}
+      {/* ── 3. Account Status Toggle Confirmation ───────────────────── */}
       <ConfirmDialog
         isOpen={Boolean(statusConfirmStaff)}
-        onCancel={() => setStatusConfirmStaff(null)}
+        onCancel={() => !actionLoading && setStatusConfirmStaff(null)}
         onConfirm={handleExecuteStatusToggle}
+        isLoading={actionLoading}
         title={statusConfirmStaff?.nextStatus === 'SUSPENDED' ? 'Suspend Staff Account' : 'Reactivate Staff Account'}
         description={
           statusConfirmStaff?.nextStatus === 'SUSPENDED'
@@ -1026,8 +998,9 @@ export default function StaffManagementPage() {
       {/* ── 5. Delete Account Confirmation ──────────────────────────── */}
       <ConfirmDialog
         isOpen={Boolean(deleteConfirmStaff)}
-        onCancel={() => setDeleteConfirmStaff(null)}
+        onCancel={() => !actionLoading && setDeleteConfirmStaff(null)}
         onConfirm={handleExecuteDelete}
+        isLoading={actionLoading}
         title="Delete Staff Account"
         description={`Are you sure you want to permanently delete ${deleteConfirmStaff?.name}'s staff account (${deleteConfirmStaff?.email})? This action cannot be undone.`}
         confirmLabel="Delete Staff"

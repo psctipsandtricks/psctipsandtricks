@@ -18,6 +18,7 @@ import '../../core/widgets/state_views.dart';
 import '../../data/models/book.dart';
 import '../checkout/purchase_sheet.dart';
 import '../pdfs/pdf_viewer_screen.dart';
+import 'audio_resume_store.dart';
 import 'reader_audio_controller.dart';
 import 'widgets/reader_audio_player.dart';
 import '../offline/widgets/download_button.dart';
@@ -101,11 +102,19 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
     await ref.read(bookDetailProvider(widget.bookId).future);
   }
 
+  /// Opens the reader and re-reads the narration resume point on the way back:
+  /// the reader writes it down as it closes, and this page is what offers it.
+  Future<void> _openReader(String path) async {
+    await context.push(path);
+    if (mounted) ref.invalidate(audioResumeProvider(widget.bookId));
+  }
+
   @override
   Widget build(BuildContext context) {
     final bookId = widget.bookId;
     final bookAsync = ref.watch(bookDetailProvider(bookId));
     final progress = ref.watch(bookProgressProvider(bookId)).valueOrNull;
+    final audioResume = ref.watch(audioResumeProvider(bookId));
 
     return Scaffold(
       body: AsyncView(
@@ -174,13 +183,33 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                         if (book.isUnlocked &&
                             progress != null &&
                             progress.progressPercent > 0) ...[
-                          _ResumeCard(bookId: book.id, progress: progress),
+                          _ResumeCard(
+                            progress: progress,
+                            onOpen: () => _openReader(
+                              AppRoutes.bookReader(book.id, resume: true),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        // Narration is stopped when the reader closes, so
+                        // picking it back up is its own affordance rather than
+                        // something the reading position can speak for.
+                        if (book.isUnlocked && audioResume != null) ...[
+                          _ContinueAudioCard(
+                            point: audioResume,
+                            onOpen: () => _openReader(
+                              AppRoutes.bookReader(book.id, audio: true),
+                            ),
+                          ),
                           const SizedBox(height: 16),
                         ],
 
                         _PrimaryAction(
                           book: book,
                           onBuy: () => _buy(context, ref, book),
+                          onRead: () =>
+                              _openReader(AppRoutes.bookReader(book.id)),
                         ),
 
                         // Samples are for deciding whether to buy; once the book
@@ -278,7 +307,7 @@ class _CoverHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SliverAppBar(
-      expandedHeight: 260,
+      expandedHeight: 340,
       pinned: true,
       stretch: true,
       // The theme's app-bar foreground is near-black, which is exactly what the
@@ -294,6 +323,7 @@ class _CoverHeader extends StatelessWidget {
             AppImage(
               url: book.heroCoverUrl ?? book.coverUrl,
               fit: BoxFit.cover,
+              alignment: Alignment.center,
               fallbackIcon: Icons.menu_book_rounded,
             ),
             // Scrim so the pinned title and back button stay legible over any
@@ -439,10 +469,15 @@ class _StatsStrip extends StatelessWidget {
 }
 
 class _PrimaryAction extends StatelessWidget {
-  const _PrimaryAction({required this.book, required this.onBuy});
+  const _PrimaryAction({
+    required this.book,
+    required this.onBuy,
+    required this.onRead,
+  });
 
   final Book book;
   final VoidCallback onBuy;
+  final VoidCallback onRead;
 
   @override
   Widget build(BuildContext context) {
@@ -451,7 +486,7 @@ class _PrimaryAction extends StatelessWidget {
         label: 'Start reading',
         icon: Icons.auto_stories_rounded,
         gradient: AppColors.brandGradient,
-        onPressed: () => context.push(AppRoutes.bookReader(book.id)),
+        onPressed: onRead,
       );
     }
 
@@ -644,16 +679,16 @@ class _PreviewAudioState extends State<_PreviewAudio> {
 }
 
 class _ResumeCard extends StatelessWidget {
-  const _ResumeCard({required this.bookId, required this.progress});
+  const _ResumeCard({required this.progress, required this.onOpen});
 
-  final String bookId;
   final ReadingProgress progress;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     return GlassCard(
       highlighted: true,
-      onTap: () => context.push(AppRoutes.bookReader(bookId, resume: true)),
+      onTap: onOpen,
       child: Row(
         children: [
           SizedBox(
@@ -689,6 +724,78 @@ class _ResumeCard extends StatelessWidget {
                 ),
                 Text(
                   'Last opened ${Fmt.relative(progress.lastReadAt)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.palette.textMuted,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.play_circle_fill_rounded,
+              color: AppColors.cyan, size: 30),
+        ],
+      ),
+    );
+  }
+}
+
+/// Offers the narration back at the second it was left.
+///
+/// Shown only once there is something to come back to: the reader records the
+/// position as a clip plays and on the way out, and drops the record for a clip
+/// barely started or played through to the end.
+class _ContinueAudioCard extends StatelessWidget {
+  const _ContinueAudioCard({required this.point, required this.onOpen});
+
+  final AudioResumePoint point;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = point.duration;
+    final heard = total == null || total.inMilliseconds <= 0
+        ? null
+        : (point.position.inMilliseconds / total.inMilliseconds)
+            .clamp(0.0, 1.0);
+
+    return GlassCard(
+      highlighted: true,
+      onTap: onOpen,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 42,
+            height: 42,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  // Indeterminate would spin; a clip whose length is not known
+                  // yet simply shows an empty ring.
+                  value: heard ?? 0,
+                  strokeWidth: 4,
+                  backgroundColor: context.palette.elevated,
+                ),
+                const Icon(Icons.headphones_rounded,
+                    size: 17, color: AppColors.cyan),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Continue with audio',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                Text(
+                  '${point.title} · ${Fmt.clock(point.position)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: context.palette.textMuted,
                       ),

@@ -165,6 +165,11 @@ function QuizzesPageContent() {
           const isPaid = q.accessType === 'PAID' || (q.price && q.price > 0);
           const hasAccess = q.access?.hasAccess ?? (q.accessType === 'FREE' || purchasedQuizIds.has(q.id));
           const isPurchased = q.access?.reason === 'PURCHASED' || purchasedQuizIds.has(q.id);
+          // The admin's discounted "Final Student Price" overrides the base
+          // price — prefer the server's already-resolved access.price, then
+          // finalPrice, and only fall back to the raw price if neither is set.
+          const effectivePrice =
+            q.access?.price ?? (q.finalPrice && q.finalPrice > 0 ? q.finalPrice : q.price);
 
           return {
             id: q.id,
@@ -175,7 +180,7 @@ function QuizzesPageContent() {
             isLive: q.isLiveMock,
             totalMarks: q.totalMarks,
             accessType: isPaid ? 'PAID' : 'FREE',
-            price: q.price > 0 ? q.price : undefined,
+            price: effectivePrice > 0 ? effectivePrice : undefined,
             imageUrl: q.imageUrl || null,
             createdAt: q.createdAt,
             hasAccess,

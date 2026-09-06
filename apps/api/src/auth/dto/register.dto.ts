@@ -14,4 +14,8 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  otp?: string;
 }

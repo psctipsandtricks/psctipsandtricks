@@ -494,7 +494,7 @@ class _OrderCard extends StatelessWidget {
                 BookCover(
                   url: order.bookArtworkUrl,
                   width: 46,
-                  aspectRatio: 3 / 2,
+                  aspectRatio: 4 / 3,
                 )
               else
                 Container(

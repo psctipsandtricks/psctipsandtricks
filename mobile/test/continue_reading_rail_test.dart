@@ -32,6 +32,7 @@ void main() {
         subjects: const [],
         upcomingMockTests: const [],
         booksInProgress: books,
+        inProgressQuizzes: const [],
       );
 
   Future<void> pump(

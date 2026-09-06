@@ -127,6 +127,7 @@ export default function AdminBooksPage() {
   const [removeExistingPreviewAudio, setRemoveExistingPreviewAudio] = useState(false);
   const [audioUploadPercent, setAudioUploadPercent] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Book | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
 
   const handleCoverFileSelect = async (files: File[]) => {
@@ -243,6 +244,12 @@ export default function AdminBooksPage() {
         setSubmitting(false);
         return;
       }
+      if (!editingBook && !heroCoverFile) {
+        setHeroCoverError('Book Size Hero Cover (3:4) is required before creating a book.');
+        setFieldError('title', 'Book Size Hero Cover (3:4) is required before creating a book.');
+        setSubmitting(false);
+        return;
+      }
 
       try {
         const price = values.isFree ? 0 : Number(values.price);
@@ -283,9 +290,7 @@ export default function AdminBooksPage() {
           const created = await ApiClient.createBook({ ...payload, coverUrl: '' });
           targetId = created.id;
           await ApiClient.uploadBookCover(targetId, coverFile!);
-          if (heroCoverFile) {
-            await ApiClient.uploadBookHeroCover(targetId, heroCoverFile);
-          }
+          await ApiClient.uploadBookHeroCover(targetId, heroCoverFile!);
         }
 
         if (previewPdfFile && targetId) {
@@ -379,17 +384,15 @@ export default function AdminBooksPage() {
   };
 
   const handleDeleteBook = async (id: string) => {
-    const previousBooks = books;
-    const previousTotal = totalCount;
-    setBooks((prev) => prev.filter((b) => b.id !== id));
-    setTotalCount((prev) => Math.max(0, prev - 1));
+    setIsDeleting(true);
     try {
       await ApiClient.deleteBook(id);
+      setDeleteTarget(null);
       await fetchBooks();
     } catch (err: any) {
-      setBooks(previousBooks);
-      setTotalCount(previousTotal);
       alert(err.message || 'Failed to delete book.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -865,7 +868,7 @@ export default function AdminBooksPage() {
                   <div className="flex items-center justify-between gap-1 flex-wrap">
                     <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                       <ImagePlus className="w-3.5 h-3.5 text-cyan-500" />
-                      <span>Catalog Cover</span>
+                      <span>Catalog Cover{!editingBook && <span className="text-rose-500 ml-0.5">*</span>}</span>
                     </label>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border border-cyan-500/20">
                       16:9 · Recommended 1280 × 720 px
@@ -957,19 +960,19 @@ export default function AdminBooksPage() {
                   <div className="flex items-center justify-between gap-1 flex-wrap">
                     <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                       <Library className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>Book Size Hero Cover</span>
+                      <span>Book Size Hero Cover{!editingBook && <span className="text-rose-500 ml-0.5">*</span>}</span>
                     </label>
                     <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20">
-                      2:3 · Recommended 1024 × 1536 px
+                      3:4 · Recommended 1200 × 1600 px
                     </span>
                   </div>
 
                   {editingBook?.heroCoverUrl && !heroCoverFile && !removeExistingHeroCover && (
                     <div className="flex items-center gap-2.5 p-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={editingBook.heroCoverUrl} alt="Hero Cover" className="w-10 h-14 object-cover rounded-lg border border-indigo-500/30 shrink-0" />
+                      <img src={editingBook.heroCoverUrl} alt="Hero Cover" className="w-12 h-16 object-cover rounded-lg border border-indigo-500/30 shrink-0" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 truncate">Active 2:3 Hero Cover</p>
+                        <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 truncate">Active 3:4 Hero Cover</p>
                         <button type="button" onClick={() => setRemoveExistingHeroCover(true)} className="text-[10px] font-bold text-rose-500 hover:underline cursor-pointer">
                           Remove
                         </button>
@@ -980,7 +983,7 @@ export default function AdminBooksPage() {
                   {isValidatingHeroCover && (
                     <div className="flex items-center gap-2 p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs text-amber-800 dark:text-amber-300 font-bold">
                       <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-amber-500 border-t-transparent shrink-0" />
-                      <span>Checking 2:3 dimensions…</span>
+                      <span>Checking 3:4 dimensions…</span>
                     </div>
                   )}
 
@@ -992,7 +995,7 @@ export default function AdminBooksPage() {
                           <p className="font-bold truncate">{heroCoverFile.name}</p>
                           {heroCoverDimensions && (
                             <p className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                              ✓ {heroCoverDimensions.width} × {heroCoverDimensions.height} px (2:3) · {(heroCoverFile.size / (1024 * 1024)).toFixed(1)} MB
+                              ✓ {heroCoverDimensions.width} × {heroCoverDimensions.height} px (3:4) · {(heroCoverFile.size / (1024 * 1024)).toFixed(1)} MB
                             </p>
                           )}
                         </div>
@@ -1033,10 +1036,10 @@ export default function AdminBooksPage() {
                       <UploadCloud className="w-3.5 h-3.5 text-indigo-500" />
                       <span>
                         {isDragActive
-                          ? 'Drop 2:3 image to upload…'
+                          ? 'Drop 3:4 image to upload…'
                           : heroCoverFile
                             ? 'Change book size cover…'
-                            : 'Upload 2:3 Hero Cover…'}
+                            : 'Upload 3:4 Hero Cover…'}
                       </span>
                     </>
                   )}
@@ -1318,11 +1321,11 @@ export default function AdminBooksPage() {
         description={deleteTarget ? `This will permanently remove "${deleteTarget.title}" by ${deleteTarget.author}, along with all its chapters. This action cannot be undone.` : undefined}
         confirmLabel="Delete"
         variant="danger"
+        isLoading={isDeleting}
         onConfirm={() => {
           if (deleteTarget) handleDeleteBook(deleteTarget.id);
-          setDeleteTarget(null);
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !isDeleting && setDeleteTarget(null)}
       />
 
       {pdfPreviewOpen && activePreviewPdfUrl && (

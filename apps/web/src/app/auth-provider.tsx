@@ -8,7 +8,9 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, otp?: string) => Promise<any>;
+  sendRegisterOtp: (email: string, password: string, name: string) => Promise<any>;
+  verifyRegisterOtp: (email: string, otp: string) => Promise<void>;
   loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => void;
   updateUser: (updatedData: Partial<User>) => void;
@@ -129,8 +131,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persistSession(response);
   };
 
-  const register = async (email: string, password: string, name: string) => {
-    const response = await ApiClient.register({ email, password, name });
+  const register = async (email: string, password: string, name: string, otp?: string) => {
+    const response = await ApiClient.register({ email: email.trim(), password, name: name.trim(), otp });
+    if ((response as any).accessToken) {
+      persistSession(response);
+    }
+    return response;
+  };
+
+  const sendRegisterOtp = async (email: string, password: string, name: string) => {
+    return ApiClient.sendRegisterOtp({ email: email.trim(), password, name: name.trim() });
+  };
+
+  const verifyRegisterOtp = async (email: string, otp: string) => {
+    const response = await ApiClient.verifyRegisterOtp({ email: email.trim(), otp: otp.trim() });
     persistSession(response);
   };
 
@@ -160,7 +174,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, loginWithTokens, logout, updateUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        login,
+        register,
+        sendRegisterOtp,
+        verifyRegisterOtp,
+        loginWithTokens,
+        logout,
+        updateUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

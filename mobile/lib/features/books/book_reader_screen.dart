@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/providers/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -15,15 +18,32 @@ import '../../data/repositories/books_repository.dart';
 import '../offline/offline_providers.dart';
 import '../../core/utils/orientation.dart';
 import '../../core/utils/secure_screen.dart';
-import '../pdfs/pdf_viewer_screen.dart';
 import '../pdfs/widgets/pdf_document_view.dart';
 import '../videos/video_player_screen.dart';
+import 'audio_resume_store.dart';
 import 'books_providers.dart';
 import 'full_page_audio_player_screen.dart';
 import 'reader_audio_controller.dart';
 import 'reader_types.dart';
 import 'widgets/reader_audio_player.dart';
 import 'widgets/reader_contents_drawer.dart';
+
+/// Identifies the plain cover drawn over the document while this route is
+/// transitioning. Exported so a test can hold the behaviour in place: the
+/// document is a native platform view, it cannot animate with the page, and
+/// covering it is the only thing standing between a reader and a torn,
+/// ghosting slide every time they open a book.
+const documentTransitionCoverKey = ValueKey('reader-document-transition-cover');
+
+/// How hard the page pulls towards where the narration has reached, per 60fps
+/// frame. Roughly a 140ms time constant: attached to the audio, but loose
+/// enough that a seek glides rather than snaps. Matches the website's reader.
+const double _followEasePerFrame = 0.12;
+
+/// Below this the page is where it should be; moving again would only jitter.
+const double _followSettlePx = 0.5;
+
+const double _frameMicros = 16667;
 
 /// The multimedia reader: one topic at a time, with its narration, class video
 /// and notes attached.
@@ -36,6 +56,7 @@ class BookReaderScreen extends ConsumerStatefulWidget {
     super.key,
     required this.bookId,
     this.autoResume = false,
+    this.resumeAudio = false,
   });
 
   final String bookId;
@@ -44,11 +65,17 @@ class BookReaderScreen extends ConsumerStatefulWidget {
   /// explicit; otherwise the resume point is offered as a dismissible banner.
   final bool autoResume;
 
+  /// Set by the detail screen's "Continue with audio": open on the narrated
+  /// topic the student left, cued to the second they left it but paused —
+  /// starting it is the student's call.
+  final bool resumeAudio;
+
   @override
   ConsumerState<BookReaderScreen> createState() => _BookReaderScreenState();
 }
 
-class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
+class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
+    with SingleTickerProviderStateMixin {
   final _scrollController = ScrollController();
 
   /// Needed because the contents button lives in a child widget, and only the
@@ -72,7 +99,6 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   int? _savedIndex;
   bool _showResumeBanner = false;
   bool _hydrated = false;
-  bool _autoResumed = false;
 
   /// Set when the content came out of the offline vault.
   OfflineBook? _offline;
@@ -81,21 +107,27 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   /// async body that knows the book.
   String _bookTitle = '';
 
-  /// Set once the student deliberately asks for the notes instead of the
-  /// document. Sticky across topics for the rest of the session: someone
-  /// reading the written notes wants the next topic's notes too, and having
-  /// the view flip back to the PDF on every Next would be maddening.
-  ///
-  /// Default false, which is what makes a topic's PDF the first thing on
-  /// screen with nothing to tap.
-  bool _preferNotes = false;
-
   /// How far through the open document, for the app bar's page count.
   PdfViewState? _pdfState;
+
+  /// Where this book's narration was left last time, read once on the way in.
+  /// Non-null only while [BookReaderScreen.resumeAudio] is being honoured — it
+  /// is consumed by the first [_loadUnitAudio] that matches its clip.
+  AudioResumePoint? _pendingAudioResume;
+
+  /// Whether the full-page audio player has been opened this session, which is
+  /// what makes a position worth writing down. Sticky once set: closing the
+  /// player to follow along on the page is still the same listening session.
+  bool _audioPlayerOpened = false;
 
   /// The narration url the shared player was last pointed at, so the reader
   /// does not reload the same clip on every rebuild.
   String? _loadedAudioUrl;
+
+  /// Which topic that url belongs to, so a change of file for the same topic —
+  /// the offline copy landing under a clip already streaming — can be told
+  /// apart from moving to a different topic's narration.
+  String? _loadedAudioUnitId;
 
   /// Held rather than read back in [dispose]: `ref` is already disposed by the
   /// time a ConsumerState is torn down, so reading a provider there throws.
@@ -105,6 +137,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   /// it ever reached the network.
   ReaderAudioController? _audio;
   BooksRepository? _books;
+  SharedPreferences? _prefs;
 
   /// Remote media URL to the decrypted working copy on disk. Populated lazily,
   /// one unit at a time — decrypting a whole book's audio up front would cost
@@ -112,13 +145,28 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   final Map<String, String> _localPaths = {};
 
   // ── Auto-scroll ───────────────────────────────────────────────────────
-  Timer? _scrollTicker;
+
+  /// Eases the notes towards where the narration has reached, one frame at a
+  /// time. A vsync ticker rather than a repeating timer because this paints:
+  /// stepping the page every 400ms — even with each step animated — lands
+  /// every correction slightly out of phase with the frames that draw it,
+  /// which is what makes following the audio look like stuttering rather than
+  /// gliding. Created once and started and stopped as playback comes and goes.
+  Ticker? _scrollTicker;
+
+  /// Timestamp of the previous tick, so easing is frame-rate independent.
+  Duration _lastScrollTick = Duration.zero;
 
   /// While the student is dragging, auto-scroll stands down. Nothing is more
   /// irritating than a page that scrolls itself back while you are reading.
   DateTime _lastManualScroll = DateTime.fromMillisecondsSinceEpoch(0);
 
   Timer? _saveTimer;
+
+  /// Writes the narration position down while a clip plays, so a session ended
+  /// by the task switcher — where nothing gets to run on the way out — still
+  /// leaves a point to come back to.
+  Timer? _audioResumeTimer;
 
   /// Whether the system bars are currently hidden for this screen, so the
   /// request is only made when it actually changes rather than every frame.
@@ -135,16 +183,29 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     // for as long as it is on screen, including the full-screen document viewer
     // opened from here, which shares this window. Released in dispose.
     unawaited(requestSecureScreen());
+    // Read straight away rather than from the post-frame callback below: the
+    // first build — which is where the resume point decides what page opens —
+    // runs before that callback does.
+    _prefs = ref.read(sharedPrefsProvider);
+    if (widget.resumeAudio) {
+      _pendingAudioResume = readAudioResume(_prefs!, widget.bookId);
+    }
     // Drive the scroll off the shared player, so it keeps working no matter
     // which screen started playback.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Coming in to listen, the transport is the point of the screen; every
+      // other way in starts folded away.
+      ref
+          .read(audioBarCollapsedProvider.notifier)
+          .set(_pendingAudioResume == null);
       final audio = ref.read(readerAudioProvider);
       _audio = audio;
       _books = ref.read(booksRepositoryProvider);
       audio.playing.addListener(_onPlayingChanged);
       audio.onClipFinished = _onClipFinished;
       _startScrollTicker();
+      _startAudioResumeTicker();
     });
   }
 
@@ -153,13 +214,20 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     restorePortraitOnly();
     if (_immersive) unawaited(exitImmersiveReading());
     unawaited(releaseSecureScreen());
-    _scrollTicker?.cancel();
+    // Stopped first: disposing a ticker that is still scheduled asserts.
+    _scrollTicker
+      ?..stop()
+      ..dispose();
+    _audioResumeTimer?.cancel();
     _audio?.playing.removeListener(_onPlayingChanged);
     // Only ever ours to clear: the controller outlives this screen, and a
     // stale callback would walk a disposed reader through its chapters.
     if (_audio?.onClipFinished == _onClipFinished) {
       _audio?.onClipFinished = null;
     }
+    // Before the stop below, which winds the position back to zero: this is the
+    // point the detail screen's "Continue with audio" comes back to.
+    _recordAudioResume();
     // Narration should not follow the student out of the book.
     if (_audio != null) unawaited(_audio!.stop());
     _releaseWorkingCopies();
@@ -190,10 +258,34 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
         _maxReached = resumeIndex;
         if (widget.autoResume) {
           _activeIndex = resumeIndex;
-          _autoResumed = true;
         } else {
           _showResumeBanner = true;
         }
+      }
+    }
+
+    // Coming in to carry on listening: the clip decides the page, over any
+    // reading position, because it is the thing the student asked for.
+    final resumeAudio = _pendingAudioResume;
+    if (resumeAudio != null) {
+      // Matched on the clip rather than the topic: the url is what actually
+      // gets played, and a position means nothing against a different file.
+      // The topic id only breaks a tie where two topics share one clip.
+      var index = units.indexWhere((unit) =>
+          unit.audioUrl == resumeAudio.audioUrl &&
+          unit.id == resumeAudio.unitId);
+      if (index < 0) {
+        index =
+            units.indexWhere((unit) => unit.audioUrl == resumeAudio.audioUrl);
+      }
+      if (index >= 0) {
+        _activeIndex = index;
+        _showResumeBanner = false;
+        if (index > _maxReached) _maxReached = index;
+      } else {
+        // The clip is gone from the book — a re-published edition, or a topic
+        // taken down. There is nothing to resume into.
+        _pendingAudioResume = null;
       }
     }
 
@@ -242,9 +334,60 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     if (ref.read(readerAudioProvider).playing.value) {
       _startScrollTicker();
     } else {
-      _scrollTicker?.cancel();
-      _scrollTicker = null;
+      // Stopped, not disposed: resuming picks the chase up from wherever the
+      // reader now is rather than snapping to where the audio has got to.
+      _scrollTicker?.stop();
+      // Pausing is the clearest statement of where someone stopped listening.
+      _recordAudioResume();
     }
+  }
+
+  /// Keeps the resume point roughly current while a clip plays.
+  ///
+  /// [dispose] catches the ordinary exit, but a session ended from the task
+  /// switcher never gets to run it, and losing a half-hour of listening to that
+  /// is exactly the case this feature exists for.
+  void _startAudioResumeTicker() {
+    _audioResumeTimer?.cancel();
+    _audioResumeTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || _audio?.playing.value != true) return;
+      _recordAudioResume();
+    });
+  }
+
+  /// Writes down where this book's narration stands, for the detail screen's
+  /// "Continue with audio". Storing a clip barely begun — or one played out —
+  /// is handled by [saveAudioResume], which drops the record instead.
+  void _recordAudioResume() {
+    final prefs = _prefs;
+    final audio = _audio;
+    if (prefs == null || audio == null) return;
+    // Only a session that went through the audio player is offered back.
+    if (!_audioPlayerOpened) return;
+    if (_activeIndex >= _units.length) return;
+
+    final unit = _units[_activeIndex];
+    final url = unit.audioUrl;
+    if (url == null || url.isEmpty) return;
+    // Only what the player is actually holding: paging to a topic whose clip
+    // has not been loaded must not record a position belonging to the last one.
+    if (_loadedAudioUrl != url && _loadedAudioUrl != _localPaths[url]) return;
+
+    unawaited(
+      saveAudioResume(
+        prefs,
+        widget.bookId,
+        AudioResumePoint(
+          // Keyed by the remote url, not the decrypted working copy the offline
+          // vault hands out — that path is gone by the next session.
+          unitId: unit.id,
+          audioUrl: url,
+          title: unit.title,
+          position: audio.position.value,
+          duration: audio.duration.value,
+        ),
+      ),
+    );
   }
 
   /// Walks the page towards the point in the topic the narration has reached.
@@ -253,35 +396,55 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   /// every position event: the position stream fires several times a second,
   /// and jumping on each one reads as a stutter instead of a scroll.
   void _startScrollTicker() {
-    _scrollTicker?.cancel();
     final audio = ref.read(readerAudioProvider);
     if (!ref.read(autoScrollProvider) || !audio.playing.value) return;
 
-    const interval = Duration(milliseconds: 400);
-    _scrollTicker = Timer.periodic(interval, (_) {
-      if (!mounted) return;
-      if (!ref.read(autoScrollProvider) || !audio.playing.value) return;
-      if (!_scrollController.hasClients) return;
+    _scrollTicker ??= createTicker(_followNarration);
+    if (_scrollTicker!.isTicking) return;
+    _lastScrollTick = Duration.zero;
+    _scrollTicker!.start();
+  }
 
-      // Yield to a student who is scrolling by hand.
-      if (DateTime.now().difference(_lastManualScroll) <
-          const Duration(seconds: 4)) {
-        return;
-      }
+  /// Eases the page towards the point in the topic the narration has reached.
+  ///
+  /// Where the audio is and where the page is are deliberately kept apart: the
+  /// first moves with playback, the second closes a fraction of the remaining
+  /// gap each frame. That is what makes the page glide instead of stepping —
+  /// and it means a pause simply stops the chase, leaving the reader wherever
+  /// they were rather than parked at a position computed from a clock that has
+  /// stopped ticking.
+  void _followNarration(Duration elapsed) {
+    if (!mounted) return;
+    final audio = ref.read(readerAudioProvider);
+    if (!ref.read(autoScrollProvider) || !audio.playing.value) {
+      _scrollTicker?.stop();
+      return;
+    }
+    if (!_scrollController.hasClients) return;
 
-      final max = _scrollController.position.maxScrollExtent;
-      if (max <= 0) return;
+    // First frame after starting has no previous tick to measure against.
+    final sinceLast = elapsed - _lastScrollTick;
+    _lastScrollTick = elapsed;
+    if (sinceLast <= Duration.zero) return;
 
-      final target = max * audio.fraction.value;
-      // Only ever move forward, and only when the gap is worth animating.
-      if (target - _scrollController.offset < 1) return;
+    // Yield to a student who is scrolling by hand.
+    if (DateTime.now().difference(_lastManualScroll) <
+        const Duration(seconds: 4)) {
+      return;
+    }
 
-      _scrollController.animateTo(
-        target,
-        duration: interval,
-        curve: Curves.linear,
-      );
-    });
+    final max = _scrollController.position.maxScrollExtent;
+    if (max <= 0) return;
+
+    final target = max * audio.fraction.value;
+    final gap = target - _scrollController.offset;
+    if (gap.abs() < _followSettlePx) return;
+
+    // Frame-rate independent, and the same rate as the website's reader, so a
+    // book followed on a phone and on a laptop travels at the same speed.
+    final frames = sinceLast.inMicroseconds / _frameMicros;
+    final ease = 1 - math.pow(1 - _followEasePerFrame, frames);
+    _scrollController.jumpTo(_scrollController.offset + gap * ease);
   }
 
   void _goTo(int index, {bool scrollToTop = true}) {
@@ -292,8 +455,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
       _showResumeBanner = false;
       _autoPlayUnitId = null;
     });
-    _scrollTicker?.cancel();
-    _scrollTicker = null;
+    _scrollTicker?.stop();
     unawaited(_resolveLocalAssets(_units[index]));
     if (scrollToTop && _scrollController.hasClients) {
       _scrollController.animateTo(
@@ -357,7 +519,11 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
   }
 
   void _openFullPageAudioPlayer(String bookTitle) {
-    debugPrint('===> _openFullPageAudioPlayer called for: $bookTitle');
+    // What makes this session worth remembering: "continue with audio" offers
+    // the way back into this screen, so it is only offered to someone who has
+    // been here. Narration heard from the reader's own strip, alongside the
+    // page, is reading — not a listening session to come back to.
+    _audioPlayerOpened = true;
     Navigator.of(context, rootNavigator: true).push(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) {
@@ -405,10 +571,15 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     final unit = _units[index];
     if (!unit.hasAudio) return;
 
+    ref.read(audioBarCollapsedProvider.notifier).set(false);
+
     if (index == _activeIndex) {
       // Already the open page: its player is mounted with this clip loaded, so
       // rebuilding nothing and just starting it is both correct and instant.
       final audio = ref.read(readerAudioProvider);
+      if (_loadedAudioUrl != unit.audioUrl) {
+        _loadUnitAudio(unit);
+      }
       if (!audio.playing.value) audio.togglePlay();
       return;
     }
@@ -429,22 +600,68 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     if (!unit.hasAudio) {
       if (_loadedAudioUrl != null) {
         _loadedAudioUrl = null;
+        _loadedAudioUnitId = null;
         unawaited(audio.stop());
       }
       return;
     }
 
+    // Consumed here rather than in `_hydrate`: the point is only honoured once
+    // the clip it belongs to is the one being loaded.
+    final resume = _pendingAudioResume?.audioUrl == unit.audioUrl
+        ? _pendingAudioResume
+        : null;
+
     final url = _localPaths[unit.audioUrl] ?? unit.audioUrl!;
-    if (_loadedAudioUrl == url) return;
+    if (_loadedAudioUrl == url && resume == null) return;
+
+    // A downloaded book decrypts its copy a moment after the reader opens, so
+    // the same narration changes file underneath a clip that is already
+    // playing. Carry the position and playback across it — reloading from the
+    // top would undo both an ordinary listen and a resume.
+    final swappingFile = _loadedAudioUnitId == unit.id &&
+        _loadedAudioUrl != null &&
+        _loadedAudioUrl != url;
+
     _loadedAudioUrl = url;
+    _loadedAudioUnitId = unit.id;
+    if (resume != null) _pendingAudioResume = null;
+
     unawaited(audio.load(
       url,
       label: unit.title,
       // What the lock screen shows under the topic title.
       album: _bookTitle,
-      autoPlay: _autoPlayUnitId == unit.id ||
-          (_autoResumed && _activeIndex == _savedIndex),
+      // A resume from "Continue with audio" starts playback; reading resume does not.
+      autoPlay: resume != null ||
+          (swappingFile && audio.playing.value) ||
+          _autoPlayUnitId == unit.id,
+      initialPosition:
+          resume?.position ?? (swappingFile ? audio.position.value : null),
     ));
+
+    // Carrying on listening means the player, not the page: the student asked
+    // for the thing they were last in, so open it over the reader after the
+    // reader transition completes to prevent jarring conflicting route animations.
+    if (resume != null) {
+      void openAudioPlayer() {
+        if (mounted) _openFullPageAudioPlayer(_bookTitle);
+      }
+
+      final routeAnim = ModalRoute.of(context)?.animation;
+      if (routeAnim != null && !routeAnim.isCompleted) {
+        late AnimationStatusListener listener;
+        listener = (status) {
+          if (status == AnimationStatus.completed) {
+            routeAnim.removeStatusListener(listener);
+            openAudioPlayer();
+          }
+        };
+        routeAnim.addStatusListener(listener);
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) => openAudioPlayer());
+      }
+    }
   }
 
   Widget _buildContentsPanel(String bookTitle, {VoidCallback? onClose}) {
@@ -461,6 +678,23 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
       onPlayAudio: (index) {
         onClose?.call();
         _openUnitAudio(index);
+        // The speaker in the contents is a request to listen, not to read with
+        // narration behind the page — so it hands over the player, the same way
+        // the reel icon beside it hands over the video.
+        _openFullPageAudioPlayer(bookTitle);
+      },
+      onPlayVideo: (unit) {
+        onClose?.call();
+        if (unit.hasVideo) {
+          openVideo(
+            context,
+            VideoPlayerArgs(
+              youtubeUrl: unit.youtubeUrl!,
+              title: unit.title,
+              description: unit.description,
+            ),
+          );
+        }
       },
       onClose: onClose,
     );
@@ -520,6 +754,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
     _syncImmersive(isShort);
 
     return Scaffold(
+      backgroundColor: Colors.white,
       key: _scaffoldKey,
       // No drawer when the panel is already pinned open — two copies of the
       // contents, one hidden behind an edge swipe, would be worse than one.
@@ -581,9 +816,8 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
           final percent = ((_maxReached + 1) / _units.length).clamp(0.0, 1.0);
 
           // The document is the reader's default face. A topic that carries a
-          // PDF opens straight onto it — no tile to find, no tap — and the
-          // written notes are one toggle away.
-          final showDocument = unit.hasPdf && !_preferNotes;
+          // PDF opens straight onto it — no tile to find, no tap.
+          final showDocument = unit.hasPdf;
 
           // The clip belongs to the topic, not to whichever view is drawing.
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -605,12 +839,6 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
               onContents: isWide
                   ? null
                   : () => _scaffoldKey.currentState?.openDrawer(),
-              onNotes: unit.hasBody
-                  ? () => setState(() {
-                        _preferNotes = true;
-                        _pdfState = null;
-                      })
-                  : null,
               autoScroll: ref.watch(autoScrollProvider),
               onToggleAutoScroll: () {
                 ref.read(autoScrollProvider.notifier).toggle();
@@ -659,16 +887,6 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                 },
                 onContents:
                     isWide ? null : () => _scaffoldKey.currentState?.openDrawer(),
-                showingDocument: showDocument,
-                onToggleView: unit.hasPdf
-                    ? () => setState(() {
-                          _preferNotes = !_preferNotes;
-                          _pdfState = null;
-                        })
-                    : null,
-                pageLabel: showDocument && _pdfState != null && _pdfState!.isReady
-                    ? 'p.${_pdfState!.currentPage + 1}/${_pdfState!.pageCount}'
-                    : null,
                 isCompact: isShort,
                 onPrev: _activeIndex > 0 ? () => _goTo(_activeIndex - 1) : null,
                 onNext: _activeIndex < _units.length - 1
@@ -811,34 +1029,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen> {
                               ),
                         ),
                       ),
-
-                    if (unit.hasPdf) ...[
-                      const SizedBox(height: 20),
-                      Builder(
-                        builder: (context) {
-                          final resumePage = rememberedPdfPage(
-                            ref.read(sharedPrefsProvider),
-                            unit.pdfUrl!,
-                          );
-                          final offlineNote =
-                              _localPaths.containsKey(unit.pdfUrl)
-                                  ? 'Saved on this device'
-                                  : 'Tap to read the PDF';
-                          return PdfAttachmentTile(
-                            title: 'Document — ${unit.title}',
-                            subtitle: resumePage > 0
-                                ? 'Continue on page ${resumePage + 1}'
-                                : offlineNote,
-                            // Switches this page back to the document rather
-                            // than stacking another screen on top of it: the
-                            // document is a view of the topic, not a detour
-                            // the student has to press back out of.
-                            onTap: () => setState(() => _preferNotes = false),
-                          );
-                        },
-                      ),
                     ],
-                  ],
                   ),
                 ),
               ),
@@ -899,7 +1090,6 @@ class _DocumentReader extends ConsumerStatefulWidget {
     required this.isOffline,
     required this.onBack,
     required this.onContents,
-    required this.onNotes,
     required this.autoScroll,
     required this.onToggleAutoScroll,
     this.contents,
@@ -917,10 +1107,6 @@ class _DocumentReader extends ConsumerStatefulWidget {
 
   /// Null on a tablet, where the contents are already pinned open alongside.
   final VoidCallback? onContents;
-
-  /// Null on a topic that carries no written notes — with nothing to switch
-  /// to, the switch is clutter.
-  final VoidCallback? onNotes;
 
   final bool autoScroll;
   final VoidCallback onToggleAutoScroll;
@@ -977,10 +1163,20 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final isExpanded = !ref.watch(audioBarCollapsedProvider);
     final showAudio = widget.hasAudio || audio.title.value != null;
+    // Drives the cover below. flutter_pdfview draws through a native platform
+    // view, and a native surface does not travel with the Flutter layer during
+    // a page transition — sliding one in tears, ghosts, or shows the screen
+    // underneath through it. Covering it for the length of the animation costs
+    // a plain white page and removes the whole class of glitch.
+    final routeAnimation = ModalRoute.of(context)?.animation;
 
     final reader = AnimatedBuilder(
       animation: _expandAnimation,
-      builder: (context, _) {
+      child: ColoredBox(
+        color: Colors.white,
+        child: widget.document,
+      ),
+      builder: (context, documentChild) {
         final bottomOffset = _expandAnimation.value * 76.0;
         final bottomMargin = bottomInset > 0 ? bottomInset + 8 : 16.0;
 
@@ -988,28 +1184,30 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
           fit: StackFit.expand,
           children: [
             // Full-page document viewer
-            widget.document,
+            documentChild!,
 
-            // Back, and the way to the written notes when the topic has any.
+            // The cover, over the document and under the controls: those are
+            // ordinary Flutter widgets and animate perfectly well.
+            if (routeAnimation != null)
+              AnimatedBuilder(
+                animation: routeAnimation,
+                builder: (context, _) =>
+                    routeAnimation.status == AnimationStatus.completed
+                        ? const SizedBox.shrink()
+                        : const ColoredBox(
+                            key: documentTransitionCoverKey,
+                            color: Colors.white,
+                          ),
+              ),
+
+            // Back button in the top corner.
             Positioned(
               top: topInset + 8,
               left: 8,
-              right: 8,
-              child: Row(
-                children: [
-                  _ReaderCornerButton(
-                    icon: Icons.arrow_back_ios_new_rounded,
-                    tooltip: 'Back',
-                    onTap: widget.onBack,
-                  ),
-                  const Spacer(),
-                  if (widget.onNotes != null)
-                    _ReaderCornerButton(
-                      icon: Icons.article_rounded,
-                      tooltip: 'Show the written notes',
-                      onTap: widget.onNotes!,
-                    ),
-                ],
+              child: _ReaderCornerButton(
+                icon: Icons.arrow_back_ios_new_rounded,
+                tooltip: 'Back',
+                onTap: widget.onBack,
               ),
             ),
 
@@ -1057,7 +1255,7 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
                   ),
                   if (widget.onContents != null)
                     FloatingActionButton(
-                      heroTag: 'reader-contents',
+                      heroTag: null,
                       onPressed: widget.onContents,
                       backgroundColor: context.palette.card,
                       foregroundColor: AppColors.cyan,
@@ -1068,7 +1266,7 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
                   if (showAudio) ...[
                     if (widget.onContents != null) const SizedBox(height: 12),
                     FloatingActionButton(
-                      heroTag: 'reader-audio-toggle',
+                      heroTag: null,
                       onPressed: () {
                         ref.read(audioBarCollapsedProvider.notifier).toggle();
                       },
@@ -1280,9 +1478,6 @@ class _ReaderAppBar extends StatelessWidget {
     required this.autoScroll,
     required this.onToggleAutoScroll,
     required this.onContents,
-    required this.showingDocument,
-    required this.onToggleView,
-    required this.pageLabel,
     required this.isCompact,
     required this.onPrev,
     required this.onNext,
@@ -1300,16 +1495,6 @@ class _ReaderAppBar extends StatelessWidget {
   /// Null when the contents panel is pinned open beside the page and there is
   /// nothing to open.
   final VoidCallback? onContents;
-
-  /// True while the topic's PDF is the thing on screen.
-  final bool showingDocument;
-
-  /// Swaps between the document and the written notes. Null on a topic that
-  /// has no document, where there is nothing to swap to.
-  final VoidCallback? onToggleView;
-
-  /// e.g. `p.3/12`, appended to the subtitle while a document is open.
-  final String? pageLabel;
 
   /// Landscape on a phone: every row costs the page, so the second line of the
   /// title folds away into the first and the footer's job moves up here.
@@ -1368,8 +1553,7 @@ class _ReaderAppBar extends StatelessWidget {
                           ),
                           if (!isCompact)
                             Text(
-                              'Chapter ${unit.chapterNumber} · $position'
-                              '${pageLabel == null ? '' : ' · $pageLabel'}',
+                              'Chapter ${unit.chapterNumber} · $position',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context)
@@ -1400,12 +1584,8 @@ class _ReaderAppBar extends StatelessWidget {
                     if (showAutoScroll)
                       Tooltip(
                         message: autoScroll
-                            ? showingDocument
-                                ? 'Pages turn with the audio — tap to turn off'
-                                : 'Auto-scroll on — follows the audio'
-                            : showingDocument
-                                ? 'Auto page-turn off'
-                                : 'Auto-scroll off',
+                            ? 'Auto-scroll on — follows the audio'
+                            : 'Auto-scroll off',
                         child: InkWell(
                           onTap: onToggleAutoScroll,
                           borderRadius: BorderRadius.circular(AppTheme.radiusSm),
@@ -1421,8 +1601,8 @@ class _ReaderAppBar extends StatelessWidget {
                                   BorderRadius.circular(AppTheme.radiusSm),
                               border: Border.all(
                                 color: autoScroll
-                                    ? AppColors.cyan.withValues(alpha: 0.4)
-                                    : palette.border,
+                                  ? AppColors.cyan.withValues(alpha: 0.4)
+                                  : palette.border,
                               ),
                             ),
                             child: Row(
@@ -1472,22 +1652,6 @@ class _ReaderAppBar extends StatelessWidget {
                         onPressed: onNext,
                       ),
                     ],
-                    if (onToggleView != null)
-                      IconButton(
-                        tooltip: showingDocument
-                            ? 'Show the written notes'
-                            : 'Show the document',
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(
-                          showingDocument
-                              ? Icons.article_rounded
-                              : Icons.picture_as_pdf_rounded,
-                          color: showingDocument
-                              ? palette.textSecondary
-                              : AppColors.rose,
-                        ),
-                        onPressed: onToggleView,
-                      ),
                     if (onContents != null)
                       IconButton(
                         tooltip: 'Chapters and topics',

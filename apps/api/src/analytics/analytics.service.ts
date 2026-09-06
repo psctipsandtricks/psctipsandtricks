@@ -155,7 +155,7 @@ export class AnalyticsService {
     const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const twoWeeksAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
 
-    const [submissions, participants, upcoming, readingRows, user, userOrders] = await Promise.all([
+    const [submissions, inProgressSubmissions, participants, upcoming, readingRows, user, userOrders] = await Promise.all([
       this.prisma.quizSubmission.findMany({
         where: { userId, attemptStatus: 'COMPLETED' },
         include: {
@@ -163,6 +163,18 @@ export class AnalyticsService {
         },
         orderBy: { createdAt: 'desc' },
         take: 200,
+      }),
+      // Attempts the student started but hasn't finished — drives the
+      // dashboard's "Resume Quiz" list. Live-mock attempts are excluded since
+      // those are resumed through the mock test's own join/live flow, not a
+      // plain quiz replay.
+      this.prisma.quizSubmission.findMany({
+        where: { userId, attemptStatus: 'IN_PROGRESS', quiz: { isLiveMock: false } },
+        include: {
+          quiz: { select: { id: true, title: true, durationMinutes: true, totalQuestions: true } },
+        },
+        orderBy: { startedAt: 'desc' },
+        take: 5,
       }),
       this.prisma.mockTestParticipant.findMany({
         where: { userId, submittedAt: { not: null } },
@@ -313,6 +325,26 @@ export class AnalyticsService {
       byCategory.set(a.category, bucket);
     });
 
+    const inProgressQuizzes = inProgressSubmissions.map((s) => {
+      const totalQuestions = s.quiz?.totalQuestions || s.totalQuestions || 0;
+      const answeredCount = Array.isArray(s.answers)
+        ? (s.answers as any[]).filter((a) => a && typeof a.selectedOptionIndex === 'number').length
+        : 0;
+      const durationSeconds = (s.quiz?.durationMinutes ?? 15) * 60;
+      const remainingSeconds = Math.max(0, durationSeconds - (s.timeTakenSeconds || 0));
+
+      return {
+        id: s.id,
+        quizId: s.quizId,
+        title: s.quiz?.title || 'Practice Quiz',
+        totalQuestions,
+        answeredCount,
+        progressPercent: totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0,
+        remainingSeconds,
+        startedAt: s.startedAt,
+      };
+    });
+
     const subjects = [...byCategory.entries()]
       .map(([category, b]) => ({
         category,
@@ -382,6 +414,7 @@ export class AnalyticsService {
           lastReadAt: row.lastReadAt,
         };
       }),
+      inProgressQuizzes,
       generatedAt: new Date(),
     };
   }

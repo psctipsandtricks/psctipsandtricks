@@ -14,7 +14,7 @@ void main() {
         author: 'Anto',
         description: 'Test Description',
         coverUrl: 'https://cdn.example.com/catalog-cover-16-9.jpg',
-        heroCoverUrl: 'https://cdn.example.com/hero-cover-2-3.jpg',
+        heroCoverUrl: 'https://cdn.example.com/hero-cover-3-4.jpg',
         price: 1000,
         discountPercent: 20,
         finalPrice: 800,
@@ -24,7 +24,7 @@ void main() {
       );
 
       expect(book.effectiveCatalogCoverUrl, 'https://cdn.example.com/catalog-cover-16-9.jpg');
-      expect(book.effectiveHeroCoverUrl, 'https://cdn.example.com/hero-cover-2-3.jpg');
+      expect(book.effectiveHeroCoverUrl, 'https://cdn.example.com/hero-cover-3-4.jpg');
     });
 
     test('Falls back gracefully if one of the covers is empty', () {
@@ -34,7 +34,7 @@ void main() {
         author: 'Author',
         description: '',
         coverUrl: '',
-        heroCoverUrl: 'https://cdn.example.com/hero-cover-2-3.jpg',
+        heroCoverUrl: 'https://cdn.example.com/hero-cover-3-4.jpg',
         price: 0,
         discountPercent: 0,
         finalPrice: 0,
@@ -43,7 +43,7 @@ void main() {
         downloadCount: 0,
       );
 
-      expect(bookWithoutCatalog.effectiveCatalogCoverUrl, 'https://cdn.example.com/hero-cover-2-3.jpg');
+      expect(bookWithoutCatalog.effectiveCatalogCoverUrl, 'https://cdn.example.com/hero-cover-3-4.jpg');
 
       const bookWithoutHero = Book(
         id: 'book-3',
@@ -72,7 +72,7 @@ void main() {
         author: 'Anto',
         description: 'Test Description',
         coverUrl: 'https://cdn.example.com/catalog-cover-16-9.jpg',
-        heroCoverUrl: 'https://cdn.example.com/hero-cover-2-3.jpg',
+        heroCoverUrl: 'https://cdn.example.com/hero-cover-3-4.jpg',
         price: 1000,
         discountPercent: 20,
         finalPrice: 800,
@@ -97,14 +97,14 @@ void main() {
       expect(appImage.height, 240 * (9 / 16));
     });
 
-    testWidgets('BookCard renders effectiveHeroCoverUrl (2:3 book size)', (tester) async {
+    testWidgets('BookCard renders effectiveHeroCoverUrl (3:4 book size)', (tester) async {
       const book = Book(
         id: 'book-1',
         title: 'Test Book',
         author: 'Anto',
         description: 'Test Description',
         coverUrl: 'https://cdn.example.com/catalog-cover-16-9.jpg',
-        heroCoverUrl: 'https://cdn.example.com/hero-cover-2-3.jpg',
+        heroCoverUrl: 'https://cdn.example.com/hero-cover-3-4.jpg',
         price: 1000,
         discountPercent: 20,
         finalPrice: 800,
@@ -124,7 +124,7 @@ void main() {
       expect(bookCoverFinder, findsOneWidget);
 
       final bookCover = tester.widget<BookCover>(bookCoverFinder);
-      expect(bookCover.url, 'https://cdn.example.com/hero-cover-2-3.jpg');
+      expect(bookCover.url, 'https://cdn.example.com/hero-cover-3-4.jpg');
     });
   });
 }

@@ -79,6 +79,20 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                     _Subjects(subjects: dashboard.subjects),
                   ],
+                  if (dashboard.inProgressQuizzes.isNotEmpty) ...[
+                    const SizedBox(height: 26),
+                    SectionHeader(
+                      title: 'Resume quiz',
+                      icon: Icons.play_circle_outline_rounded,
+                      actionLabel: 'All attempts',
+                      onAction: () => context.push(AppRoutes.quizHistory),
+                    ),
+                    for (final quiz in dashboard.inProgressQuizzes)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _InProgressQuizCard(quiz: quiz),
+                      ),
+                  ],
                   if (dashboard.booksInProgress.isNotEmpty) ...[
                     const SizedBox(height: 26),
                     SectionHeader(
@@ -636,6 +650,89 @@ class _BookProgressCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InProgressQuizCard extends StatelessWidget {
+  const _InProgressQuizCard({required this.quiz});
+
+  final InProgressQuiz quiz;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      onTap: () => context.push(AppRoutes.quizAttempt(quiz.quizId)),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.cyan.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+            ),
+            child: const Icon(Icons.play_circle_fill_rounded,
+                color: AppColors.cyan, size: 22),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  quiz.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Text(
+                  '${quiz.answeredCount}/${quiz.totalQuestions} answered'
+                  '${quiz.remainingSeconds > 0 ? ' · ${Fmt.elapsed(quiz.remainingSeconds)} left' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: context.palette.textMuted,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: LinearProgressIndicator(
+                          value: quiz.progressPercent / 100,
+                          minHeight: 5,
+                          backgroundColor: context.palette.elevated,
+                          valueColor:
+                              const AlwaysStoppedAnimation(AppColors.cyan),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    Text(
+                      '${quiz.progressPercent}%',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.cyan,
+                          ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => context.push(AppRoutes.quizAttempt(quiz.quizId)),
+            child: const Text('Resume'),
           ),
         ],
       ),

@@ -17,16 +17,69 @@ class AuthRepository {
     return _persist(AuthResponse.fromJson(res));
   }
 
-  Future<User> register({
+  /// Step 1 of account creation: the server emails a 6-digit code and holds
+  /// the pending registration server-side — no account exists yet.
+  Future<Map<String, dynamic>> sendRegisterOtp({
     required String name,
     required String email,
     required String password,
   }) async {
     final res = await _api.post<Map<String, dynamic>>(
-      '/auth/register',
+      '/auth/send-register-otp',
       body: {'name': name.trim(), 'email': email.trim(), 'password': password},
     );
+    return res;
+  }
+
+  /// Step 2: the code from [sendRegisterOtp] creates the account and signs
+  /// the student in, matching the website's registration flow.
+  Future<User> verifyRegisterOtp({
+    required String email,
+    required String otp,
+  }) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/verify-register-otp',
+      body: {'email': email.trim(), 'otp': otp.trim()},
+    );
     return _persist(AuthResponse.fromJson(res));
+  }
+
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/forgot-password',
+      body: {'email': email.trim()},
+    );
+    return res;
+  }
+
+  Future<Map<String, dynamic>> verifyOtp({
+    required String email,
+    required String otp,
+  }) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/verify-otp',
+      body: {
+        'email': email.trim(),
+        'otp': otp.trim(),
+      },
+    );
+    return res;
+  }
+
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/reset-password',
+      body: {
+        'email': email.trim(),
+        'otp': otp.trim(),
+        'newPassword': newPassword,
+      },
+    );
+    return res;
   }
 
   /// Trades an ID token from the device's native Google Sign-In for a session.

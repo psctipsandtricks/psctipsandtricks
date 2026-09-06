@@ -38,13 +38,7 @@ import {
 import type { StudentDashboard } from '@psc/shared-types';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
-
-// recharts is a heavy dependency only needed once the trend has ≥2 points to
-// actually plot — load it on demand instead of in the dashboard's initial JS.
-const PerformanceTrendChart = dynamic(() => import('./performance-trend-chart'), {
-  ssr: false,
-  loading: () => <div className="h-56 -ml-4 rounded-xl bg-slate-100 dark:bg-slate-900 animate-pulse" />,
-});
+import PerformanceTrendChart from './performance-trend-chart';
 
 /** How often the dashboard silently re-pulls its numbers while the tab is visible. */
 const POLL_INTERVAL_MS = 45_000;
@@ -230,6 +224,7 @@ export default function DashboardPage() {
 
   const { stats, trend, recentAttempts, subjects, upcomingMockTests } = data;
   const booksInProgress = data.booksInProgress ?? [];
+  const inProgressQuizzes = data.inProgressQuizzes ?? [];
   const hasAttempts = stats.totalAttempts > 0;
   const weeklyDelta = Math.round((stats.averagePercentThisWeek - stats.averagePercentLastWeek) * 10) / 10;
   const hasWeeklyComparison = stats.averagePercentThisWeek > 0 && stats.averagePercentLastWeek > 0;
@@ -403,6 +398,66 @@ export default function DashboardPage() {
             )}
           </Card>
         </div>
+      )}
+
+      {/* Resume quiz — quizzes the student started but hasn't submitted yet */}
+      {inProgressQuizzes.length > 0 && (
+        <Card className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+              <Clock className="w-5 h-5 text-cyan-500 dark:text-cyan-400" />
+              <span>Resume Quiz</span>
+            </CardTitle>
+            <Link
+              href="/quizzes/history"
+              className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-0.5 shrink-0"
+            >
+              <span>All Attempts</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {inProgressQuizzes.map((quiz) => (
+              <div
+                key={quiz.id}
+                className="flex items-center gap-3 p-3 rounded-2xl border border-slate-200/90 dark:border-[#1e2e56] bg-slate-50/90 hover:bg-white dark:bg-[#0c152e]/60 shadow-2xs hover:shadow-xs transition-all"
+              >
+                <div className="w-11 h-11 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-500 shrink-0">
+                  <PlayCircle className="w-5 h-5" />
+                </div>
+
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <h4 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white leading-snug truncate">
+                    {quiz.title}
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {quiz.answeredCount}/{quiz.totalQuestions} answered
+                    {quiz.remainingSeconds > 0 ? ` • ${formatDuration(quiz.remainingSeconds)} left` : ''}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-200/90 dark:bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all"
+                        style={{ width: `${quiz.progressPercent}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono font-extrabold text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
+                      {quiz.progressPercent}%
+                    </span>
+                  </div>
+                </div>
+
+                <Link href={`/quizzes/${quiz.quizId}`} className="shrink-0">
+                  <Button variant="gold" size="sm" className="font-bold flex items-center gap-1.5 whitespace-nowrap">
+                    <PlayCircle className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Resume</span>
+                  </Button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {/* Continue reading — books the student has already opened in the reader */}

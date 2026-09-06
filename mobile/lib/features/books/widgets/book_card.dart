@@ -123,7 +123,7 @@ class BookCard extends StatelessWidget {
                   child: BookCover(
                     url: book.effectiveHeroCoverUrl,
                     width: 84,
-                    aspectRatio: 3 / 2,
+                    aspectRatio: 4 / 3,
                   ),
                 ),
               ),

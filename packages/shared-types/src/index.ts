@@ -164,6 +164,35 @@ export interface Chapter {
  * than falling back to a duration-derived guess, which is what lets a page of
  * dense diagrams stay put while the narrator talks over it.
  */
+/**
+ * What kind of thing a cue points at. Carried so a viewer can treat a diagram
+ * differently from a line of prose — a figure is worth centring and holding,
+ * a paragraph is worth scrolling past.
+ */
+export type PdfSyncRegionKind =
+  | 'text'
+  | 'heading'
+  | 'image'
+  | 'table'
+  | 'diagram'
+  | 'other';
+
+/**
+ * A rectangle on a PDF page, as a **fraction of the page box** — `x`/`width`
+ * across, `y`/`height` down, origin at the top-left, every value in `[0, 1]`.
+ *
+ * Normalized rather than pixels because the same map has to drive a phone, a
+ * desktop browser and every zoom level in between: a pixel rect is only true
+ * for the viewport it was measured in, a fraction of the page is true
+ * everywhere.
+ */
+export interface PdfSyncRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface PdfSyncCue {
   /** Inclusive segment start, in ms from the beginning of the audio. */
   startMs: number;
@@ -171,6 +200,14 @@ export interface PdfSyncCue {
   endMs: number;
   /** 1-based PDF page to display for this segment. */
   page: number;
+  /**
+   * The region of [page] this segment is about. Omitted means the whole page,
+   * which is what every cue authored before regions existed means — those maps
+   * keep working, they just turn pages instead of scrolling within one.
+   */
+  target?: PdfSyncRegion;
+  /** Defaults to `'text'` when a cue does not say. */
+  type?: PdfSyncRegionKind;
 }
 
 /** The saved PDF↔audio mapping for one reading unit. */
@@ -384,8 +421,13 @@ export interface QuizFolder {
   description?: string | null;
   orderIndex: number;
   isActive: boolean;
+  /** Quizzes filed directly under this folder. */
   quizCount?: number;
   subFolderCount?: number;
+  /** Free quizzes in this folder *and every folder beneath it*. */
+  freeQuizCount?: number;
+  /** Paid / premium quizzes in this folder *and every folder beneath it*. */
+  paidQuizCount?: number;
   quizzes?: Quiz[];
   createdAt: string;
   updatedAt: string;
@@ -609,6 +651,17 @@ export interface StudentDashboardBookProgress {
   lastReadAt: string;
 }
 
+export interface StudentDashboardInProgressQuiz {
+  id: string;
+  quizId: string;
+  title: string;
+  totalQuestions: number;
+  answeredCount: number;
+  progressPercent: number;
+  remainingSeconds: number;
+  startedAt: string;
+}
+
 export interface StudentDashboard {
   stats: {
     totalAttempts: number;
@@ -643,6 +696,7 @@ export interface StudentDashboard {
     submitted: boolean;
   }[];
   booksInProgress: StudentDashboardBookProgress[];
+  inProgressQuizzes: StudentDashboardInProgressQuiz[];
   generatedAt: string;
 }
 

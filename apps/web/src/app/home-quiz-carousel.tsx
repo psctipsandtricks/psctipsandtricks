@@ -12,9 +12,11 @@ import {
   FileQuestion,
   Lock,
   Radio,
+  ShoppingCart,
   Timer,
   Award,
   Sparkles,
+  Unlock,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from './auth-provider';
@@ -109,7 +111,9 @@ export function HomeQuizCarousel() {
           totalMarks: q.totalMarks,
           isLive: !!q.isLiveMock,
           isPaid: true,
-          price: q.price || 0,
+          // The admin's discounted "Final Student Price" overrides the base
+          // price — prefer the server-resolved access.price, then finalPrice.
+          price: q.access?.price ?? (q.finalPrice && q.finalPrice > 0 ? q.finalPrice : q.price) ?? 0,
           imageUrl: q.imageUrl || null,
           hasAccess: q.access?.hasAccess ?? false,
           createdAt: q.createdAt,
@@ -341,10 +345,17 @@ export function HomeQuizCarousel() {
                                 </span>
                               )}
                             </div>
-                            <span className="px-2.5 py-1 rounded-xl text-[10px] font-black font-mono bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-lg flex items-center gap-1">
-                              <Lock className="w-2.5 h-2.5 text-amber-400" />
-                              <span>₹{quiz.price}</span>
-                            </span>
+                            {needsPurchase ? (
+                              <span className="px-2.5 py-1 rounded-xl text-[10px] font-black font-mono bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-lg flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5 text-amber-400" />
+                                <span>₹{quiz.price}</span>
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-lg flex items-center gap-1">
+                                <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                                <span>Unlocked</span>
+                              </span>
+                            )}
                           </div>
 
                           {/* Bottom Info on Image */}
@@ -400,8 +411,8 @@ export function HomeQuizCarousel() {
                             onClick={() => handleStartQuiz(quiz)}
                             className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
                           >
-                            <span>Unlock Premium ₹{quiz.price}</span>
-                            <Lock className="w-3.5 h-3.5" />
+                            <ShoppingCart className="w-3.5 h-3.5" />
+                            <span>Buy Now</span>
                           </Button>
                         ) : (
                           <Button
@@ -410,7 +421,7 @@ export function HomeQuizCarousel() {
                             onClick={() => handleStartQuiz(quiz)}
                             className="w-full font-black text-xs rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
                           >
-                            <span>Start Mock Test</span>
+                            <span>Start Quiz</span>
                             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
                           </Button>
                         )}

@@ -22,6 +22,7 @@ import {
   Skeleton,
   ToggleSwitch,
   Pagination,
+  Select,
 } from '@psc/ui';
 import {
   Folder,
@@ -33,6 +34,7 @@ import {
   Search,
   Radio,
   HelpCircle,
+  Filter,
   Eye,
   X,
   CheckCircle2,
@@ -62,11 +64,20 @@ const folderSchema = Yup.object({
 
 const emptyValues = { name: '', description: '', isActive: true };
 
+type AccessFilter = 'ALL' | 'FREE' | 'PAID';
+
+const ACCESS_FILTER_OPTIONS: { value: AccessFilter; label: string }[] = [
+  { value: 'ALL', label: 'All Quizzes (Free & Premium)' },
+  { value: 'FREE', label: 'Free Quizzes Only' },
+  { value: 'PAID', label: 'Premium Quizzes Only' },
+];
+
 export default function AdminQuizFoldersPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [folders, setFolders] = useState<QuizFolder[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [accessFilter, setAccessFilter] = useState<AccessFilter>('ALL');
   const [pageError, setPageError] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<QuizFolder | null>(null);
@@ -287,13 +298,51 @@ export default function AdminQuizFoldersPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, accessFilter]);
+
+  /**
+   * A folder belongs to an access type when it holds at least one quiz of that
+   * type — at any depth, since a parent's quizzes usually live in its
+   * sub-folders. The counts are rolled up server-side in listFolders().
+   */
+  const folderMatchesAccess = useCallback(
+    (f: QuizFolder) => {
+      if (accessFilter === 'ALL') return true;
+      return accessFilter === 'FREE' ? (f.freeQuizCount || 0) > 0 : (f.paidQuizCount || 0) > 0;
+    },
+    [accessFilter],
+  );
+
+  const quizMatchesAccess = useCallback(
+    (qz: any) => {
+      if (accessFilter === 'ALL') return true;
+      const isPaid = qz?.accessType === 'PAID' || qz?.isPremium === true;
+      return accessFilter === 'PAID' ? isPaid : !isPaid;
+    },
+    [accessFilter],
+  );
+
+  /**
+   * The lazily-loaded contents of one folder, narrowed to the active filter —
+   * the "nothing inside" placeholder has to agree with the rows actually drawn.
+   */
+  const visibleContentsOf = useCallback(
+    (folderId: string) => {
+      const entry = folderContents[folderId];
+      return {
+        subFolders: (entry?.subFolders || []).filter(folderMatchesAccess),
+        quizzes: (entry?.quizzes || []).filter(quizMatchesAccess),
+      };
+    },
+    [folderContents, folderMatchesAccess, quizMatchesAccess],
+  );
 
   const filteredFolders = folders.filter(
     (f) =>
-      !searchTerm.trim() ||
-      (f.name && f.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (f.description && f.description.toLowerCase().includes(searchTerm.toLowerCase())),
+      (!searchTerm.trim() ||
+        (f.name && f.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (f.description && f.description.toLowerCase().includes(searchTerm.toLowerCase()))) &&
+      folderMatchesAccess(f),
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredFolders.length / pageSize));
@@ -303,9 +352,10 @@ export default function AdminQuizFoldersPage() {
   );
 
   // ── Drag-to-reorder ──────────────────────────────────────────────────
-  // Under a search the rows on screen are a subset of the real sequence, so a
-  // drag would write positions derived from gaps the admin cannot see.
-  const canReorder = !searchTerm.trim();
+  // Under a search or an access filter the rows on screen are a subset of the
+  // real sequence, so a drag would write positions derived from gaps the admin
+  // cannot see.
+  const canReorder = !searchTerm.trim() && accessFilter === 'ALL';
 
   /** Absolute position of a row among all folders, not its index on the page. */
   const pageOffset = (currentPage - 1) * pageSize;
@@ -433,9 +483,20 @@ export default function AdminQuizFoldersPage() {
               <Badge variant="default" className="font-bold text-xs">
                 {totalQuizzes} {totalQuizzes === 1 ? 'Total Quiz' : 'Total Quizzes'}
               </Badge>
+              {accessFilter !== 'ALL' && (
+                <Badge
+                  variant={accessFilter === 'FREE' ? 'success' : 'gold'}
+                  className="font-extrabold text-xs flex items-center gap-1"
+                >
+                  <Filter className="w-3 h-3" />
+                  <span>{accessFilter === 'FREE' ? 'Free Only' : 'Premium Only'}</span>
+                </Badge>
+              )}
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1">
-              Expand any folder dropdown to view and manage its inner sub-folders and quizzes.
+              {accessFilter === 'ALL'
+                ? 'Expand any folder dropdown to view and manage its inner sub-folders and quizzes.'
+                : `Showing only folders and quizzes that contain ${accessFilter === 'FREE' ? 'free' : 'premium'} content.`}
             </p>
           </div>
 
@@ -458,14 +519,24 @@ export default function AdminQuizFoldersPage() {
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="relative max-w-md">
-          <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-          <Input
-            placeholder="Search quiz folders..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9 h-9 text-xs"
+        {/* Search + Access Type Filter */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+            <Input
+              placeholder="Search quiz folders..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 h-9 text-xs"
+            />
+          </div>
+
+          <Select
+            value={accessFilter}
+            onChange={(val) => setAccessFilter(val as AccessFilter)}
+            icon={<Filter className="w-4 h-4 text-cyan-500" />}
+            options={ACCESS_FILTER_OPTIONS}
+            triggerClassName="h-9 text-xs"
           />
         </div>
       </div>
@@ -481,7 +552,7 @@ export default function AdminQuizFoldersPage() {
 
       {/* Folders Tree Table Card */}
       <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card overflow-hidden p-0">
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar">
           {loading ? (
             <AdminSkeletonTable rowsCount={5} colsCount={5} />
           ) : filteredFolders.length === 0 ? (
@@ -494,7 +565,11 @@ export default function AdminQuizFoldersPage() {
                   No Quiz Folders Found
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
-                  {searchTerm ? 'Try clearing your search term.' : 'Click "Add Folder" to create your first question bank folder.'}
+                  {searchTerm
+                    ? 'Try clearing your search term.'
+                    : accessFilter !== 'ALL'
+                      ? `No folder holds a ${accessFilter === 'FREE' ? 'free' : 'premium'} quiz yet. Switch the filter back to "All Quizzes" to see every folder.`
+                      : 'Click "Add Folder" to create your first question bank folder.'}
                 </p>
               </div>
             </div>
@@ -521,6 +596,7 @@ export default function AdminQuizFoldersPage() {
                 <SortableContext items={paginatedFolders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 {paginatedFolders.map((folder, pageIndex) => {
                   const position = pageOffset + pageIndex;
+                  const contents = visibleContentsOf(folder.id);
                   return (
                   <React.Fragment key={`root-folder-${folder.id}`}>
                     <SortableTableRow id={folder.id} canReorder={canReorder}>
@@ -698,13 +774,17 @@ export default function AdminQuizFoldersPage() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ) : (folderContents[folder.id]?.quizzes?.length === 0 && folderContents[folder.id]?.subFolders?.length === 0) ? (
+                        ) : (contents.quizzes.length === 0 && contents.subFolders.length === 0) ? (
                           <TableRow className="bg-slate-50/40 dark:bg-[#0c152e]/30 border-b border-slate-100 dark:border-[#1e2e56]/30">
                             <TableCell colSpan={5} className="py-3 pl-12">
                               <div className="flex items-center justify-between py-1 flex-wrap gap-2">
                                 <div className="flex items-center gap-2 text-xs text-slate-400">
                                   <span className="text-slate-300 dark:text-slate-600 font-mono">└──</span>
-                                  <span>No quizzes or sub-folders inside &ldquo;{folder.name}&rdquo; yet.</span>
+                                  <span>
+                                    {accessFilter === 'ALL'
+                                      ? `No quizzes or sub-folders inside “${folder.name}” yet.`
+                                      : `Nothing ${accessFilter === 'FREE' ? 'free' : 'premium'} inside “${folder.name}”.`}
+                                  </span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <Link href={`/admin/quizzes/folder/${encodeURIComponent(folder.name)}?action=createQuiz`}>
@@ -729,7 +809,9 @@ export default function AdminQuizFoldersPage() {
                         ) : (
                           <>
                             {/* Inner Sub-Folders with Expand and Full Actions */}
-                            {folderContents[folder.id]?.subFolders?.map((subF) => (
+                            {contents.subFolders.map((subF) => {
+                              const subContents = visibleContentsOf(subF.id);
+                              return (
                               <React.Fragment key={`sub-frag-${subF.id}`}>
                                 <TableRow
                                   key={`sub-${subF.id}`}
@@ -853,13 +935,17 @@ export default function AdminQuizFoldersPage() {
                                           </div>
                                         </TableCell>
                                       </TableRow>
-                                    ) : (folderContents[subF.id]?.quizzes?.length === 0 && folderContents[subF.id]?.subFolders?.length === 0) ? (
+                                    ) : (subContents.quizzes.length === 0 && subContents.subFolders.length === 0) ? (
                                       <TableRow className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30">
                                         <TableCell colSpan={5} className="py-2.5 pl-20">
                                           <div className="flex items-center justify-between py-1 flex-wrap gap-2">
                                             <div className="flex items-center gap-2 text-xs text-slate-400">
                                               <span className="text-slate-300 dark:text-slate-600 font-mono">└──</span>
-                                              <span>No items inside &ldquo;{subF.name}&rdquo; yet.</span>
+                                              <span>
+                                                {accessFilter === 'ALL'
+                                                  ? `No items inside “${subF.name}” yet.`
+                                                  : `Nothing ${accessFilter === 'FREE' ? 'free' : 'premium'} inside “${subF.name}”.`}
+                                              </span>
                                             </div>
                                             <div className="flex items-center gap-2">
                                               <Link href={`/admin/quizzes/folder/${encodeURIComponent(folder.name)}?action=createQuiz&targetFolder=${encodeURIComponent(subF.name)}`}>
@@ -884,7 +970,7 @@ export default function AdminQuizFoldersPage() {
                                     ) : (
                                       <>
                                         {/* Nested Sub-sub-folders */}
-                                        {folderContents[subF.id]?.subFolders?.map((innerSub) => (
+                                        {subContents.subFolders.map((innerSub) => (
                                           <TableRow
                                             key={`innersub-${innerSub.id}`}
                                             className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-amber-500/[0.04] transition-colors"
@@ -976,7 +1062,7 @@ export default function AdminQuizFoldersPage() {
                                         ))}
 
                                         {/* Nested Quizzes inside subF */}
-                                        {folderContents[subF.id]?.quizzes?.map((qz) => (
+                                        {subContents.quizzes.map((qz) => (
                                           <TableRow
                                             key={`subf-qz-${qz.id}`}
                                             className="bg-slate-50/20 dark:bg-[#0c152e]/20 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-cyan-500/[0.04] transition-colors"
@@ -1044,10 +1130,11 @@ export default function AdminQuizFoldersPage() {
                                   </>
                                 )}
                               </React.Fragment>
-                            ))}
+                              );
+                            })}
 
                             {/* Direct Quizzes inside this Folder */}
-                            {folderContents[folder.id]?.quizzes?.map((qz) => (
+                            {contents.quizzes.map((qz) => (
                               <TableRow
                                 key={`qz-${qz.id}`}
                                 className="bg-slate-50/30 dark:bg-[#0c152e]/25 border-b border-slate-100 dark:border-[#1e2e56]/30 hover:bg-cyan-500/[0.04] transition-colors"

@@ -77,12 +77,14 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
   const [editingFolder, setEditingFolder] = useState<PdfFolder | null>(null);
   const [parentForNewFolder, setParentForNewFolder] = useState<PdfFolder | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<PdfFolder | null>(null);
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
 
   // Document Dialog
   const [isDocDialogOpen, setIsDocDialogOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<PdfDocument | null>(null);
   const [targetFolderForDoc, setTargetFolderForDoc] = useState<PdfFolder | null>(null);
   const [deleteDocTarget, setDeleteDocTarget] = useState<PdfDocument | null>(null);
+  const [isDeletingDoc, setIsDeletingDoc] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [pdfUploadPercent, setPdfUploadPercent] = useState<number | null>(null);
 
@@ -312,40 +314,20 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
     if (!deleteFolderTarget) return;
     const target = deleteFolderTarget;
     const pId = target.parentId;
-    const prevFolderData = folderData;
-    const prevSubContents = subFolderContents;
-
-    // 1. Dismiss modal instantly
-    setDeleteFolderTarget(null);
-
-    // 2. Optimistic local removal
-    if (folderData) {
-      setFolderData({
-        ...folderData,
-        children: folderData.children?.filter((sf) => sf.id !== target.id) || [],
-      });
-    }
-    if (pId && pId !== folderId && prevSubContents[pId]) {
-      setSubFolderContents((prev) => ({
-        ...prev,
-        [pId]: {
-          ...prev[pId],
-          subFolders: prev[pId].subFolders.filter((sf) => sf.id !== target.id),
-        },
-      }));
-    }
 
     try {
+      setIsDeletingFolder(true);
       await ApiClient.deletePdfFolder(target.id);
       setToastMsg({ type: 'success', text: `Folder "${target.name}" deleted.` });
+      setDeleteFolderTarget(null);
       if (pId && pId !== folderId) {
         await refreshSubFolderContents(pId);
       }
       await loadFolder();
     } catch (err: any) {
-      setFolderData(prevFolderData);
-      setSubFolderContents(prevSubContents);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete folder.' });
+    } finally {
+      setIsDeletingFolder(false);
     }
   };
 
@@ -353,40 +335,20 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
     if (!deleteDocTarget) return;
     const target = deleteDocTarget;
     const fId = target.folderId;
-    const prevFolderData = folderData;
-    const prevSubContents = subFolderContents;
-
-    // 1. Dismiss modal instantly
-    setDeleteDocTarget(null);
-
-    // 2. Optimistic local removal
-    if (folderData && fId === folderId) {
-      setFolderData({
-        ...folderData,
-        documents: folderData.documents?.filter((d) => d.id !== target.id) || [],
-      });
-    }
-    if (fId && fId !== folderId && prevSubContents[fId]) {
-      setSubFolderContents((prev) => ({
-        ...prev,
-        [fId]: {
-          ...prev[fId],
-          documents: prev[fId].documents.filter((d) => d.id !== target.id),
-        },
-      }));
-    }
 
     try {
+      setIsDeletingDoc(true);
       await ApiClient.deletePdfDocument(target.id);
       setToastMsg({ type: 'success', text: `Document "${target.title}" deleted.` });
+      setDeleteDocTarget(null);
       if (fId && fId !== folderId) {
         await refreshSubFolderContents(fId);
       }
       await loadFolder();
     } catch (err: any) {
-      setFolderData(prevFolderData);
-      setSubFolderContents(prevSubContents);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete document.' });
+    } finally {
+      setIsDeletingDoc(false);
     }
   };
 
@@ -1152,6 +1114,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
       {/* Delete Folder Confirm Dialog */}
       <ConfirmDialog
         isOpen={!!deleteFolderTarget}
+        isLoading={isDeletingFolder}
         onCancel={() => setDeleteFolderTarget(null)}
         onConfirm={handleDeleteFolder}
         title="Delete Subfolder?"
@@ -1163,6 +1126,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
       {/* Delete Document Confirm Dialog */}
       <ConfirmDialog
         isOpen={!!deleteDocTarget}
+        isLoading={isDeletingDoc}
         onCancel={() => setDeleteDocTarget(null)}
         onConfirm={handleDeleteDoc}
         title="Delete Document?"

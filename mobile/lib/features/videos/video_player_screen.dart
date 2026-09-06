@@ -2,7 +2,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../data/models/library.dart';
@@ -50,7 +49,11 @@ class VideoPlayerScreen extends StatelessWidget {
   Future<void> _openOnYoutube() async {
     final uri = Uri.tryParse(video.youtubeUrl);
     if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    }
   }
 
   @override
@@ -63,108 +66,130 @@ class VideoPlayerScreen extends StatelessWidget {
         title: Text(video.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: ListView(
-        padding: EdgeInsets.zero,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
-          GestureDetector(
-            onTap: _openOnYoutube,
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (thumb.isNotEmpty)
-                    CachedNetworkImage(
-                      imageUrl: thumb,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(color: palette.elevated),
-                      errorWidget: (_, __, ___) =>
-                          Container(color: palette.elevated),
-                    )
-                  else
-                    Container(color: palette.elevated),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.75),
-                          Colors.black.withValues(alpha: 0.05),
-                        ],
-                      ),
-                    ),
+          // "Watch on YouTube" button above the thumbnail
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openOnYoutube,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF0000),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 14,
                   ),
-                  Center(
-                    child: ElevatedButton.icon(
-                      onPressed: _openOnYoutube,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 14,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
-                      icon: const Icon(Icons.play_arrow_rounded,
-                          color: AppColors.red),
-                      label: const Text(
-                        'Watch on YouTube',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                   ),
-                ],
+                  elevation: 0,
+                ),
+                icon: const Icon(Icons.play_circle_fill_rounded,
+                    color: Colors.white, size: 22),
+                label: const Text(
+                  'Watch on YouTube',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    letterSpacing: 0.2,
+                  ),
+                ),
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  video.title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        height: 1.3,
+          // Video Thumbnail
+          GestureDetector(
+            onTap: _openOnYoutube,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (thumb.isNotEmpty)
+                      CachedNetworkImage(
+                        imageUrl: thumb,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) =>
+                            Container(color: palette.elevated),
+                        errorWidget: (_, __, ___) =>
+                            Container(color: palette.elevated),
+                      )
+                    else
+                      Container(color: palette.elevated),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.6),
+                            Colors.black.withValues(alpha: 0.1),
+                          ],
+                        ),
                       ),
-                ),
-                if ((video.description ?? '').trim().isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    video.description!,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: palette.textSecondary,
-                          height: 1.6,
-                        ),
-                  ),
-                ],
-                if ((video.pdfUrl ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  Text(
-                    'Class notes',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-                  PdfAttachmentTile(
-                    title: video.pdfFileName ?? 'Notes for this class',
-                    subtitle: 'Tap to view notes',
-                    onTap: () => openPdf(
-                      context,
-                      url: video.pdfUrl!,
-                      title: video.pdfFileName ?? video.title,
-                      minimal: true,
                     ),
-                  ),
-                ],
-              ],
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 36,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
+          const SizedBox(height: 18),
+          Text(
+            video.title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  height: 1.3,
+                ),
+          ),
+          if ((video.description ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              video.description!,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: palette.textSecondary,
+                    height: 1.6,
+                  ),
+            ),
+          ],
+          if ((video.pdfUrl ?? '').isNotEmpty) ...[
+            const SizedBox(height: 20),
+            Text(
+              'Class notes',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 10),
+            PdfAttachmentTile(
+              title: video.pdfFileName ?? 'Notes for this class',
+              subtitle: 'Tap to view notes',
+              onTap: () => openPdf(
+                context,
+                url: video.pdfUrl!,
+                title: video.pdfFileName ?? video.title,
+                minimal: true,
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -46,6 +46,13 @@ export interface NavbarProps {
   linkComponent?: React.ElementType;
   /** Prefetch callback called on link mouseEnter or focus */
   onPrefetch?: (href: string) => void;
+  /**
+   * Host-supplied controls placed before the theme toggle — the notification
+   * bell, for one. Kept as a slot so app-specific state stays out of the
+   * design system, and rendered on every breakpoint since it is not navigation
+   * and does not belong in the mobile menu.
+   */
+  actions?: React.ReactNode;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -61,6 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   linkComponent,
   onPrefetch,
+  actions,
 }) => {
   const LinkTag = linkComponent || 'a';
   const [localTheme, setLocalTheme] = useState<'dark' | 'light'>('dark');
@@ -122,8 +130,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className={cn('sticky top-0 z-40 w-full glass-header bg-white/80 dark:bg-slate-950/80 backdrop-blur-xl border-b border-slate-200/90 dark:border-slate-800/90', className)}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <div className="flex items-center space-x-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+        <div className="flex items-center space-x-2 sm:space-x-8 min-w-0">
           <LinkTag
             href="/"
             prefetch={linkComponent ? true : undefined}
@@ -131,7 +139,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onFocus={() => onPrefetch?.('/')}
             onTouchStart={() => onPrefetch?.('/')}
             onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.('/', e)}
-            className="flex items-center space-x-2.5 font-black text-xl tracking-tight group cursor-pointer active:scale-95 transition-transform duration-150"
+            className="flex items-center space-x-2 sm:space-x-2.5 font-black text-sm sm:text-base md:text-xl tracking-tight group cursor-pointer active:scale-95 transition-transform duration-150 shrink-0"
           >
             {logo ? (
               logo
@@ -139,10 +147,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               <img
                 src={logoUrl}
                 alt="Logo"
-                className="w-9 h-9 rounded-full object-contain shadow-sm ring-1 ring-cyan-500/25 group-hover:scale-105 transition-transform duration-200"
+                className="w-7 h-7 sm:w-8 sm:h-8 md:w-9 md:h-9 rounded-full object-contain shadow-sm ring-1 ring-cyan-500/25 group-hover:scale-105 transition-transform duration-200 shrink-0"
               />
             ) : null}
-            <span className="bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 dark:from-cyan-400 dark:via-cyan-300 dark:to-blue-400 bg-clip-text text-transparent drop-shadow-xs font-black">
+            <span className="bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 dark:from-cyan-400 dark:via-cyan-300 dark:to-blue-400 bg-clip-text text-transparent drop-shadow-xs font-black whitespace-nowrap leading-none">
               {brandName}
             </span>
           </LinkTag>
@@ -170,6 +178,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         <div className="flex items-center space-x-3">
+          {actions}
+
           {/* Hydration-safe Single-click Theme Toggle Button */}
           <button
             type="button"
@@ -462,7 +472,39 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl px-4 py-4 space-y-2 animate-in slide-in-from-top-2">
+        <div className="md:hidden border-t border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl px-4 py-4 space-y-2 animate-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
+          {user && (
+            <div className="p-3 rounded-2xl bg-slate-100/90 dark:bg-[#0c1630] border border-slate-200 dark:border-[#1e2e56] mb-3 flex items-center gap-3">
+              {user.avatarUrl && !avatarError ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={user.name}
+                  className="w-10 h-10 rounded-xl object-cover ring-2 ring-cyan-500/30 shrink-0"
+                  onError={() => setAvatarError(true)}
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-md shadow-cyan-500/25 shrink-0">
+                  {getInitials(user.name)}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                  {user.name}
+                </p>
+                {user.email && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {user.email}
+                  </p>
+                )}
+              </div>
+              {user.role && user.role !== 'STUDENT' && (
+                <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 shrink-0">
+                  {user.role}
+                </span>
+              )}
+            </div>
+          )}
+
           {links.map((link) => (
             <LinkTag
               key={link.href}
@@ -485,43 +527,123 @@ export const Navbar: React.FC<NavbarProps> = ({
               {link.label}
             </LinkTag>
           ))}
-          {user && onLogout && (
-            <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56]">
-              <button
-                type="button"
-                onClick={() => {
+
+          {user && (
+            <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] space-y-1">
+              <LinkTag
+                href="/profile"
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/profile')}
+                onFocus={() => onPrefetch?.('/profile')}
+                onTouchStart={() => onPrefetch?.('/profile')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                   setMobileMenuOpen(false);
-                  setShowLogoutModal(true);
+                  onNavigate?.('/profile', e);
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+                className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#091124] transition-all cursor-pointer"
               >
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
-              </button>
+                <UserIcon className="w-4 h-4 text-cyan-500" />
+                <span>My Profile</span>
+              </LinkTag>
+
+              <LinkTag
+                href="/orders"
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/orders')}
+                onFocus={() => onPrefetch?.('/orders')}
+                onTouchStart={() => onPrefetch?.('/orders')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                  setMobileMenuOpen(false);
+                  onNavigate?.('/orders', e);
+                }}
+                className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#091124] transition-all cursor-pointer"
+              >
+                <Receipt className="w-4 h-4 text-amber-500" />
+                <span>My Orders</span>
+              </LinkTag>
+
+              <LinkTag
+                href="/books?filter=purchased"
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/books?filter=purchased')}
+                onFocus={() => onPrefetch?.('/books?filter=purchased')}
+                onTouchStart={() => onPrefetch?.('/books?filter=purchased')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                  setMobileMenuOpen(false);
+                  onNavigate?.('/books?filter=purchased', e);
+                }}
+                className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#091124] transition-all cursor-pointer"
+              >
+                <BookOpen className="w-4 h-4 text-indigo-500" />
+                <span>Purchased E-Books</span>
+              </LinkTag>
+
+              {(user.role === 'ADMIN' || user.role === 'STAFF') && (
+                <LinkTag
+                  href="/admin"
+                  prefetch={linkComponent ? true : undefined}
+                  onMouseEnter={() => onPrefetch?.('/admin')}
+                  onFocus={() => onPrefetch?.('/admin')}
+                  onTouchStart={() => onPrefetch?.('/admin')}
+                  onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                    setMobileMenuOpen(false);
+                    onNavigate?.('/admin', e);
+                  }}
+                  className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer"
+                >
+                  <Shield className="w-4 h-4 text-purple-500" />
+                  <span>Admin Portal</span>
+                </LinkTag>
+              )}
+
+              {onLogout && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setShowLogoutModal(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
+
           {!user && (
             <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] flex flex-col space-y-2">
-              <a
+              <LinkTag
                 href="/login"
-                onClick={(e) => {
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/login')}
+                onFocus={() => onPrefetch?.('/login')}
+                onTouchStart={() => onPrefetch?.('/login')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                   setMobileMenuOpen(false);
                   onNavigate?.('/login', e);
                 }}
-                className="block text-center px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-[#091124]"
+                className="block text-center px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-[#091124] hover:text-cyan-500 transition-colors cursor-pointer"
               >
                 Log In
-              </a>
-              <a
+              </LinkTag>
+              <LinkTag
                 href="/signup"
-                onClick={(e) => {
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/signup')}
+                onFocus={() => onPrefetch?.('/signup')}
+                onTouchStart={() => onPrefetch?.('/signup')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                   setMobileMenuOpen(false);
                   onNavigate?.('/signup', e);
                 }}
-                className="block text-center px-4 py-2 rounded-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-blue-500"
+                className="block text-center px-4 py-2.5 rounded-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 shadow-md cursor-pointer"
               >
                 Get Started
-              </a>
+              </LinkTag>
             </div>
           )}
         </div>

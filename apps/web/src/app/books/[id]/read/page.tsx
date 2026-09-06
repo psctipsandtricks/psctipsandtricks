@@ -19,6 +19,8 @@ import {
   EMPTY_SYNC_MAP,
   normalizeSyncMap,
   resolvePageAtTime,
+  resolveTargetAtTime,
+  targetForCue,
   hasCues,
 } from './pdf-audio-sync';
 import { PdfSyncMap } from '@psc/shared-types';
@@ -89,7 +91,11 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
   const [syncMap, setSyncMap] = useState<PdfSyncMap>(EMPTY_SYNC_MAP);
   const [audioTimeMs, setAudioTimeMs] = useState(0);
   const [audioDurationMs, setAudioDurationMs] = useState(0);
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  // Off until asked for: a page that starts moving on its own the moment
+  // narration begins takes the reading position away from the reader before
+  // they have decided they want that. A stored preference is read below and
+  // wins over this, and only the toggle ever writes one.
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const [manualLatched, setManualLatched] = useState(false);
   const [pdfNumPages, setPdfNumPages] = useState(0);
   const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
@@ -539,6 +545,23 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
     [syncMap, audioTimeMs],
   );
 
+  /**
+   * Which cue the audio is inside. A number rather than the target itself, so
+   * the memo below only produces a new object when the cue actually changes —
+   * handing the viewer a fresh target on every timeupdate would have it
+   * re-evaluating scroll sixty times a minute for nothing.
+   */
+  const activeCueIndex = useMemo(
+    () => resolveTargetAtTime(syncMap, audioTimeMs)?.cueIndex ?? null,
+    [syncMap, audioTimeMs],
+  );
+
+  /** Page *and region* the cue map points at, for region-level following. */
+  const resolvedSyncTarget = useMemo(
+    () => targetForCue(syncMap, activeCueIndex),
+    [syncMap, activeCueIndex],
+  );
+
   /** Continuous audio progress ratio (0.0 to 1.0) */
   const audioProgress = useMemo(() => {
     if (audioDurationMs > 0) {
@@ -854,6 +877,7 @@ function BookReaderContentView({ bookId }: { bookId: string }) {
                       isAudioPlaying={isPlayingAudio}
                       audioProgress={audioProgress}
                       syncPage={resolvedSyncPage}
+                      syncTarget={resolvedSyncTarget}
                       autoScrollEnabled={autoScrollEnabled}
                       onAutoScrollChange={handleAutoScrollChange}
                       manualLatched={manualLatched}

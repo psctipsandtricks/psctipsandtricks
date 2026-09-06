@@ -139,7 +139,18 @@ export class StaffService {
       throw new ForbiddenException('You cannot modify your own administrative role');
     }
 
+    const isOwner = staff.email.toLowerCase() === 'psctipsandtricksapp@gmail.com';
+    if (isOwner && dto.role && dto.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('The Owner account role cannot be changed');
+    }
+    if (isOwner && dto.status && dto.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException('The Owner account cannot be suspended');
+    }
+
     if (dto.email && dto.email.trim().toLowerCase() !== staff.email) {
+      if (isOwner) {
+        throw new ForbiddenException('The Owner account email address cannot be changed');
+      }
       const existing = await this.prisma.user.findUnique({
         where: { email: dto.email.trim().toLowerCase() },
       });
@@ -179,7 +190,10 @@ export class StaffService {
   }
 
   async updatePermissions(id: string, dto: UpdatePermissionsDto) {
-    await this.findStaffOrThrow(id);
+    const staff = await this.findStaffOrThrow(id);
+    if (staff.email.toLowerCase() === 'psctipsandtricksapp@gmail.com') {
+      throw new ForbiddenException('The Owner account possesses full administrator access and cannot be restricted');
+    }
 
     return this.prisma.staffPermission.upsert({
       where: { userId: id },
@@ -222,7 +236,10 @@ export class StaffService {
     if (id === currentUserId) {
       throw new ForbiddenException('You cannot suspend your own account');
     }
-    await this.findStaffOrThrow(id);
+    const staff = await this.findStaffOrThrow(id);
+    if (staff.email.toLowerCase() === 'psctipsandtricksapp@gmail.com') {
+      throw new ForbiddenException('The Owner account cannot be suspended');
+    }
 
     return this.prisma.user.update({
       where: { id },
@@ -242,7 +259,10 @@ export class StaffService {
     if (id === currentUserId) {
       throw new ForbiddenException('You cannot delete your own account');
     }
-    await this.findStaffOrThrow(id);
+    const staff = await this.findStaffOrThrow(id);
+    if (staff.email.toLowerCase() === 'psctipsandtricksapp@gmail.com') {
+      throw new ForbiddenException('The Owner account cannot be deleted');
+    }
 
     await this.prisma.user.delete({ where: { id } });
     return { success: true, message: 'Staff member removed successfully' };

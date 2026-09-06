@@ -99,6 +99,7 @@ export function LibraryFolderManager({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ManagedFolder | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ManagedFolder | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
 
@@ -143,21 +144,14 @@ export function LibraryFolderManager({
           isActive: values.isActive,
         };
         if (editingItem) {
-          setItems((prev) =>
-            prev.map((i) => (i.id === editingItem.id ? { ...i, ...payload } : i)),
-          );
-          setIsDialogOpen(false);
-          setEditingItem(null);
-          resetForm();
           await updateItem(editingItem.id, payload);
-          await load(true);
         } else {
-          setIsDialogOpen(false);
-          setEditingItem(null);
-          resetForm();
           await createItem({ ...payload, orderIndex: items.length });
-          await load(true);
         }
+        setIsDialogOpen(false);
+        setEditingItem(null);
+        resetForm();
+        await load();
       } catch (err: any) {
         setFieldError('title', err.message || `Failed to save ${nounSingular.toLowerCase()}.`);
       } finally {
@@ -181,14 +175,15 @@ export function LibraryFolderManager({
   };
 
   const handleDelete = async (id: string) => {
-    const previous = items;
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    setIsDeleting(true);
     try {
       await deleteItem(id);
-      await load(true);
+      setDeleteTarget(null);
+      await load();
     } catch (err: any) {
-      setItems(previous);
       alert(err.message || `Failed to delete ${nounSingular.toLowerCase()}.`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -367,7 +362,7 @@ export function LibraryFolderManager({
 
                 {/* Nested Dropdown Accordion Panel */}
                 {isExpanded && (
-                  <div className="ml-9 mr-14 p-3 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.03] dark:bg-cyan-950/20 space-y-2 animate-in fade-in duration-200">
+                  <div className="sm:ml-9 sm:mr-14 ml-2 mr-2 p-3 rounded-xl border border-cyan-500/30 bg-cyan-500/[0.03] dark:bg-cyan-950/20 space-y-2 animate-in fade-in duration-200">
                     <div className="flex items-center justify-between pb-1.5 border-b border-cyan-500/20 text-xs">
                       <span className="font-extrabold text-cyan-700 dark:text-cyan-300">
                         Contents of &ldquo;{item.title}&rdquo;
@@ -544,11 +539,11 @@ export function LibraryFolderManager({
         }
         confirmLabel="Delete"
         variant="danger"
+        isLoading={isDeleting}
         onConfirm={() => {
           if (deleteTarget) handleDelete(deleteTarget.id);
-          setDeleteTarget(null);
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !isDeleting && setDeleteTarget(null)}
       />
     </div>
   );

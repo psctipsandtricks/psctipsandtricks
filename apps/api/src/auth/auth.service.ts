@@ -2,40 +2,174 @@ import { Injectable, Logger, UnauthorizedException, BadRequestException } from '
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import * as dns from 'dns';
 import { ConfigService } from '@nestjs/config';
-import { OAuthProvider, UserRole } from '@prisma/client';
+import { OAuthProvider, UserRole, UserStatus } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { MailService } from './mail.service';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private resetOtps = new Map<string, { otp: string; expiresAt: number; verified: boolean }>();
+  private registerOtps = new Map<
+    string,
+    {
+      otp: string;
+      name: string;
+      hashedPassword: string;
+      phoneNumber?: string;
+      expiresAt: number;
+    }
+  >();
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mailService: MailService,
   ) {}
 
-  async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existing) {
-      throw new BadRequestException('User with this email already exists');
+  private async validateEmailAddress(email: string): Promise<void> {
+    const normEmail = email.trim().toLowerCase();
+
+    // 1. Strict regex format check
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(normEmail)) {
+      throw new BadRequestException('Please enter a valid email address format.');
     }
 
+    const parts = normEmail.split('@');
+    if (parts.length !== 2) {
+      throw new BadRequestException('Invalid email address structure.');
+    }
+
+    const domain = parts[1];
+    if (!domain || domain.length < 3 || !domain.includes('.')) {
+      throw new BadRequestException('The email domain is invalid.');
+    }
+
+    // 2. DNS MX / A record check for real domain existence
+    const isLocalOrTest =
+      domain === 'localhost' ||
+      domain.endsWith('.local') ||
+      domain === 'psctips.com' ||
+      domain === 'psctipsandtricks.com';
+
+    if (!isLocalOrTest) {
+      try {
+        const mxRecords = await dns.promises.resolveMx(domain).catch(() => []);
+        if (!mxRecords || mxRecords.length === 0) {
+          const aRecords = await dns.promises.resolve4(domain).catch(() => []);
+          if (!aRecords || aRecords.length === 0) {
+            throw new BadRequestException(
+              `The email domain (${domain}) does not exist or cannot receive emails. Please enter a valid and active email address.`,
+            );
+          }
+        }
+      } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
+        if (err.code === 'ENOTFOUND' || err.code === 'ENODATA' || err.code === 'NXDOMAIN') {
+          throw new BadRequestException(
+            `The domain "${domain}" does not exist. Please check your email address for typos.`,
+          );
+        }
+      }
+    }
+  }
+
+  async sendRegisterOtp(dto: RegisterDto) {
+    const normEmail = dto.email.trim().toLowerCase();
+
+    // 1. Validate email address format and domain validity
+    await this.validateEmailAddress(normEmail);
+
+    // 2. Check if user already exists
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+    });
+    if (existing) {
+      throw new BadRequestException('An account with this email address already exists. Please log in instead.');
+    }
+
+    if (!dto.password || dto.password.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters long.');
+    }
+
+    if (!dto.name || dto.name.trim().length === 0) {
+      throw new BadRequestException('Full name is required.');
+    }
+
+    // 3. Hash password and generate 6-digit OTP
     const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    // 4. Send the verification code to the user's email
+    try {
+      await this.mailService.sendRegistrationOtp(normEmail, otp, dto.name.trim());
+    } catch (err: any) {
+      this.logger.error(`Registration email delivery failed for ${normEmail}:`, err);
+      throw new BadRequestException(
+        'Unable to deliver verification email to this address. Please ensure your email is correct and active.',
+      );
+    }
+
+    // 5. Store pending registration session
+    this.registerOtps.set(normEmail, {
+      otp,
+      name: dto.name.trim(),
+      hashedPassword,
+      phoneNumber: dto.phoneNumber?.trim() || undefined,
+      expiresAt,
+    });
+
+    return {
+      success: true,
+      requiresOtp: true,
+      email: normEmail,
+      message: 'A 6-digit verification code has been sent to your email address. Please enter the code to complete registration.',
+    };
+  }
+
+  async verifyRegisterOtp(dto: { email: string; otp: string }) {
+    const normEmail = dto.email.trim().toLowerCase();
+    const record = this.registerOtps.get(normEmail);
+
+    if (!record || record.expiresAt < Date.now()) {
+      throw new BadRequestException(
+        'The verification session has expired or was not found. Please request a new verification code.',
+      );
+    }
+
+    if (record.otp !== dto.otp.trim()) {
+      throw new BadRequestException('Incorrect verification code. Please check your email and try again.');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+    });
+    if (existing) {
+      this.registerOtps.delete(normEmail);
+      throw new BadRequestException('An account with this email address already exists. Please log in.');
+    }
+
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
-        name: dto.name,
-        password: hashedPassword,
-        phoneNumber: dto.phoneNumber,
+        email: normEmail,
+        name: record.name,
+        password: record.hashedPassword,
+        phoneNumber: record.phoneNumber,
         role: UserRole.STUDENT,
       },
       include: { staffPermission: true },
     });
+
+    this.registerOtps.delete(normEmail);
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     const { password, ...result } = user;
@@ -45,9 +179,16 @@ export class AuthService {
     };
   }
 
+  async register(dto: RegisterDto) {
+    if (dto.otp) {
+      return this.verifyRegisterOtp({ email: dto.email, otp: dto.otp });
+    }
+    return this.sendRegisterOtp(dto);
+  }
+
   async login(dto: LoginDto) {
     let user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email: dto.email.trim().toLowerCase() },
       include: { staffPermission: true },
     });
     if (!user) {
@@ -80,6 +221,12 @@ export class AuthService {
       if (!isValid) {
         throw new UnauthorizedException('Invalid credentials');
       }
+    }
+
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new UnauthorizedException(
+        'Access Denied: Your account has been suspended. Please contact a Super Administrator.',
+      );
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -285,9 +432,137 @@ export class AuthService {
       });
     }
 
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new UnauthorizedException(
+        'Access Denied: Your account has been suspended. Please contact a Super Administrator.',
+      );
+    }
+
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     const { password, ...result } = user;
     return { user: result, ...tokens };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const normEmail = dto.email.toLowerCase().trim();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+    });
+
+    // Generate a secure 6-digit OTP code (e.g. 100000 - 999999)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    if (user) {
+      this.resetOtps.set(normEmail, { otp, expiresAt, verified: false });
+      // Send OTP to the user's real email address
+      await this.mailService.sendPasswordResetOtp(normEmail, otp, user.name);
+    }
+
+    return {
+      success: true,
+      message: 'If an account exists with this email, a 6-digit verification code has been sent to your email.',
+    };
+  }
+
+  async adminForgotPassword(dto: ForgotPasswordDto) {
+    const normEmail = dto.email.toLowerCase().trim();
+    let user = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+      include: { staffPermission: true },
+    });
+
+    // Auto-promote admin emails to ADMIN role if needed
+    if (
+      user &&
+      (normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com') &&
+      user.role !== UserRole.ADMIN
+    ) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { role: UserRole.ADMIN },
+        include: { staffPermission: true },
+      });
+    }
+
+    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.STAFF)) {
+      throw new BadRequestException(
+        'Access Denied: This email is not registered as an active staff or administrator account in Staff Management.',
+      );
+    }
+
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new BadRequestException(
+        'Access Denied: This staff account is currently suspended. Please contact a Super Administrator.',
+      );
+    }
+
+    // Generate a secure 6-digit OTP code
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    this.resetOtps.set(normEmail, { otp, expiresAt, verified: false });
+    await this.mailService.sendPasswordResetOtp(normEmail, otp, user.name || 'Staff Member');
+
+    return {
+      success: true,
+      message: 'A 6-digit staff recovery OTP has been sent to your registered email address.',
+    };
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const normEmail = dto.email.toLowerCase().trim();
+    const record = this.resetOtps.get(normEmail);
+
+    if (!record || record.expiresAt < Date.now()) {
+      throw new BadRequestException('The OTP code is invalid or has expired. Please request a new one.');
+    }
+
+    if (record.otp !== dto.otp.trim()) {
+      throw new BadRequestException('Incorrect OTP code. Please check your email and try again.');
+    }
+
+    // Mark as verified so user can proceed to password creation
+    record.verified = true;
+
+    return {
+      success: true,
+      message: 'OTP verified successfully. Please enter your new password.',
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const normEmail = dto.email.toLowerCase().trim();
+    const record = this.resetOtps.get(normEmail);
+
+    if (!record || record.expiresAt < Date.now()) {
+      throw new BadRequestException('Invalid or expired password reset session. Please request a new OTP.');
+    }
+
+    if (!record.verified && record.otp !== dto.otp?.trim()) {
+      throw new BadRequestException('Please verify the OTP code sent to your email first.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+    });
+
+    if (!user) {
+      throw new BadRequestException('User account not found.');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    this.resetOtps.delete(normEmail);
+
+    return {
+      success: true,
+      message: 'Your password has been successfully updated. You can now log in with your new password.',
+    };
   }
 
   async refreshToken(refreshToken: string) {
@@ -296,7 +571,7 @@ export class AuthService {
         secret: this.configService.get('JWT_REFRESH_SECRET') || 'super-secret-psc-refresh-jwt-key-2026',
       });
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-      if (!user) throw new UnauthorizedException('Invalid refresh token');
+      if (!user || user.status === UserStatus.SUSPENDED) throw new UnauthorizedException('Invalid refresh token');
 
       const tokens = await this.generateTokens(user.id, user.email, user.role);
       return tokens;

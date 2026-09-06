@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { Card, Button, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@psc/ui';
 import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
@@ -39,6 +39,7 @@ interface SavedMockProgress {
 const mockProgressStorageKey = (mockTestId: string) => `mock-test-progress-${mockTestId}`;
 
 function loadSavedMockProgress(mockTestId: string): SavedMockProgress | null {
+  if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(mockProgressStorageKey(mockTestId));
     return raw ? JSON.parse(raw) : null;
@@ -47,7 +48,17 @@ function loadSavedMockProgress(mockTestId: string): SavedMockProgress | null {
   }
 }
 
-export default function MockTestPage({ params }: { params: { id: string } }) {
+export default function MockTestPage({ params: propParams }: { params?: { id?: string } }) {
+  return (
+    <Suspense fallback={<QuizTakingSkeleton />}>
+      <MockTestContent propParams={propParams} />
+    </Suspense>
+  );
+}
+
+function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
+  const routeParams = useParams();
+  const testId = (routeParams?.id as string) || propParams?.id || '';
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -59,7 +70,8 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [hasJoined, setHasJoined] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitResult, setSubmitResult] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -70,16 +82,17 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   const quizStartRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace(`/login?redirect=${encodeURIComponent(`/mock-tests/${params.id}`)}`);
+    if (!authLoading && !user && testId) {
+      router.replace(`/login?redirect=${encodeURIComponent(`/mock-tests/${testId}`)}`);
     }
-  }, [user, authLoading, params.id, router]);
+  }, [user, authLoading, testId, router]);
 
   // Also re-run after a payment settles: the server withholds questions for a
   // locked premium test, so they only arrive once access opens.
   const loadMockTest = useCallback(async () => {
+    if (!testId) return;
     try {
-      const data = await ApiClient.getMockTestById(params.id);
+      const data = await ApiClient.getMockTestById(testId);
       setMockTest(data);
       const mapped: QuizQuestion[] = (data.quiz?.questions || []).map((q: any) => {
         const opts = Array.isArray(q.options) ? q.options : [];
@@ -89,7 +102,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
           options: opts.map((o: any) =>
             typeof o === 'string'
               ? { id: `opt-${Math.random()}`, text: o }
-              : { id: o.id || `opt-${Math.random()}`, text: o.text || '', explanation: o.explanation || undefined }
+              : { id: o?.id || `opt-${Math.random()}`, text: o?.text || '', explanation: o?.explanation || undefined }
           ),
           correct: q.correctOptionIndex ?? 0,
           explanation: q.explanation || '',
@@ -99,15 +112,15 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       setQuestions(mapped);
     } catch (err: any) {
       console.error('Failed to fetch mock test:', err);
-      setError(err.message || 'Failed to load mock test');
+      setError(err?.message || 'Failed to load mock test');
     }
-  }, [params.id]);
+  }, [testId]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !testId) return;
     setLoading(true);
     loadMockTest().finally(() => setLoading(false));
-  }, [user, loadMockTest]);
+  }, [user, testId, loadMockTest]);
 
   // Tick every second while UPCOMING so the countdown view flips exactly at start time.
   useEffect(() => {
@@ -119,16 +132,16 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
 
   // Re-check server status periodically while upcoming, to pick up the scheduler's LIVE flip.
   useEffect(() => {
-    if (!mockTest || mockTest.status !== 'UPCOMING') return;
+    if (!mockTest || mockTest.status !== 'UPCOMING' || !testId) return;
     const interval = setInterval(async () => {
       try {
-        setMockTest(await ApiClient.getMockTestById(params.id));
+        setMockTest(await ApiClient.getMockTestById(testId));
       } catch (err) {
         console.error('Failed to refresh mock test status:', err);
       }
     }, 10_000);
     return () => clearInterval(interval);
-  }, [mockTest, params.id]);
+  }, [mockTest, testId]);
 
   const myParticipant = mockTest?.participants?.find((p: any) => p.userId === user?.id);
   const scheduledMs = mockTest ? new Date(mockTest.scheduledAt).getTime() : 0;
@@ -152,41 +165,51 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
 
   // Join once when entering the live quiz-taking view.
   useEffect(() => {
-    if (!showQuizView || joinedRef.current || !mockTest) return;
+    if (!showQuizView || joinedRef.current || !mockTest || !testId) return;
     joinedRef.current = true;
     quizStartRef.current = Date.now();
-    setTimeLeft((mockTest.quiz.durationMinutes || 15) * 60);
+    const durationMinutes = mockTest.quiz?.durationMinutes || 15;
+    setTimeLeft(durationMinutes * 60);
+    setHasJoined(true);
 
     // Submissions only reach the server on final submit, so where the
     // student stopped is tracked locally and restored on Resume.
-    const saved = loadSavedMockProgress(params.id);
+    const saved = loadSavedMockProgress(testId);
     if (saved) {
-      setSelectedAnswers(saved.selectedAnswers);
-      setCurrentIndex(Math.min(saved.currentIndex, Math.max(0, questions.length - 1)));
+      setSelectedAnswers(saved.selectedAnswers || {});
+      if (questions.length > 0) {
+        setCurrentIndex(Math.min(saved.currentIndex || 0, Math.max(0, questions.length - 1)));
+      }
     }
 
-    ApiClient.joinMockTest(params.id).catch((err) => console.warn('Join failed (may already be joined):', err));
-  }, [showQuizView, mockTest, params.id, questions.length]);
+    ApiClient.joinMockTest(testId).catch((err) => console.warn('Join failed (may already be joined):', err));
+  }, [showQuizView, mockTest, testId, questions.length]);
 
   // Persist progress on every change so a Resume click lands back here.
   useEffect(() => {
-    if (!showQuizView || isSubmitted || questions.length === 0) return;
+    if (!showQuizView || isSubmitted || questions.length === 0 || !testId) return;
+    if (typeof window === 'undefined') return;
     const progress: SavedMockProgress = { currentIndex, selectedAnswers };
-    localStorage.setItem(mockProgressStorageKey(params.id), JSON.stringify(progress));
-  }, [showQuizView, isSubmitted, questions.length, currentIndex, selectedAnswers, params.id]);
+    try {
+      localStorage.setItem(mockProgressStorageKey(testId), JSON.stringify(progress));
+    } catch {}
+  }, [showQuizView, isSubmitted, questions.length, currentIndex, selectedAnswers, testId]);
 
+  // Decrement timer each second when active
   useEffect(() => {
-    if (!showQuizView || isSubmitted || timeLeft <= 0) return;
-    const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000);
+    if (!showQuizView || isSubmitted || timeLeft === null || timeLeft <= 0) return;
+    const timer = setInterval(() => {
+      setTimeLeft((t) => (t !== null && t > 0 ? t - 1 : 0));
+    }, 1000);
     return () => clearInterval(timer);
   }, [showQuizView, isSubmitted, timeLeft]);
 
   useEffect(() => {
-    if (!showLeaderboardView) return;
+    if (!showLeaderboardView || !testId) return;
     let active = true;
     async function fetchLeaderboard() {
       try {
-        const data = await ApiClient.getMockTestLeaderboard(params.id);
+        const data = await ApiClient.getMockTestLeaderboard(testId);
         if (active) setLeaderboard(data || []);
       } catch (err) {
         console.error('Failed to fetch leaderboard:', err);
@@ -199,31 +222,32 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       active = false;
       clearInterval(interval);
     };
-  }, [showLeaderboardView, isCompleted, params.id]);
+  }, [showLeaderboardView, isCompleted, testId]);
 
   useEffect(() => {
-    if (!showLeaderboardView || isCompleted) return;
+    if (!showLeaderboardView || isCompleted || !testId) return;
     const interval = setInterval(async () => {
       try {
-        setMockTest(await ApiClient.getMockTestById(params.id));
+        setMockTest(await ApiClient.getMockTestById(testId));
       } catch (err) {
         console.error('Failed to refresh mock test status:', err);
       }
     }, STATUS_POLL_MS);
     return () => clearInterval(interval);
-  }, [showLeaderboardView, isCompleted, params.id]);
+  }, [showLeaderboardView, isCompleted, testId]);
 
   // Restore submitted answers on result page reload if available
   useEffect(() => {
-    if (showLeaderboardView && Object.keys(selectedAnswers).length === 0) {
+    if (showLeaderboardView && testId && Object.keys(selectedAnswers).length === 0) {
+      if (typeof window === 'undefined') return;
       try {
-        const raw = localStorage.getItem(`mock-test-submitted-answers-${params.id}`);
+        const raw = localStorage.getItem(`mock-test-submitted-answers-${testId}`);
         if (raw) {
           setSelectedAnswers(JSON.parse(raw));
         }
       } catch {}
     }
-  }, [showLeaderboardView, params.id, selectedAnswers]);
+  }, [showLeaderboardView, testId, selectedAnswers]);
 
   if (loading || authLoading || !user) {
     return <QuizTakingSkeleton />;
@@ -247,10 +271,10 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   if (isLocked) {
     return (
       <QuizPaywall
-        quizId={mockTest.quizId}
+        quizId={mockTest.quizId || mockTest.quiz?.id}
         title={mockTest.title}
         access={access}
-        loginRedirect={`/mock-tests/${params.id}`}
+        loginRedirect={`/mock-tests/${testId}`}
         onUnlocked={loadMockTest}
         subtitle={
           isCompleted
@@ -262,24 +286,18 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
   }
 
   const handleSubmit = async () => {
-    // The button disables the instant isSubmitting flips true, but a second
-    // click can still queue up before that render lands — this stops it from
-    // firing a duplicate submit.
-    if (isSubmitting || isSubmitted) return;
+    if (isSubmitting || isSubmitted || !testId) return;
     setIsSubmitting(true);
 
     const answerPayload = questions.map((q) => {
       const selected = selectedAnswers[q.id];
       return selected === undefined ? { questionId: q.id } : { questionId: q.id, selectedOptionIndex: selected };
     });
-    // The raw millisecond figure is what rank ties are broken on server-side —
-    // rounding to whole seconds first would throw away exactly the precision
-    // that separates two students who finish a beat apart.
     const elapsedMs = quizStartRef.current ? Date.now() - quizStartRef.current : 0;
     const elapsedSeconds = Math.round(elapsedMs / 1000);
 
     try {
-      const result = await ApiClient.submitMockTest(params.id, {
+      const result = await ApiClient.submitMockTest(testId, {
         quizId: mockTest.quizId,
         answers: answerPayload,
         timeTakenSeconds: elapsedSeconds,
@@ -287,20 +305,20 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
       });
       setSubmitResult(result);
       setIsSubmitted(true);
-      localStorage.removeItem(mockProgressStorageKey(params.id));
-      localStorage.setItem(`mock-test-submitted-answers-${params.id}`, JSON.stringify(selectedAnswers));
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(mockProgressStorageKey(testId));
+        localStorage.setItem(`mock-test-submitted-answers-${testId}`, JSON.stringify(selectedAnswers));
+      }
     } catch (err: any) {
       const message: string = err?.message || '';
 
-      // An earlier attempt can persist server-side while its response still
-      // fails. The server's "already submitted" is the authoritative answer, so
-      // move to the result view instead of leaving the student on a page whose
-      // only button can never succeed.
       if (/already submitted/i.test(message)) {
         setIsSubmitted(true);
-        localStorage.removeItem(mockProgressStorageKey(params.id));
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(mockProgressStorageKey(testId));
+        }
         try {
-          setMockTest(await ApiClient.getMockTestById(params.id));
+          setMockTest(await ApiClient.getMockTestById(testId));
         } catch (refreshErr) {
           console.error('Failed to refresh mock test after duplicate submit:', refreshErr);
         }
@@ -314,13 +332,12 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     }
   };
 
-  // The countdown effect above stops ticking at 00:00 but never used to end
-  // the attempt — a stalled timer left the student stuck on the last question.
+  // Only auto-submit when the test has actually joined and timer hits 0
   useEffect(() => {
-    if (!showQuizView || isSubmitted || isSubmitting || timeLeft > 0) return;
+    if (!showQuizView || !hasJoined || isSubmitted || isSubmitting || timeLeft === null || timeLeft > 0) return;
     handleSubmit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeLeft, showQuizView, isSubmitted, isSubmitting]);
+  }, [timeLeft, showQuizView, hasJoined, isSubmitted, isSubmitting]);
 
   const handleExportPDF = async () => {
     if (isExportingPDF) return;
@@ -340,8 +357,6 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
 
     setIsExportingPDF(true);
     try {
-      // jsPDF is a heavy dependency only needed when the student actually
-      // exports their solutions, not on every mock-test view.
       const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
       await generateQuizSolutionsPDF({
         quizTitle: mockTest?.title || mockTest?.quiz?.title || 'Live Mock Test Solutions',
@@ -389,9 +404,15 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
     );
   }
 
-  const currentQ = questions[currentIndex];
-  const minutes = Math.floor(timeLeft / 60);
-  const seconds = timeLeft % 60;
+  const safeIndex = Math.max(0, Math.min(currentIndex, questions.length - 1));
+  const currentQ = questions[safeIndex];
+  if (!currentQ) {
+    return <QuizTakingSkeleton />;
+  }
+
+  const secondsTotal = timeLeft !== null ? timeLeft : (mockTest.quiz?.durationMinutes || 15) * 60;
+  const minutes = Math.floor(secondsTotal / 60);
+  const seconds = secondsTotal % 60;
 
   return (
     <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6 px-1 sm:px-0">
@@ -403,7 +424,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
           <div>
             <span className="text-[10px] sm:text-xs text-slate-400 block">Progress</span>
             <span className="text-xs sm:text-sm font-bold text-white font-mono">
-              {currentIndex + 1} / {questions.length}
+              {safeIndex + 1} / {questions.length}
             </span>
           </div>
         </div>
@@ -429,12 +450,12 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
 
       <Card className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         <div className="flex justify-between items-center gap-2">
-          <Badge variant="outline" className="text-xs">Question #{currentIndex + 1}</Badge>
+          <Badge variant="outline" className="text-xs">Question #{safeIndex + 1}</Badge>
           <div className="flex items-center space-x-1.5 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
             <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
             <span>
               {currentQ.marks} Mark
-              {mockTest.quiz.negativeMarkingEnabled &&
+              {mockTest?.quiz?.negativeMarkingEnabled &&
                 ` • -${mockTest.quiz.negativeMarkingDeduct} per ${mockTest.quiz.negativeMarkingEvery} wrong`}
             </span>
           </div>
@@ -443,9 +464,9 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         <h2 className="text-base sm:text-xl font-bold text-slate-900 dark:text-white leading-relaxed sm:leading-snug">{currentQ.text}</h2>
 
         <div className="space-y-2.5 sm:space-y-3">
-          {currentQ.options.map((opt, idx) => {
+          {(currentQ.options || []).map((opt, idx) => {
             const isSelected = selectedAnswers[currentQ.id] === idx;
-            const optText = typeof opt === 'string' ? opt : opt.text;
+            const optText = typeof opt === 'string' ? opt : opt?.text || '';
             return (
               <button
                 key={idx}
@@ -473,12 +494,12 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="flex justify-between items-center pt-4 border-t border-slate-200 dark:border-slate-800">
-          <Button variant="outline" disabled={currentIndex === 0} onClick={() => setCurrentIndex((i) => i - 1)} className="flex items-center space-x-2">
+          <Button variant="outline" disabled={safeIndex === 0} onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))} className="flex items-center space-x-2">
             <ChevronLeft className="w-4 h-4" />
             <span>Previous</span>
           </Button>
 
-          {currentIndex === questions.length - 1 ? (
+          {safeIndex === questions.length - 1 ? (
             <Button
               variant="gold"
               className="font-bold flex items-center space-x-2"
@@ -489,7 +510,7 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
               <span>{isSubmitting ? 'Submitting…' : 'Submit Mock Test'}</span>
             </Button>
           ) : (
-            <Button variant="gold" className="flex items-center space-x-2" onClick={() => setCurrentIndex((i) => i + 1)}>
+            <Button variant="gold" className="flex items-center space-x-2" onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}>
               <span>Next Question</span>
               <ChevronRight className="w-4 h-4" />
             </Button>
@@ -497,8 +518,6 @@ export default function MockTestPage({ params }: { params: { id: string } }) {
         </div>
       </Card>
 
-      {/* Covers the gap between pressing submit and the result/rank list
-          landing — otherwise the only feedback was a small button spinner. */}
       {isSubmitting && (
         <QuizSubmittingOverlay
           type="mock-test"
@@ -531,7 +550,7 @@ function CountdownGate({ mockTest }: { mockTest: any }) {
       </Badge>
       <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{mockTest.title}</h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        {mockTest.quiz?.title} • {mockTest.quiz?.totalQuestions || mockTest.quiz?.questions?.length || 0} Questions • {mockTest.quiz?.durationMinutes} mins
+        {mockTest.quiz?.title} • {mockTest.quiz?.totalQuestions || mockTest.quiz?.questions?.length || 0} Questions • {mockTest.quiz?.durationMinutes || 15} mins
       </p>
 
       <div className="flex items-center justify-center gap-3 sm:gap-4">
@@ -555,12 +574,6 @@ function CountdownGate({ mockTest }: { mockTest: any }) {
   );
 }
 
-/**
- * Shown instead of the rank list when the live window has closed and this
- * student never submitted — whether they joined and ran out of time
- * (`joined`) or never took part at all. Either way there is no score or rank
- * to show, so this offers a way to at least practice the quiz instead.
- */
 function MissedTestView({ mockTest, joined, onExportPDF }: { mockTest: any; joined: boolean; onExportPDF?: () => void }) {
   const canPractice = mockTest.quiz?.isActive !== false;
 
@@ -672,7 +685,7 @@ function LeaderboardView({
   const [filter, setFilter] = useState<SolutionFilter>('ALL');
 
   // Filter leaderboard to ONLY show the current user
-  const currentUserEntry = leaderboard.find((entry) => entry.userId === userId) || {
+  const currentUserEntry = (leaderboard || []).find((entry) => entry.userId === userId) || {
     rank: myRank ?? 1,
     userName: userName || 'You',
     score: myScore ?? 0,
@@ -681,8 +694,8 @@ function LeaderboardView({
   };
 
   // Build question review items
-  const reviewQuestions = React.useMemo(() => {
-    return questions.map((q, idx) => {
+  const reviewQuestions = useMemo(() => {
+    return (questions || []).map((q, idx) => {
       const selected = selectedAnswers[q.id];
       const isUnattempted = selected === undefined || selected === null;
       const isCorrect = !isUnattempted && selected === q.correct;
@@ -696,10 +709,10 @@ function LeaderboardView({
         id: q.id,
         number: idx + 1,
         text: q.text,
-        options: q.options.map((opt, optIdx) => ({
-          id: typeof opt === 'string' ? `opt-${optIdx}` : opt.id || `opt-${optIdx}`,
-          text: typeof opt === 'string' ? opt : opt.text,
-          explanation: typeof opt === 'string' ? undefined : opt.explanation,
+        options: (q.options || []).map((opt, optIdx) => ({
+          id: typeof opt === 'string' ? `opt-${optIdx}` : opt?.id || `opt-${optIdx}`,
+          text: typeof opt === 'string' ? opt : opt?.text || '',
+          explanation: typeof opt === 'string' ? undefined : opt?.explanation,
         })),
         correctOptionIndex: q.correct,
         selectedOptionIndex: selected,
@@ -710,7 +723,7 @@ function LeaderboardView({
     });
   }, [questions, selectedAnswers]);
 
-  const counts = React.useMemo(() => {
+  const counts = useMemo(() => {
     return {
       ALL: reviewQuestions.length,
       CORRECT: reviewQuestions.filter((q) => q.status === 'CORRECT').length,
@@ -719,7 +732,7 @@ function LeaderboardView({
     } as Record<SolutionFilter, number>;
   }, [reviewQuestions]);
 
-  const visibleQuestions = React.useMemo(() => {
+  const visibleQuestions = useMemo(() => {
     return reviewQuestions.filter((q) => filter === 'ALL' || q.status === filter);
   }, [reviewQuestions, filter]);
 
@@ -885,7 +898,7 @@ function MockReviewCard({
     status: 'CORRECT' | 'INCORRECT' | 'UNATTEMPTED';
   };
 }) {
-  const theme = STATUS_THEME[question.status];
+  const theme = STATUS_THEME[question.status] || STATUS_THEME.UNATTEMPTED;
 
   return (
     <Card className={`p-4 sm:p-5 space-y-4 glass-card rounded-2xl border-l-4 ${theme.border}`}>
@@ -984,3 +997,4 @@ function MockReviewCard({
     </Card>
   );
 }
+

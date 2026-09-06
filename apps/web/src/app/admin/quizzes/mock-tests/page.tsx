@@ -181,6 +181,7 @@ export default function AdminMockTestsPage() {
     try {
       setDeletingId(mockTest.id);
       await ApiClient.deleteMockTest(mockTest.id);
+      setDeleteTarget(null);
       await loadData();
     } catch (err) {
       console.error('Failed to delete mock test:', err);
@@ -615,11 +616,11 @@ export default function AdminMockTestsPage() {
         description={deleteTarget ? `Delete "${deleteTarget.title}"? This will remove all participant records and cannot be undone.` : undefined}
         confirmLabel="Delete"
         variant="danger"
+        isLoading={deletingId !== null}
         onConfirm={() => {
           if (deleteTarget) handleDelete(deleteTarget);
-          setDeleteTarget(null);
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !deletingId && setDeleteTarget(null)}
       />
     </div>
   );

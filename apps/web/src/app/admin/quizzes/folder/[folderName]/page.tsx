@@ -335,6 +335,7 @@ export default function AdminFolderQuizzesPage() {
   const [editingSubFolder, setEditingSubFolder] = useState<QuizFolder | null>(null);
   const [parentForNewSubFolder, setParentForNewSubFolder] = useState<QuizFolder | null>(null);
   const [deleteSubFolderTarget, setDeleteSubFolderTarget] = useState<QuizFolder | null>(null);
+  const [isDeletingSubFolder, setIsDeletingSubFolder] = useState(false);
   const [subFolderName, setSubFolderName] = useState('');
   const [subFolderDesc, setSubFolderDesc] = useState('');
   const [subFolderActive, setSubFolderActive] = useState(true);
@@ -362,6 +363,7 @@ export default function AdminFolderQuizzesPage() {
   const [originalReleaseIso, setOriginalReleaseIso] = useState<string | undefined>(undefined);
   const [formSubmitError, setFormSubmitError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<QuizItem | null>(null);
+  const [isDeletingQuiz, setIsDeletingQuiz] = useState(false);
   const [updatingStatusQuizId, setUpdatingStatusQuizId] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
@@ -702,40 +704,17 @@ export default function AdminFolderQuizzesPage() {
     setSubFolderError('');
     try {
       if (editingSubFolder) {
-        setSubFolders((prev) =>
-          prev.map((f) =>
-            f.id === editingSubFolder.id
-              ? { ...f, name, description: subFolderDesc.trim() || null, isActive: subFolderActive }
-              : f,
-          ),
-        );
-        setIsSubFolderDialogOpen(false);
-        setToastMsg({ type: 'success', text: `Sub-folder "${name}" updated.` });
         await ApiClient.updateQuizFolder(editingSubFolder.id, {
           name,
           description: subFolderDesc.trim() || undefined,
           isActive: subFolderActive,
         });
-        fetchSubFolders();
+        setIsSubFolderDialogOpen(false);
+        setToastMsg({ type: 'success', text: `Sub-folder "${name}" updated.` });
+        await fetchSubFolders();
       } else {
         const targetParentId = parentForNewSubFolder?.id || currentFolderData?.id || null;
         const targetParentName = parentForNewSubFolder?.name || currentFolder;
-        const tempId = `temp-${Date.now()}`;
-        const newFolder: QuizFolder = {
-          id: tempId,
-          name,
-          parentId: targetParentId,
-          parentName: targetParentName,
-          description: subFolderDesc.trim() || null,
-          orderIndex: subFolders.length,
-          isActive: subFolderActive,
-          quizCount: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setSubFolders((prev) => [...prev, newFolder]);
-        setIsSubFolderDialogOpen(false);
-        setToastMsg({ type: 'success', text: `Sub-folder "${name}" created.` });
         await ApiClient.createQuizFolder({
           name,
           parentId: targetParentId || targetParentName,
@@ -743,7 +722,9 @@ export default function AdminFolderQuizzesPage() {
           orderIndex: subFolders.length,
           isActive: subFolderActive,
         });
-        fetchSubFolders();
+        setIsSubFolderDialogOpen(false);
+        setToastMsg({ type: 'success', text: `Sub-folder "${name}" created.` });
+        await fetchSubFolders();
       }
     } catch (err: any) {
       setSubFolderError(err.message || 'Failed to save sub-folder.');
@@ -753,15 +734,16 @@ export default function AdminFolderQuizzesPage() {
   };
 
   const handleDeleteSubFolder = async (sf: QuizFolder) => {
-    const previous = subFolders;
-    setSubFolders((prev) => prev.filter((f) => f.id !== sf.id));
-    setToastMsg({ type: 'success', text: `Sub-folder "${sf.name}" deleted.` });
+    setIsDeletingSubFolder(true);
     try {
       await ApiClient.deleteQuizFolder(sf.id);
-      fetchSubFolders();
+      setDeleteSubFolderTarget(null);
+      setToastMsg({ type: 'success', text: `Sub-folder "${sf.name}" deleted.` });
+      await fetchSubFolders();
     } catch (err: any) {
-      setSubFolders(previous);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete sub-folder.' });
+    } finally {
+      setIsDeletingSubFolder(false);
     }
   };
 
@@ -835,38 +817,19 @@ export default function AdminFolderQuizzesPage() {
       try {
         let createdOrUpdated: any = null;
         if (editingQuizId) {
-          // Optimistically update edited quiz in table
-          setQuizzes((prev) =>
-            prev.map((q) =>
-              q.id === editingQuizId
-                ? {
-                    ...q,
-                    title: apiPayload.title,
-                    accessType: apiPayload.accessType as 'FREE' | 'PAID',
-                    isActive: apiPayload.isActive,
-                    durationMinutes: apiPayload.durationMinutes,
-                    isLiveMock: apiPayload.isLiveMock,
-                    price: apiPayload.price,
-                    discountPercent: apiPayload.discountPercent,
-                    finalPrice: apiPayload.finalPrice,
-                    imageUrl: apiPayload.imageUrl,
-                  }
-                : q,
-            ),
-          );
-          setIsDialogOpen(false);
-          setToastMsg({ type: 'success', text: 'Quiz updated successfully.' });
-
           await ApiClient.updateQuiz(editingQuizId, apiPayload);
           await syncLiveMockTest(editingQuizId, values);
+          setIsDialogOpen(false);
+          setToastMsg({ type: 'success', text: 'Quiz updated successfully.' });
           await Promise.all([fetchQuizzes(), fetchMockTests()]);
         } else {
-          setIsDialogOpen(false);
           createdOrUpdated = await ApiClient.createQuiz(apiPayload);
           if (createdOrUpdated?.id) {
             await syncLiveMockTest(createdOrUpdated.id, values);
+            setIsDialogOpen(false);
             router.push(`/admin/quizzes/${createdOrUpdated.id}/questions`);
           } else {
+            setIsDialogOpen(false);
             await Promise.all([fetchQuizzes(), fetchMockTests()]);
           }
         }
@@ -982,18 +945,16 @@ export default function AdminFolderQuizzesPage() {
   };
 
   const handleDeleteQuiz = async (id: string) => {
-    const previous = quizzes;
-    const previousTotal = totalCount;
-    setQuizzes((prev) => prev.filter((q) => q.id !== id));
-    setTotalCount((prev) => Math.max(0, prev - 1));
-    setToastMsg({ type: 'success', text: 'Quiz deleted successfully.' });
+    setIsDeletingQuiz(true);
     try {
       await ApiClient.deleteQuiz(id);
+      setDeleteTarget(null);
+      setToastMsg({ type: 'success', text: 'Quiz deleted successfully.' });
       await fetchQuizzes();
     } catch (err: any) {
-      setQuizzes(previous);
-      setTotalCount(previousTotal);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete quiz.' });
+    } finally {
+      setIsDeletingQuiz(false);
     }
   };
 
@@ -1191,7 +1152,7 @@ export default function AdminFolderQuizzesPage() {
 
       {/* Folders & Quizzes Table Card */}
       <Card className="flex-1 flex flex-col min-h-0 border border-slate-200/80 dark:border-[#1e2e56] rounded-2xl bg-white dark:bg-[#091124] admin-table-card overflow-hidden p-0">
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar">
           {loading ? (
             <AdminSkeletonTable rowsCount={5} colsCount={6} />
           ) : filteredSubFolders.length === 0 && quizzes.length === 0 ? (
@@ -2368,11 +2329,11 @@ export default function AdminFolderQuizzesPage() {
         }
         confirmLabel="Delete Sub-folder"
         variant="danger"
+        isLoading={isDeletingSubFolder}
         onConfirm={() => {
           if (deleteSubFolderTarget) handleDeleteSubFolder(deleteSubFolderTarget);
-          setDeleteSubFolderTarget(null);
         }}
-        onCancel={() => setDeleteSubFolderTarget(null)}
+        onCancel={() => !isDeletingSubFolder && setDeleteSubFolderTarget(null)}
       />
 
       {/* Delete Confirmation */}
@@ -2386,11 +2347,11 @@ export default function AdminFolderQuizzesPage() {
         }
         confirmLabel="Delete Quiz"
         variant="danger"
+        isLoading={isDeletingQuiz}
         onConfirm={() => {
           if (deleteTarget) handleDeleteQuiz(deleteTarget.id);
-          setDeleteTarget(null);
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !isDeletingQuiz && setDeleteTarget(null)}
       />
     </div>
   );

@@ -73,15 +73,15 @@ class AuthController extends StateNotifier<AuthState> {
     await _applySignIn(user);
   }
 
-  Future<void> register({
-    required String name,
+  /// Completes account creation with the code sent by
+  /// `AuthRepository.sendRegisterOtp`, then signs the new student in.
+  Future<void> verifyRegisterOtp({
     required String email,
-    required String password,
+    required String otp,
   }) async {
-    final user = await _ref.read(authRepositoryProvider).register(
-          name: name,
+    final user = await _ref.read(authRepositoryProvider).verifyRegisterOtp(
           email: email,
-          password: password,
+          otp: otp,
         );
     await _applySignIn(user);
   }

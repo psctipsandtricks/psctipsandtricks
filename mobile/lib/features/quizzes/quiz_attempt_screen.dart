@@ -230,7 +230,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
                 AccessState(
                   isPaid: true,
                   hasAccess: false,
-                  price: quiz.price,
+                  price: quiz.effectivePrice,
                   reason: AccessReason.paymentRequired,
                 ),
             questions: const [],
@@ -561,7 +561,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
           AccessState(
             isPaid: true,
             hasAccess: false,
-            price: quiz.price,
+            price: quiz.effectivePrice,
             reason: AccessReason.paymentRequired,
           );
       return QuizPaywall(

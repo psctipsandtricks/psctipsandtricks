@@ -16,6 +16,7 @@ import {
   Crosshair,
 } from 'lucide-react';
 import { ReaderWatermarkOverlay } from './reader-watermark-overlay';
+import { decideSyncScroll, type ResolvedSyncTarget, type Span } from './pdf-audio-sync';
 
 // Worker path from public directory
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -28,6 +29,30 @@ pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
  * until the reader explicitly re-follows the audio — see `manualLatched`.
  */
 const SCROLL_QUIET_MS = 2500;
+
+/**
+ * How often the region the audio points at is re-checked while playing.
+ *
+ * The check itself is cheap — a `getBoundingClientRect` and some arithmetic —
+ * but running it on every `timeupdate` would tie scrolling to however often the
+ * browser feels like firing that event. On a fixed beat it also catches the two
+ * things a cue change alone would miss: a page that has only just rendered at
+ * its real height, and a region the reader has scrolled away from.
+ */
+const SYNC_CHECK_MS = 400;
+
+/**
+ * How hard the proportional follow pulls towards where the audio is, per
+ * 60fps frame. Roughly a 140ms time constant: close enough to feel attached to
+ * the narration, loose enough that a seek glides rather than snaps.
+ *
+ * Applied frame-rate independently, so a 120Hz screen and a struggling laptop
+ * travel at the same speed rather than the fast one scrolling twice as quickly.
+ */
+const FOLLOW_EASE_PER_FRAME = 0.12;
+
+/** Below this the document is where it should be; writing again would only jitter. */
+const FOLLOW_SETTLE_PX = 0.5;
 
 export interface ReaderPdfViewerHandle {
   scrollToPage: (pageNumber: number, smooth?: boolean) => void;
@@ -48,9 +73,17 @@ interface ReaderPdfViewerProps {
   audioProgress?: number;
   /**
    * Page the sync map says belongs on screen right now, or null when no cue
-   * applies.
+   * applies. Used only when no `syncTarget` is supplied — a map authored
+   * before regions existed still turns pages this way.
    */
   syncPage?: number | null;
+  /**
+   * Page *and region* the sync map points at right now. When present this
+   * supersedes `syncPage`: the viewer scrolls to the rectangle rather than to
+   * the top of the page, which is what lets a figure half way down a page be
+   * followed as precisely as a paragraph.
+   */
+  syncTarget?: ResolvedSyncTarget | null;
   /** False puts the reader in full manual control; cue-driven turns stop entirely. */
   autoScrollEnabled?: boolean;
   onAutoScrollChange?: (enabled: boolean) => void;
@@ -166,7 +199,9 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
     isAudioPlaying,
     audioProgress,
     syncPage,
-    autoScrollEnabled = true,
+    syncTarget,
+    // Off unless a caller asks for it, matching the reader's own default.
+    autoScrollEnabled = false,
     onAutoScrollChange,
     manualLatched = false,
     onManualLatchChange,
@@ -280,8 +315,99 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
       }
     }, [manualLatched, autoScrollEnabled]);
 
-    // 1. Explicit authored cue page turns
+    /* ── Region-level follow-the-audio ────────────────────────────────────
+       Audio time → cue → page → region → scroll, with the decision itself
+       living in `pdf-audio-sync.ts` so the phone runs the identical rules.
+       ──────────────────────────────────────────────────────────────────── */
+
+    /** The cue this viewer has already acted on — not every cue moves the page. */
+    const appliedCueRef = useRef<number | null>(null);
+
+    /**
+     * The target region's extent in document coordinates, or null while its
+     * page has no measurable box yet.
+     *
+     * A page that has scrolled out of view renders as a placeholder at its
+     * estimated height rather than unmounting, so a region several pages away
+     * still resolves to a usable position; the periodic re-check corrects the
+     * landing once the real page renders.
+     */
+    const regionSpanFor = useCallback(
+      (page: number, region: { y: number; height: number }): Span | null => {
+        const pageEl = document.getElementById(`reader-pdf-page-${page}`);
+        if (!pageEl) return null;
+        const rect = pageEl.getBoundingClientRect();
+        if (rect.height <= 0) return null;
+        const docTop = rect.top + window.scrollY;
+        return {
+          top: docTop + region.y * rect.height,
+          bottom: docTop + (region.y + region.height) * rect.height,
+        };
+      },
+      [],
+    );
+
+    const evaluateRegionSync = useCallback(() => {
+      if (!autoScrollEnabled || manualLatched) return;
+      if (!syncTarget || !numPages) return;
+      // A reader who has just touched the page owns it for a moment.
+      if (Date.now() - lastUserGestureTimeRef.current < SCROLL_QUIET_MS) return;
+
+      const page = Math.max(1, Math.min(syncTarget.page, numPages));
+      const decision = decideSyncScroll({
+        target: syncTarget,
+        appliedCueIndex: appliedCueRef.current,
+        regionSpan: regionSpanFor(page, syncTarget.region),
+        viewport: { top: window.scrollY, bottom: window.scrollY + window.innerHeight },
+        documentExtent: document.documentElement.scrollHeight,
+      });
+
+      // Recorded even when nothing moved, so a region already on screen counts
+      // as handled and does not get re-considered every tick.
+      appliedCueRef.current = decision.cueIndex;
+      if (decision.scrollTo === null) return;
+
+      window.scrollTo({ top: decision.scrollTo, behavior: 'smooth' });
+      if (page !== currentPage) {
+        setCurrentPage(page);
+        onPageChange?.(page, numPages);
+      }
+    }, [
+      autoScrollEnabled,
+      manualLatched,
+      syncTarget,
+      numPages,
+      currentPage,
+      onPageChange,
+      regionSpanFor,
+    ]);
+
+    // Act the moment the cue changes, so a seek lands immediately rather than
+    // waiting out the beat below.
     useEffect(() => {
+      if (!syncTarget) return;
+      evaluateRegionSync();
+    }, [syncTarget?.cueIndex, evaluateRegionSync, syncTarget]);
+
+    // …and keep checking on a fixed beat while playing, which is what catches
+    // a page that has only just rendered and a region scrolled out of view.
+    useEffect(() => {
+      if (!syncTarget || !isAudioPlaying) return;
+      if (!autoScrollEnabled || manualLatched) return;
+      const timer = setInterval(evaluateRegionSync, SYNC_CHECK_MS);
+      return () => clearInterval(timer);
+    }, [syncTarget, isAudioPlaying, autoScrollEnabled, manualLatched, evaluateRegionSync]);
+
+    // Taking manual control, or turning follow back on, clears what was applied
+    // so re-following starts by moving to wherever the audio now is.
+    useEffect(() => {
+      appliedCueRef.current = null;
+    }, [manualLatched, autoScrollEnabled]);
+
+    // 1. Explicit authored cue page turns — only for maps with no regions,
+    //    where `syncTarget` is not supplied.
+    useEffect(() => {
+      if (syncTarget) return;
       if (!autoScrollEnabled || manualLatched) return;
       if (typeof syncPage !== 'number' || syncPage < 1) return;
       if (!numPages) return;
@@ -292,14 +418,37 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
 
       lastSyncedPageRef.current = target;
       scrollToPage(target, true);
-    }, [syncPage, autoScrollEnabled, manualLatched, numPages, currentPage, scrollToPage]);
+    }, [syncTarget, syncPage, autoScrollEnabled, manualLatched, numPages, currentPage, scrollToPage]);
 
-    // 2. Continuous playback auto-scrolling (in sync with audio playback)
+    /* ── 2. Continuous follow, for a clip with no sync map ─────────────────
+       Proportional: the document is dragged along at the fraction the audio is
+       through the clip. Where the audio *should* be and where the document
+       actually is are kept apart on purpose — the first is recomputed whenever
+       playback reports a new time, the second is eased towards it a frame at a
+       time. Writing the position straight to the window on every `timeupdate`,
+       as this did before, is a teleport a few pixels long several times a
+       second, which is the stutter that reads as the page jumping about while
+       narration plays.
+       ─────────────────────────────────────────────────────────────────────── */
+
+    /** Where proportional following wants the window, or null when it is off. */
+    const followTargetRef = useRef<number | null>(null);
+
+    // An authored map — pages or regions — always beats dragging the document
+    // by the clock, so this is strictly the fallback for a clip with neither.
+    const proportionalFollowActive =
+      Boolean(autoScrollEnabled) &&
+      !manualLatched &&
+      Boolean(isAudioPlaying) &&
+      !syncTarget &&
+      !(typeof syncPage === 'number' && syncPage >= 1);
+
     useEffect(() => {
-      if (!autoScrollEnabled || manualLatched || !isAudioPlaying) return;
-      if (typeof syncPage === 'number' && syncPage >= 1) return;
+      if (!proportionalFollowActive) {
+        followTargetRef.current = null;
+        return;
+      }
       if (typeof audioProgress !== 'number' || audioProgress < 0) return;
-      if (Date.now() - lastUserGestureTimeRef.current < SCROLL_QUIET_MS) return;
 
       const container = containerRef.current;
       if (!container) return;
@@ -311,14 +460,10 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
       const clampedRatio = Math.max(0, Math.min(1, audioProgress));
       const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
       const maxScroll = Math.max(0, containerHeight - (viewportHeight * 0.45));
-      const targetY = Math.max(0, containerTop + (clampedRatio * maxScroll) - 80);
-
-      if (Math.abs(window.scrollY - targetY) > 4) {
-        window.scrollTo({
-          top: targetY,
-          behavior: 'auto',
-        });
-      }
+      followTargetRef.current = Math.max(
+        0,
+        containerTop + clampedRatio * maxScroll - 80,
+      );
 
       if (numPages && numPages > 0) {
         const targetPage = Math.min(Math.floor(clampedRatio * numPages) + 1, numPages);
@@ -330,15 +475,46 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
       }
     }, [
       audioProgress,
-      isAudioPlaying,
-      syncPage,
-      autoScrollEnabled,
-      manualLatched,
+      proportionalFollowActive,
       numPages,
       currentPage,
       onPageChange,
       onScrollPositionChange,
     ]);
+
+    // The frame loop. It exists only while narration is actually playing, so a
+    // pause stops the document dead, and starting again picks the chase up
+    // from wherever the reader now is rather than snapping to the audio.
+    useEffect(() => {
+      if (!proportionalFollowActive) return;
+
+      let frame = 0;
+      let previous = performance.now();
+
+      const step = (now: number) => {
+        frame = requestAnimationFrame(step);
+
+        const target = followTargetRef.current;
+        // A tab that was in the background hands back one enormous delta;
+        // clamping it keeps the catch-up a glide rather than a leap.
+        const elapsed = Math.min(64, now - previous);
+        previous = now;
+
+        if (target === null) return;
+        // A reader who has just touched the page owns it for a moment.
+        if (Date.now() - lastUserGestureTimeRef.current < SCROLL_QUIET_MS) return;
+
+        const current = window.scrollY;
+        const gap = target - current;
+        if (Math.abs(gap) < FOLLOW_SETTLE_PX) return;
+
+        const ease = 1 - Math.pow(1 - FOLLOW_EASE_PER_FRAME, elapsed / 16.667);
+        window.scrollTo({ top: current + gap * ease, behavior: 'auto' });
+      };
+
+      frame = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(frame);
+    }, [proportionalFollowActive]);
 
     /**
      * Step one page without touching audio — the audio keeps playing, untouched.

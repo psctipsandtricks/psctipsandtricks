@@ -36,6 +36,7 @@ export default function AdminChapterPdfsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDocument, setEditingDocument] = useState<PdfDocument | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PdfDocument | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [isReordering, setIsReordering] = useState(false);
@@ -86,14 +87,6 @@ export default function AdminChapterPdfsPage() {
           isActive: values.isActive,
         };
 
-        if (editingDocument) {
-          setDocuments((prev) =>
-            prev.map((d) => (d.id === editingDocument.id ? { ...d, ...payload } : d)),
-          );
-        }
-        setIsDialogOpen(false);
-        setEditingDocument(null);
-
         const target = editingDocument
           ? await ApiClient.updatePdfDocument(editingDocument.id, payload)
           : await ApiClient.createPdfDocument(chapterId, { ...payload, orderIndex: documents.length });
@@ -103,9 +96,11 @@ export default function AdminChapterPdfsPage() {
           await ApiClient.uploadPdfDocumentFile(target.id, pdfFile, setUploadPercent);
         }
 
+        setIsDialogOpen(false);
+        setEditingDocument(null);
         resetForm();
         setPdfFile(null);
-        await load(true);
+        await load();
       } catch (err: any) {
         setFieldError('title', err.message || 'Failed to save PDF.');
       } finally {
@@ -145,15 +140,17 @@ export default function AdminChapterPdfsPage() {
     setPdfFile(file);
   };
 
-  const handleDelete = async (id: string) => {
-    const previous = documents;
-    setDocuments((prev) => prev.filter((d) => d.id !== id));
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await ApiClient.deletePdfDocument(id);
-      await load(true);
+      setIsDeleting(true);
+      await ApiClient.deletePdfDocument(deleteTarget.id);
+      setDeleteTarget(null);
+      await load();
     } catch (err: any) {
-      setDocuments(previous);
       setPageError(err.message || 'Failed to delete PDF.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -472,16 +469,14 @@ export default function AdminChapterPdfsPage() {
 
       <ConfirmDialog
         isOpen={deleteTarget !== null}
+        isLoading={isDeleting}
         title="Delete PDF"
         description={
           deleteTarget ? `This will permanently remove "${deleteTarget.title}". This action cannot be undone.` : undefined
         }
         confirmLabel="Delete"
         variant="danger"
-        onConfirm={() => {
-          if (deleteTarget) handleDelete(deleteTarget.id);
-          setDeleteTarget(null);
-        }}
+        onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
     </div>

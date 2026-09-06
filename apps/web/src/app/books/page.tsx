@@ -491,10 +491,10 @@ function BooksContent() {
                   </div>
 
                   {/* Pricing & CTA Buttons */}
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-2">
                     <div className="min-w-0 flex-1">
                       {isPurchased ? (
-                        <div className="space-y-1">
+                        <div className="flex flex-wrap sm:flex-col items-start gap-1.5 sm:gap-1">
                           <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                             <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                             <span>{book.subscriptionType === 'SUBSCRIPTION' || book.access?.subscription?.isSubscription ? 'Active Subscription' : 'Purchased'}</span>
@@ -511,7 +511,7 @@ function BooksContent() {
                           )}
                         </div>
                       ) : !isPurchased && !isFree && book.access?.subscription?.isExpired ? (
-                        <div className="space-y-1">
+                        <div className="flex flex-wrap sm:flex-col items-start gap-1.5 sm:gap-1">
                           <span className="inline-flex items-center gap-1 text-xs font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
                             <Clock className="w-3.5 h-3.5 shrink-0" />
                             <span>Subscription Expired</span>
@@ -525,7 +525,7 @@ function BooksContent() {
                       ) : isFree ? (
                         <span className="text-base font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">Free Access</span>
                       ) : (
-                        <div className="space-y-0.5">
+                        <div className="flex items-center sm:items-start justify-between sm:justify-start sm:flex-col gap-1">
                           <div className="flex items-baseline gap-1.5 whitespace-nowrap">
                             <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
                               ₹{effectivePrice}
@@ -545,12 +545,12 @@ function BooksContent() {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleDetails(book.id)}
-                        className="font-bold text-xs cursor-pointer whitespace-nowrap shrink-0 px-2.5 sm:px-3"
+                        className="font-bold text-xs cursor-pointer whitespace-nowrap flex-1 sm:flex-none justify-center px-3 h-9"
                       >
                         Details
                       </Button>
@@ -560,7 +560,7 @@ function BooksContent() {
                           size="sm"
                           variant="gold"
                           onClick={() => handleView(book)}
-                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 px-3"
+                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 sm:flex-none px-3.5 h-9"
                         >
                           <BookOpen className="w-3.5 h-3.5 shrink-0" />
                           <span className="whitespace-nowrap">Read Now</span>
@@ -570,7 +570,7 @@ function BooksContent() {
                           size="sm"
                           variant="gold"
                           onClick={() => handleBuyNow(book.id)}
-                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 px-3"
+                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 sm:flex-none px-3.5 h-9"
                         >
                           <Clock className="w-3.5 h-3.5 shrink-0" />
                           <span className="whitespace-nowrap">Renew</span>
@@ -580,7 +580,7 @@ function BooksContent() {
                           size="sm"
                           variant="gold"
                           onClick={() => handleBuyNow(book.id)}
-                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0 px-3"
+                          className="font-bold text-xs shadow-md shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-1 sm:flex-none px-3.5 h-9"
                         >
                           <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                           <span className="whitespace-nowrap">Buy Now</span>

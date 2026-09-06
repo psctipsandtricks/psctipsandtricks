@@ -107,8 +107,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     child: SizedBox(height: _HomeTopBar.heroTopFor(context)),
                   ),
                   SliverToBoxAdapter(
-                    child: HomeBookCarousel(
-                      topOverlay: _HomeTopBar.heroOverlapFor(context),
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: HomeBookCarousel(
+                        topOverlay: _HomeTopBar.heroOverlapFor(context),
+                      ),
                     ),
                   ),
                   SliverToBoxAdapter(

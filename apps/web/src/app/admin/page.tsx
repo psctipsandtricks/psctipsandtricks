@@ -169,46 +169,48 @@ export default function AdminDashboardPage() {
               View All Orders →
             </a>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Order ID</TableHead>
-                <TableHead>User Email</TableHead>
-                <TableHead>Item Purchased</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Time</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentOrders.length === 0 ? (
+          <div className="overflow-x-auto min-h-0 relative">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs font-semibold">
-                    No recent transactions found.
-                  </TableCell>
+                  <TableHead className="whitespace-nowrap">Order ID</TableHead>
+                  <TableHead className="whitespace-nowrap">User Email</TableHead>
+                  <TableHead className="whitespace-nowrap">Item Purchased</TableHead>
+                  <TableHead className="whitespace-nowrap">Amount</TableHead>
+                  <TableHead className="whitespace-nowrap">Time</TableHead>
+                  <TableHead className="whitespace-nowrap">Status</TableHead>
                 </TableRow>
-              ) : (
-                recentOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-mono text-xs font-bold text-slate-900 dark:text-white">{order.id}</TableCell>
-                    <TableCell className="text-xs text-slate-700 dark:text-slate-300">{order.user?.email || 'N/A'}</TableCell>
-                    <TableCell className="font-medium text-slate-900 dark:text-white text-xs">
-                      {order.book?.title || order.quiz?.title || 'PSC Premium Access'}
-                    </TableCell>
-                    <TableCell className="font-mono font-extrabold text-cyan-400">₹{order.amount}</TableCell>
-                    <TableCell className="text-xs text-slate-400 font-mono">
-                      {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={order.status === 'SUCCESS' ? 'success' : order.status === 'PENDING' ? 'warning' : 'danger'}>
-                        {order.status}
-                      </Badge>
+              </TableHeader>
+              <TableBody>
+                {recentOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                      No recent transactions found.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  recentOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="font-mono text-xs font-bold text-slate-900 dark:text-white whitespace-nowrap">{order.id}</TableCell>
+                      <TableCell className="text-xs text-slate-700 dark:text-slate-300">{order.user?.email || 'N/A'}</TableCell>
+                      <TableCell className="font-medium text-slate-900 dark:text-white text-xs">
+                        {order.book?.title || order.quiz?.title || 'PSC Premium Access'}
+                      </TableCell>
+                      <TableCell className="font-mono font-extrabold text-cyan-400 whitespace-nowrap">₹{order.amount}</TableCell>
+                      <TableCell className="text-xs text-slate-400 font-mono whitespace-nowrap">
+                        {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={order.status === 'SUCCESS' ? 'success' : order.status === 'PENDING' ? 'warning' : 'danger'}>
+                          {order.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </Card>
       </div>
     </div>

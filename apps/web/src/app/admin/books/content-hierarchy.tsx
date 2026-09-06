@@ -120,6 +120,7 @@ export function ContentHierarchyPage({
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContentNode | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
 
@@ -159,20 +160,6 @@ export function ContentHierarchyPage({
     onSubmit: async (values, { resetForm, setSubmitting }) => {
       try {
         if (editingItem) {
-          setItems((prev) =>
-            prev.map((i) =>
-              i.id === editingItem.id
-                ? {
-                    ...i,
-                    title: values.title.trim(),
-                    description: values.description?.trim() || undefined,
-                    isActive: values.isActive,
-                    youtubeUrl: values.youtubeUrl?.trim() || undefined,
-                  }
-                : i,
-            ),
-          );
-          setIsDialogOpen(false);
           await updateItem(editingItem.id, {
             title: values.title.trim(),
             description: values.description?.trim() || undefined,
@@ -182,7 +169,6 @@ export function ContentHierarchyPage({
           if (audioFile) await uploadAudio(editingItem.id, audioFile);
           if (pdfFile) await uploadPdf(editingItem.id, pdfFile);
         } else {
-          setIsDialogOpen(false);
           const created = await createItem({
             title: values.title.trim(),
             description: values.description?.trim() || undefined,
@@ -193,6 +179,7 @@ export function ContentHierarchyPage({
           if (audioFile) await uploadAudio(created.id, audioFile);
           if (pdfFile) await uploadPdf(created.id, pdfFile);
         }
+        setIsDialogOpen(false);
         resetForm();
         setAudioFile(null);
         setPdfFile(null);
@@ -230,15 +217,15 @@ export function ContentHierarchyPage({
   };
 
   const handleDelete = async (id: string) => {
-    const previous = items;
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    setDeleteTarget(null);
+    setIsDeleting(true);
     try {
       await deleteItem(id);
+      setDeleteTarget(null);
       await load();
     } catch (err: any) {
-      setItems(previous);
       setPageError(err.message || `Failed to delete ${nounSingular.toLowerCase()}.`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -795,11 +782,11 @@ export function ContentHierarchyPage({
         }
         confirmLabel="Delete"
         variant="danger"
+        isLoading={isDeleting}
         onConfirm={() => {
           if (deleteTarget) handleDelete(deleteTarget.id);
-          setDeleteTarget(null);
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !isDeleting && setDeleteTarget(null)}
       />
     </div>
   );

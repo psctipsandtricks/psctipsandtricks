@@ -6,10 +6,15 @@ import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleIdTokenDto } from './dto/google-id-token.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GoogleConfiguredGuard, AppleConfiguredGuard } from './oauth-configured.guard';
 import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
+
+import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -20,6 +25,21 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
   ) {}
+
+  @ApiOperation({ summary: 'Request registration verification OTP to validate email' })
+  @ApiResponse({ status: 200, description: 'OTP sent to email address' })
+  @HttpCode(HttpStatus.OK)
+  @Post('send-register-otp')
+  async sendRegisterOtp(@Body() dto: RegisterDto) {
+    return this.authService.sendRegisterOtp(dto);
+  }
+
+  @ApiOperation({ summary: 'Verify registration OTP and create account' })
+  @ApiResponse({ status: 201, description: 'User registered and authenticated successfully' })
+  @Post('verify-register-otp')
+  async verifyRegisterOtp(@Body() dto: VerifyRegisterOtpDto) {
+    return this.authService.verifyRegisterOtp(dto);
+  }
 
   @ApiOperation({ summary: 'Register a new student account' })
   @ApiResponse({ status: 201, description: 'User registered successfully' })
@@ -34,6 +54,38 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @ApiOperation({ summary: 'Request password reset OTP' })
+  @ApiResponse({ status: 200, description: 'OTP sent if user exists' })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @ApiOperation({ summary: 'Request admin / staff password reset OTP' })
+  @ApiResponse({ status: 200, description: 'OTP sent if staff/admin exists' })
+  @HttpCode(HttpStatus.OK)
+  @Post('admin/forgot-password')
+  async adminForgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.adminForgotPassword(dto);
+  }
+
+  @ApiOperation({ summary: 'Verify password reset OTP' })
+  @ApiResponse({ status: 200, description: 'OTP verified successfully' })
+  @HttpCode(HttpStatus.OK)
+  @Post('verify-otp')
+  async verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyOtp(dto);
+  }
+
+  @ApiOperation({ summary: 'Reset password with OTP' })
+  @ApiResponse({ status: 200, description: 'Password reset successful' })
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   @ApiOperation({ summary: 'Refresh JWT access token' })

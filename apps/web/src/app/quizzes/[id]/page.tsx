@@ -173,7 +173,12 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
         const resolvedAccess =
           quiz.access ??
           (isPaid
-            ? { isPaid: true, hasAccess: false, price: quiz.price || 0, reason: 'PAYMENT_REQUIRED' }
+            ? {
+                isPaid: true,
+                hasAccess: false,
+                price: quiz.finalPrice && quiz.finalPrice > 0 ? quiz.finalPrice : quiz.price || 0,
+                reason: 'PAYMENT_REQUIRED',
+              }
             : null);
         setAccess(resolvedAccess);
         setNegativeMarkingRules({

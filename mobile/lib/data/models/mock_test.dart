@@ -57,7 +57,7 @@ class MockTest {
   /// instead of an attempt. Mirrors `isLocked` in `mock-tests/[id]/page.tsx`.
   bool get isLocked => access != null && !access!.hasAccess;
 
-  double get price => access?.price ?? quiz?.price ?? 0;
+  double get price => access?.price ?? quiz?.effectivePrice ?? 0;
 
   factory MockTest.fromJson(Map<String, dynamic> json) => MockTest(
         id: J.str(json['id']),

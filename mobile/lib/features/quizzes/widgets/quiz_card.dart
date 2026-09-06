@@ -30,6 +30,12 @@ class QuizCard extends StatelessWidget {
         ? (width! * (9 / 16)).clamp(115.0, 180.0)
         : 145.0;
 
+    // The admin's discounted "Final Student Price" overrides the base price —
+    // prefer the server-resolved access.price, falling back to the quiz's own
+    // effectivePrice if access hasn't loaded yet.
+    final effectivePrice = quiz.access?.price ?? quiz.effectivePrice;
+    final hasDiscount = quiz.price > 0 && effectivePrice < quiz.price;
+
     final categoryName = (quiz.category != null && quiz.category!.isNotEmpty)
         ? quiz.category!
         : ((quiz.folderName != null &&
@@ -370,7 +376,7 @@ class QuizCard extends StatelessWidget {
                           )
                         else ...[
                           Text(
-                            Fmt.price(quiz.price),
+                            Fmt.price(effectivePrice),
                             style: TextStyle(
                               color: isDark
                                   ? const Color(0xFFFBBF24)
@@ -379,10 +385,10 @@ class QuizCard extends StatelessWidget {
                               fontSize: 14.5,
                             ),
                           ),
-                          if (quiz.price > 0) ...[
+                          if (hasDiscount) ...[
                             const SizedBox(width: 5),
                             Text(
-                              Fmt.price(quiz.price * 2),
+                              Fmt.price(quiz.price),
                               style: TextStyle(
                                 color: palette.textMuted,
                                 fontSize: 11,

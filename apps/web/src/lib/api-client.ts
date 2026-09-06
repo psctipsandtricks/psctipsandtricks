@@ -374,6 +374,36 @@ export const ApiClient = {
   // Auth & Users
   login: (data: any) => fetcher<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   register: (data: any) => fetcher<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  sendRegisterOtp: (data: { name: string; email: string; password: string; phoneNumber?: string }) =>
+    fetcher<{ success: boolean; requiresOtp: boolean; email: string; message: string }>('/auth/send-register-otp', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  verifyRegisterOtp: (data: { email: string; otp: string }) =>
+    fetcher<AuthResponse>('/auth/verify-register-otp', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  forgotPassword: (data: { email: string }) =>
+    fetcher<{ success: boolean; message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  adminForgotPassword: (data: { email: string }) =>
+    fetcher<{ success: boolean; message: string }>('/auth/admin/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  verifyOtp: (data: { email: string; otp: string }) =>
+    fetcher<{ success: boolean; message: string }>('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  resetPassword: (data: { email: string; otp: string; newPassword: string }) =>
+    fetcher<{ success: boolean; message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   getMe: () => fetcher<User>('/auth/me'),
   getAdminDashboard: () =>
     fetcher<{
@@ -985,6 +1015,23 @@ export const ApiClient = {
     fetcher(`/staff/${id}/reactivate`, { method: 'PATCH' }),
   deleteStaff: (id: string) =>
     fetcher(`/staff/${id}`, { method: 'DELETE' }),
+
+  // --- Notifications (signed-in student's own inbox) ---
+  /**
+   * The newest 100 notifications addressed to this student, plus every
+   * broadcast. Ordered newest first; the caller applies its own retention rule.
+   */
+  getMyNotifications: () => fetcher<AppNotification[]>('/notifications'),
+  /**
+   * Persists read state for a notification addressed to this student. A
+   * broadcast is one row shared by everyone, so the server refuses to mark it
+   * and answers `perUser: false` — that case is remembered on the device
+   * instead, by the read store.
+   */
+  markNotificationRead: (id: string) =>
+    fetcher<{ id: string; isRead: boolean; perUser: boolean }>(`/notifications/${id}/read`, {
+      method: 'PATCH',
+    }),
 
   // --- Push Notifications (Admin / Staff with manage_notifications) ---
   /**

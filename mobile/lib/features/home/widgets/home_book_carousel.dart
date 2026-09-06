@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../core/widgets/app_image.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/book.dart';
@@ -35,17 +37,21 @@ class HomeBookCarousel extends ConsumerStatefulWidget {
   /// size it was designed to be.
   final double topOverlay;
 
-  /// Height of the artwork alone, in the clear below the bar; the copy beneath
-  /// sizes itself.
-  ///
-  /// A fixed number rather than a share of the viewport, so a cover is the same
-  /// size on every phone and the hero cannot quietly grow or shrink with the
-  /// device. `topOverlay` is added on top of this for the part that runs behind
-  /// the bar — raising this raises what the student actually sees.
-  ///
-  /// Fixed height across all images so every banner maintains the exact same
-  /// uniform frame, regardless of aspect ratio, dimensions, or content.
-  static const double artHeight = 390;
+  /// Dynamic artwork height calculation:
+  /// - On phones: Shows 90% of the 3:4 portrait hero cover image
+  ///   (full height = width * 4 / 3; 90% height = width * 4 / 3 * 0.90 = width * 1.20).
+  /// - On tablets: Constrained proportionally so the banner remains cinematic without
+  ///   over-stretching the viewport.
+  static double artHeightFor(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width;
+    if (Responsive.isTablet(context)) {
+      final tabletMax = math.min(size.height * 0.56, 560.0);
+      return math.max(440.0, tabletMax);
+    }
+    // Exactly 90% of 3:4 aspect ratio height:
+    return width * (4.0 / 3.0) * 0.90;
+  }
 
   @override
   ConsumerState<HomeBookCarousel> createState() => _HomeBookCarouselState();
@@ -129,10 +135,11 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
   @override
   Widget build(BuildContext context) {
     final booksAsync = ref.watch(featuredBooksProvider);
+    final artHeight = HomeBookCarousel.artHeightFor(context);
 
     return booksAsync.when(
       loading: () => _HeroSkeleton(
-        artHeight: HomeBookCarousel.artHeight + widget.topOverlay,
+        artHeight: artHeight + widget.topOverlay,
       ),
       error: (_, __) => const SizedBox.shrink(),
       data: (allBooks) {
@@ -146,12 +153,16 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
                 b.coverUrl.isNotEmpty)
             .toList();
 
-        return _buildHero(context, withArt.isEmpty ? allBooks : withArt);
+        return _buildHero(
+          context,
+          withArt.isEmpty ? allBooks : withArt,
+          artHeight,
+        );
       },
     );
   }
 
-  Widget _buildHero(BuildContext context, List<Book> books) {
+  Widget _buildHero(BuildContext context, List<Book> books, double artHeight) {
     if (_pageController == null) {
       _initialPage = (books.length * _loopFactor) ~/ 2;
       _page = _initialPage.toDouble();
@@ -170,7 +181,7 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
-          height: HomeBookCarousel.artHeight + widget.topOverlay,
+          height: artHeight + widget.topOverlay,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -199,7 +210,7 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 40,
+                height: 48,
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -208,10 +219,10 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
                         end: Alignment.bottomCenter,
                         colors: [
                           palette.background.withValues(alpha: 0.0),
-                          palette.background.withValues(alpha: 0.6),
+                          palette.background.withValues(alpha: 0.5),
                           palette.background,
                         ],
-                        stops: const [0.0, 0.65, 1.0],
+                        stops: const [0.0, 0.6, 1.0],
                       ),
                     ),
                   ),
@@ -279,11 +290,8 @@ class _HeroSlide extends StatelessWidget {
                 child: AppImage(
                   url: cover,
                   fit: BoxFit.cover,
-                  // Centred, not top-aligned. The bar now sits over the top of
-                  // this frame, so keeping the top of the cover would park the
-                  // part worth seeing behind the glass; anchoring the middle
-                  // puts it in the clear.
-                  alignment: Alignment.center,
+                  // Top-aligned so top 90% of the 3:4 portrait image is clearly shown.
+                  alignment: Alignment.topCenter,
                   fallbackIcon: Icons.menu_book_rounded,
                 ),
               ),

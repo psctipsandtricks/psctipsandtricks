@@ -63,7 +63,11 @@ export default function AdminCouponsPage() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<{ type: 'toggle' | 'delete'; coupon: Coupon } | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{
+    type: 'toggle' | 'delete';
+    coupon: Coupon;
+  } | null>(null);
+  const [isConfirmLoading, setIsConfirmLoading] = useState(false);
 
   const fetchCoupons = useCallback(async (silent = false) => {
     try {
@@ -104,21 +108,14 @@ export default function AdminCouponsPage() {
       };
       try {
         if (editingCoupon) {
-          setCoupons((prev) =>
-            prev.map((c) => (c.id === editingCoupon.id ? { ...c, ...payload } : c)),
-          );
-          setIsDialogOpen(false);
-          setEditingCoupon(null);
-          resetForm();
           await ApiClient.updateCoupon(editingCoupon.id, payload);
-          await fetchCoupons();
         } else {
-          setIsDialogOpen(false);
-          setEditingCoupon(null);
-          resetForm();
           await ApiClient.createCoupon(payload);
-          await fetchCoupons();
         }
+        setIsDialogOpen(false);
+        setEditingCoupon(null);
+        resetForm();
+        await fetchCoupons();
       } catch (err: any) {
         setFieldError('code', err.message || `Failed to ${editingCoupon ? 'update' : 'create'} coupon.`);
       } finally {
@@ -148,38 +145,23 @@ export default function AdminCouponsPage() {
     setIsDialogOpen(true);
   };
 
-  const handleToggleStatus = async (coupon: Coupon) => {
-    const nextActive = !coupon.isActive;
-    setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: nextActive } : c)));
-    try {
-      await ApiClient.setCouponActive(coupon.id, nextActive);
-      await fetchCoupons();
-    } catch (err: any) {
-      setCoupons((prev) => prev.map((c) => (c.id === coupon.id ? { ...c, isActive: coupon.isActive } : c)));
-      alert(err.message || 'Failed to update coupon status.');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    const previousCoupons = coupons;
-    setCoupons((prev) => prev.filter((c) => c.id !== id));
-    try {
-      await ApiClient.deleteCoupon(id);
-      await fetchCoupons();
-    } catch (err: any) {
-      setCoupons(previousCoupons);
-      alert(err.message || 'Failed to delete coupon.');
-    }
-  };
-
-  const handleConfirmAction = () => {
+  const handleConfirmAction = async () => {
     if (!confirmTarget) return;
-    if (confirmTarget.type === 'toggle') {
-      handleToggleStatus(confirmTarget.coupon);
-    } else {
-      handleDelete(confirmTarget.coupon.id);
+    setIsConfirmLoading(true);
+    try {
+      if (confirmTarget.type === 'toggle') {
+        const nextActive = !confirmTarget.coupon.isActive;
+        await ApiClient.setCouponActive(confirmTarget.coupon.id, nextActive);
+      } else {
+        await ApiClient.deleteCoupon(confirmTarget.coupon.id);
+      }
+      setConfirmTarget(null);
+      await fetchCoupons();
+    } catch (err: any) {
+      alert(err.message || 'Failed to perform coupon action.');
+    } finally {
+      setIsConfirmLoading(false);
     }
-    setConfirmTarget(null);
   };
 
   if (!mounted || (loading && coupons.length === 0)) {
@@ -432,8 +414,9 @@ export default function AdminCouponsPage() {
         }
         confirmLabel={confirmTarget?.type === 'delete' ? 'Delete' : confirmTarget?.coupon.isActive ? 'Disable' : 'Enable'}
         variant={confirmTarget?.type === 'delete' || confirmTarget?.coupon.isActive ? 'danger' : 'default'}
+        isLoading={isConfirmLoading}
         onConfirm={handleConfirmAction}
-        onCancel={() => setConfirmTarget(null)}
+        onCancel={() => !isConfirmLoading && setConfirmTarget(null)}
       />
     </div>
   );

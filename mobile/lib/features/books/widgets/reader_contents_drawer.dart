@@ -26,6 +26,7 @@ class ReaderContentsPanel extends StatefulWidget {
     required this.totalUnits,
     required this.onSelect,
     required this.onPlayAudio,
+    this.onPlayVideo,
     this.onClose,
   });
 
@@ -44,6 +45,9 @@ class ReaderContentsPanel extends StatefulWidget {
 
   /// Open this unit *and* start its narration — the sidebar's audio button.
   final ValueChanged<int> onPlayAudio;
+
+  /// Open this unit's video player.
+  final ValueChanged<ReadingUnit>? onPlayVideo;
 
   /// Shown as an X in the header when the panel is a drawer. Null when it is
   /// pinned open beside the page and there is nothing to close.
@@ -179,6 +183,9 @@ class _ReaderContentsPanelState extends State<ReaderContentsPanel> {
         onTap: () => widget.onSelect(topic.unitIndex),
         onPlayAudio:
             topic.hasAudio ? () => widget.onPlayAudio(topic.unitIndex) : null,
+        onPlayVideo: topic.hasVideo && widget.onPlayVideo != null
+            ? () => widget.onPlayVideo!(topic)
+            : null,
       ),
       if (isOpen)
         for (final subtopic in group.subtopics)
@@ -193,6 +200,9 @@ class _ReaderContentsPanelState extends State<ReaderContentsPanel> {
             onTap: () => widget.onSelect(subtopic.unitIndex),
             onPlayAudio: subtopic.hasAudio
                 ? () => widget.onPlayAudio(subtopic.unitIndex)
+                : null,
+            onPlayVideo: subtopic.hasVideo && widget.onPlayVideo != null
+                ? () => widget.onPlayVideo!(subtopic)
                 : null,
           ),
     ];
@@ -410,6 +420,7 @@ class _UnitRow extends StatelessWidget {
     required this.onToggleExpand,
     required this.onTap,
     required this.onPlayAudio,
+    this.onPlayVideo,
   });
 
   final ReadingUnit unit;
@@ -425,6 +436,9 @@ class _UnitRow extends StatelessWidget {
 
   /// Null when this unit has no narration, which is also what hides the button.
   final VoidCallback? onPlayAudio;
+
+  /// Null when this unit has no video lesson, which is also what hides the button.
+  final VoidCallback? onPlayVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -499,25 +513,51 @@ class _UnitRow extends StatelessWidget {
                                 ),
                       ),
                     ),
-                    if (unit.hasVideo)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: Icon(Icons.smart_display_rounded,
-                            size: 13, color: palette.textMuted),
-                      ),
-                    if (unit.hasPdf)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: Icon(Icons.picture_as_pdf_rounded,
-                            size: 12, color: palette.textMuted),
-                      ),
                   ],
                 ),
               ),
             ),
           ),
+          if (onPlayVideo != null) _VideoButton(onTap: onPlayVideo!),
           if (onPlayAudio != null) _AudioButton(onTap: onPlayAudio!),
         ],
+      ),
+    );
+  }
+}
+
+/// The video button on a row with a video lesson.
+class _VideoButton extends StatelessWidget {
+  const _VideoButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Watch video',
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          child: Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.red.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.smart_display_rounded,
+              size: 16,
+              color: AppColors.red,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -539,8 +579,8 @@ class _AudioButton extends StatelessWidget {
         onTap: onTap,
         customBorder: const CircleBorder(),
         child: Container(
-          width: 40,
-          height: 40,
+          width: 36,
+          height: 36,
           alignment: Alignment.center,
           child: Container(
             width: 28,

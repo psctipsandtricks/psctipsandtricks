@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/auth_controller.dart';
+import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/oauth_callback_screen.dart';
 import '../../features/auth/signup_screen.dart';
@@ -35,6 +36,8 @@ class AppRoutes {
   static const home = '/';
   static const login = '/login';
   static const signup = '/signup';
+  static const register = '/register';
+  static const forgotPassword = '/forgot-password';
   static const oauthCallback = '/auth/callback';
   static const books = '/books';
   static const quizzes = '/quizzes';
@@ -52,8 +55,15 @@ class AppRoutes {
   static const downloads = '/books/downloads';
 
   static String bookDetail(String id) => '/books/$id';
-  static String bookReader(String id, {bool resume = false}) =>
-      '/books/$id/read${resume ? '?resume=1' : ''}';
+  /// [audio] opens on the narrated topic the student was last listening to,
+  /// cued to the position they left it and paused.
+  static String bookReader(String id, {bool resume = false, bool audio = false}) {
+    final query = [
+      if (resume) 'resume=1',
+      if (audio) 'audio=1',
+    ];
+    return '/books/$id/read${query.isEmpty ? '' : '?${query.join('&')}'}';
+  }
   /// [mockTestId], when the paper being attempted is a scheduled mock test,
   /// routes the submission to the mock test's own scoring path — the one that
   /// feeds the rank list — instead of a plain quiz attempt.
@@ -110,6 +120,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       final location = state.matchedLocation;
       final onAuthScreen = location == AppRoutes.login ||
           location == AppRoutes.signup ||
+          location == AppRoutes.register ||
+          location == AppRoutes.forgotPassword ||
           location == AppRoutes.oauthCallback;
 
       if (!auth.isAuthenticated && _isProtected(location)) {
@@ -132,6 +144,15 @@ final routerProvider = Provider<GoRouter>((ref) {
             SignupScreen(redirect: state.uri.queryParameters['redirect']),
       ),
       GoRoute(
+        path: AppRoutes.register,
+        builder: (context, state) =>
+            SignupScreen(redirect: state.uri.queryParameters['redirect']),
+      ),
+      GoRoute(
+        path: AppRoutes.forgotPassword,
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.oauthCallback,
         builder: (context, state) => OAuthCallbackScreen(
           accessToken: state.uri.queryParameters['accessToken'],
@@ -144,9 +165,26 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/books/:id/read',
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => BookReaderScreen(
-          bookId: state.pathParameters['id']!,
-          autoResume: state.uri.queryParameters['resume'] == '1',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          key: state.pageKey,
+          child: BookReaderScreen(
+            bookId: state.pathParameters['id']!,
+            autoResume: state.uri.queryParameters['resume'] == '1',
+            resumeAudio: state.uri.queryParameters['audio'] == '1',
+          ),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            const begin = Offset(1.0, 0.0);
+            const end = Offset.zero;
+            const curve = Curves.easeOutCubic;
+            final tween =
+                Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+            return SlideTransition(
+              position: animation.drive(tween),
+              child: child,
+            );
+          },
+          transitionDuration: const Duration(milliseconds: 280),
+          reverseTransitionDuration: const Duration(milliseconds: 240),
         ),
       ),
       GoRoute(

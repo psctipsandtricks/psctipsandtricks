@@ -176,16 +176,26 @@ function LoginFormContent() {
             onBlur={formik.handleBlur}
             error={formik.touched.email && formik.errors.email ? formik.errors.email : undefined}
           />
-          <Input
-            label="Password"
-            name="password"
-            type="password"
-            placeholder="••••••••"
-            value={formik.values.password}
-            onChange={formik.handleChange}
-            onBlur={formik.handleBlur}
-            error={formik.touched.password && formik.errors.password ? formik.errors.password : undefined}
-          />
+          <div className="space-y-1">
+            <Input
+              label="Password"
+              name="password"
+              type="password"
+              placeholder="••••••••"
+              value={formik.values.password}
+              onChange={formik.handleChange}
+              onBlur={formik.handleBlur}
+              error={formik.touched.password && formik.errors.password ? formik.errors.password : undefined}
+            />
+            <div className="flex justify-end pt-1">
+              <Link
+                href="/forgot-password"
+                className="text-xs font-semibold text-cyan-500 hover:text-cyan-400 hover:underline transition-colors"
+              >
+                Forgot Password?
+              </Link>
+            </div>
+          </div>
 
           <Button
             type="submit"

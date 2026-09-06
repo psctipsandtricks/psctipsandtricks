@@ -101,21 +101,29 @@ class ReaderAudioController {
   /// decrypted file from the offline vault.
   ///
   /// Re-loading the same url is a no-op, so rebuilding the player widget cannot
-  /// restart a clip the student is already listening to.
+  /// restart a clip the student is already listening to. [initialPosition]
+  /// opens the clip part-way through — what "continue with audio" resumes to,
+  /// set on the source itself so the first frame of playback is already at the
+  /// right place rather than starting at zero and seeking after.
   Future<void> load(
     String url, {
     String? label,
     String? album,
     bool autoPlay = false,
+    Duration? initialPosition,
   }) async {
-    if (_url == url) return;
+    if (_url == url) {
+      if (initialPosition != null) seek(initialPosition);
+      if (autoPlay && !_player.playing) unawaited(_player.play());
+      return;
+    }
     _url = url;
     _announcedComplete = null;
     title.value = label;
     failed.value = false;
     loading.value = true;
     fraction.value = 0;
-    position.value = Duration.zero;
+    position.value = initialPosition ?? Duration.zero;
     duration.value = null;
 
     try {
@@ -131,6 +139,7 @@ class ReaderAudioController {
             album: album ?? 'PSC Tips And Tricks',
           ),
         ),
+        initialPosition: initialPosition,
       );
       loading.value = false;
       if (autoPlay) unawaited(_player.play());
@@ -218,9 +227,14 @@ final readerAudioProvider = Provider<ReaderAudioController>((ref) {
 /// Whether content should follow the narration. One preference governs both the
 /// reader page and the PDF viewer — a student who turned it off in one place
 /// means it off everywhere.
+///
+/// Off until asked for: a page that starts moving on its own the moment
+/// narration begins takes the reading position away from the student before
+/// they have decided they want that. Only [set] ever writes the key, so a
+/// stored value is always a deliberate choice and is honoured over this.
 class AutoScrollController extends StateNotifier<bool> {
   AutoScrollController(this._ref)
-      : super(_ref.read(sharedPrefsProvider).getBool(_key) ?? true);
+      : super(_ref.read(sharedPrefsProvider).getBool(_key) ?? false);
 
   final Ref _ref;
   static const _key = 'reader_auto_scroll';
@@ -239,8 +253,7 @@ final autoScrollProvider =
 /// Whether the reader's audio UI is folded away — the docked transport shrinks
 /// to a single audio icon and the inline player drops its progress bar. Starts
 /// folded so narration never takes the strip until the student asks for it;
-/// toggled from the audio icon and the player's × button, and remembered across
-/// topics and app launches.
+/// toggled from the audio icon and the player's × button.
 class AudioBarCollapsedController extends StateNotifier<bool> {
   AudioBarCollapsedController(this._ref)
       : super(_ref.read(sharedPrefsProvider).getBool(_key) ?? true);

@@ -153,6 +153,12 @@ class Quiz {
   bool get isPaid =>
       isPremium || price > 0 || (accessType?.toUpperCase() == 'PAID');
 
+  /// The price to actually charge/display — the admin's discounted "Final
+  /// Student Price" when one is set, otherwise the base price. Prefer
+  /// `access?.price` where available (the server-resolved value); this is the
+  /// fallback for when `access` hasn't loaded yet.
+  double get effectivePrice => finalPrice > 0 ? finalPrice : price;
+
   bool get isNew => isRecent(createdAt);
   Duration get duration => Duration(minutes: durationMinutes);
 

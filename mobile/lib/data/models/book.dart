@@ -147,7 +147,7 @@ class Book {
     return (heroCoverUrl?.trim() ?? '');
   }
 
-  /// The 2:3 book size hero banner cover image (`heroCoverUrl`), falling back to catalog cover.
+  /// The 3:4 book size hero banner cover image (`heroCoverUrl`), falling back to catalog cover.
   String get effectiveHeroCoverUrl {
     final hero = heroCoverUrl?.trim();
     if (hero != null && hero.isNotEmpty) return hero;

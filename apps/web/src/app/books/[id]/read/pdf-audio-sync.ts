@@ -1,4 +1,9 @@
-import { PdfSyncCue, PdfSyncMap } from '@psc/shared-types';
+import {
+  PdfSyncCue,
+  PdfSyncMap,
+  PdfSyncRegion,
+  PdfSyncRegionKind,
+} from '@psc/shared-types';
 
 /**
  * Subtitle-style PDF↔audio timing.
@@ -30,6 +35,85 @@ export const MAX_OFFSET_MS = 120_000;
 export const MIN_CUE_DURATION_MS = 50;
 
 export const EMPTY_SYNC_MAP: PdfSyncMap = { offsetMs: 0, cues: [], revision: 0 };
+
+/** A cue with no region of its own is about its whole page. */
+export const WHOLE_PAGE: PdfSyncRegion = { x: 0, y: 0, width: 1, height: 1 };
+
+const REGION_KINDS: readonly PdfSyncRegionKind[] = [
+  'text',
+  'heading',
+  'image',
+  'table',
+  'diagram',
+  'other',
+];
+
+/** A region thinner than this is a rounding artefact, not something to scroll to. */
+const MIN_REGION_SIZE = 0.002;
+
+/**
+ * Fractions are stored to this many decimals. Five is far finer than any
+ * screen can resolve — a hundred-thousandth of a page is a hundredth of a
+ * pixel — and it keeps clipped values from carrying float dust like
+ * `0.09999999999999998` into the database and every diff after it.
+ */
+const REGION_DECIMALS = 5;
+
+function roundFraction(value: number): number {
+  const factor = 10 ** REGION_DECIMALS;
+  return Math.round(value * factor) / factor;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const n = typeof value === 'string' ? Number(value) : value;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+  return n;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * Coerce a raw target into a normalized rectangle, or null when it says
+ * nothing usable.
+ *
+ * Anything outside the page is clipped rather than rejected: an extractor that
+ * reports a figure a few thousandths over the edge is still pointing at the
+ * right figure.
+ */
+export function normalizeRegion(raw: unknown): PdfSyncRegion | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const source = raw as Record<string, unknown>;
+
+  const x = toFiniteNumber(source.x);
+  const y = toFiniteNumber(source.y);
+  const width = toFiniteNumber(source.width);
+  const height = toFiniteNumber(source.height);
+  if (x === null || y === null || width === null || height === null) return null;
+
+  const left = clamp01(x);
+  const top = clamp01(y);
+  const right = clamp01(left + Math.abs(width));
+  const bottom = clamp01(top + Math.abs(height));
+
+  const w = right - left;
+  const h = bottom - top;
+  if (w < MIN_REGION_SIZE || h < MIN_REGION_SIZE) return null;
+
+  return {
+    x: roundFraction(left),
+    y: roundFraction(top),
+    width: roundFraction(w),
+    height: roundFraction(h),
+  };
+}
+
+function normalizeKind(raw: unknown): PdfSyncRegionKind | undefined {
+  return REGION_KINDS.includes(raw as PdfSyncRegionKind)
+    ? (raw as PdfSyncRegionKind)
+    : undefined;
+}
 
 function toFiniteInt(value: unknown): number | null {
   const n = typeof value === 'string' ? Number(value) : value;
@@ -76,8 +160,16 @@ export function normalizeSyncMap(raw: unknown, numPages?: number): PdfSyncMap {
     const safeStart = Math.max(0, startMs);
     const safeEnd = Math.max(safeStart + MIN_CUE_DURATION_MS, endMs);
     const safePage = Math.max(1, Math.min(maxPage, page));
+    const target = normalizeRegion(cue.target);
+    const kind = normalizeKind(cue.type);
 
-    cleaned.push({ startMs: safeStart, endMs: safeEnd, page: safePage });
+    cleaned.push({
+      startMs: safeStart,
+      endMs: safeEnd,
+      page: safePage,
+      ...(target ? { target } : {}),
+      ...(kind ? { type: kind } : {}),
+    });
   }
 
   cleaned.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
@@ -156,6 +248,209 @@ export function resolvePageAtTime(map: PdfSyncMap | null | undefined, timeMs: nu
 
   // Inside a gap past this cue's end we deliberately keep returning its page.
   return map.cues[idx].page;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Region-level sync: audio time → cue → page → region → scroll offset.
+
+   Everything below is pure arithmetic on plain numbers. The viewer supplies
+   spans in whatever unit it scrolls in (CSS pixels on the web, logical pixels
+   on the phone) and gets an offset back in the same unit, so one set of rules
+   drives both platforms and every zoom level.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/** What the sync map wants on screen at some instant. */
+export interface ResolvedSyncTarget {
+  /** Index into `map.cues` — lets a caller tell "still this cue" from "next cue". */
+  cueIndex: number;
+  /** 1-based, as authored. */
+  page: number;
+  /** Always present: a cue without a region of its own resolves to the whole page. */
+  region: PdfSyncRegion;
+  type: PdfSyncRegionKind;
+  /**
+   * True while the instant is inside the cue's own span. False in the gap
+   * after it, where the cue is still what should be on screen but the narrator
+   * has moved past what it points at.
+   */
+  active: boolean;
+}
+
+/** A vertical range — a region's extent, or the visible window. Any unit, one unit. */
+export interface Span {
+  top: number;
+  bottom: number;
+}
+
+/** How much of a region has to be on screen before it counts as "already there". */
+export const MIN_VISIBLE_FRACTION = 0.65;
+
+/**
+ * A region taller than the viewport can never be mostly visible, so it settles
+ * on filling this much of the screen instead — being *inside* a full-page
+ * diagram is the same as having arrived at it.
+ */
+export const TALL_REGION_FILL = 0.8;
+
+/** Where a region's top lands when we do scroll: this far down the viewport. */
+export const REGION_TOP_BIAS = 0.3;
+
+/** A region taller than the screen aligns near the top instead, with a little air. */
+export const TALL_REGION_MARGIN = 0.06;
+
+/**
+ * The region that should be on screen at `timeMs` (raw audio time; the map's
+ * offset is applied here), or null when the map has nothing to say.
+ *
+ * Gaps hold, exactly as [resolvePageAtTime] does: time past a cue's end keeps
+ * resolving to that cue until the next one starts, so a narrator talking over
+ * a figure for a minute does not make the document wander.
+ */
+export function resolveTargetAtTime(
+  map: PdfSyncMap | null | undefined,
+  timeMs: number,
+): ResolvedSyncTarget | null {
+  if (!map || map.cues.length === 0) return null;
+
+  const adjusted = timeMs - map.offsetMs;
+  const idx = findCueIndexAtTime(map.cues, adjusted);
+
+  // Before the first cue: hold the first cue's target, so a lead-in of silence
+  // still has the reader looking at where the narration is about to start.
+  const cueIndex = idx < 0 ? 0 : idx;
+  const cue = map.cues[cueIndex];
+
+  return targetForCue(map, cueIndex, idx >= 0 && adjusted < cue.endMs);
+}
+
+/**
+ * The target for one cue by index.
+ *
+ * Split out from [resolveTargetAtTime] so a caller that already knows which cue
+ * is current can rebuild the target without going through the clock — which is
+ * what lets React memoize on the cue index and hand the viewer an object whose
+ * identity only changes when the cue does, instead of a fresh one every tick.
+ */
+export function targetForCue(
+  map: PdfSyncMap | null | undefined,
+  cueIndex: number | null,
+  active = true,
+): ResolvedSyncTarget | null {
+  if (!map || cueIndex === null || cueIndex < 0) return null;
+  const cue = map.cues[cueIndex];
+  if (!cue) return null;
+
+  return {
+    cueIndex,
+    page: cue.page,
+    region: cue.target ?? WHOLE_PAGE,
+    type: cue.type ?? 'text',
+    active,
+  };
+}
+
+/** Fraction of `region` currently inside `viewport`, 0–1. */
+export function visibleFraction(region: Span, viewport: Span): number {
+  const height = region.bottom - region.top;
+  if (height <= 0) return 0;
+  const overlap =
+    Math.min(region.bottom, viewport.bottom) - Math.max(region.top, viewport.top);
+  if (overlap <= 0) return 0;
+  return Math.min(1, overlap / height);
+}
+
+/**
+ * Whether the reader can already see this region well enough that moving the
+ * page would be noise rather than help.
+ *
+ * This is the check that keeps the document still: a paragraph two lines below
+ * the last one does not earn a scroll, and neither does the figure the narrator
+ * has been describing for the last thirty seconds.
+ */
+export function isRegionSettled(region: Span, viewport: Span): boolean {
+  const viewportHeight = viewport.bottom - viewport.top;
+  if (viewportHeight <= 0) return false;
+
+  const regionHeight = region.bottom - region.top;
+  const overlap =
+    Math.min(region.bottom, viewport.bottom) - Math.max(region.top, viewport.top);
+  if (overlap <= 0) return false;
+
+  if (regionHeight > viewportHeight) {
+    return overlap >= viewportHeight * TALL_REGION_FILL;
+  }
+  return overlap / regionHeight >= MIN_VISIBLE_FRACTION;
+}
+
+/**
+ * Where the scroll container should land to put `region` in a comfortable
+ * reading position, clamped to the document.
+ */
+export function scrollOffsetForRegion(
+  region: Span,
+  viewportHeight: number,
+  documentExtent: number,
+): number {
+  const regionHeight = region.bottom - region.top;
+  const bias =
+    regionHeight >= viewportHeight ? TALL_REGION_MARGIN : REGION_TOP_BIAS;
+  const desired = region.top - viewportHeight * bias;
+  const maxOffset = Math.max(0, documentExtent - viewportHeight);
+  return Math.max(0, Math.min(maxOffset, desired));
+}
+
+export interface SyncScrollInput {
+  /** From [resolveTargetAtTime]. */
+  target: ResolvedSyncTarget | null;
+  /** The cue this viewer has already acted on, or null if none yet. */
+  appliedCueIndex: number | null;
+  /**
+   * The target region's extent in scroll-space, or null while the page it
+   * lives on has not been laid out or measured yet.
+   */
+  regionSpan: Span | null;
+  viewport: Span;
+  /** Total scrollable extent of the document, same unit as the spans. */
+  documentExtent: number;
+}
+
+export interface SyncScrollDecision {
+  /** Where to scroll, or null to stay put. */
+  scrollTo: number | null;
+  /** The cue now considered handled — record it even when nothing moved. */
+  cueIndex: number | null;
+  reason: 'no-target' | 'layout-pending' | 'settled' | 'scroll';
+}
+
+/**
+ * The whole follow-the-audio rule in one place: move only when the target has
+ * actually changed or drifted off screen, and never on the strength of the
+ * clock alone.
+ *
+ * Note that a cue change alone is not enough — if the next region is already
+ * on screen the answer is still "stay put", which is what carries the reader
+ * smoothly through a figure sitting between two narrated paragraphs instead of
+ * snapping to it and then snapping away.
+ */
+export function decideSyncScroll(input: SyncScrollInput): SyncScrollDecision {
+  const { target, appliedCueIndex, regionSpan, viewport, documentExtent } = input;
+
+  if (!target) return { scrollTo: null, cueIndex: null, reason: 'no-target' };
+  if (!regionSpan) {
+    return { scrollTo: null, cueIndex: appliedCueIndex, reason: 'layout-pending' };
+  }
+
+  if (isRegionSettled(regionSpan, viewport)) {
+    // Handled without moving: the reader is already looking at it.
+    return { scrollTo: null, cueIndex: target.cueIndex, reason: 'settled' };
+  }
+
+  const viewportHeight = viewport.bottom - viewport.top;
+  return {
+    scrollTo: scrollOffsetForRegion(regionSpan, viewportHeight, documentExtent),
+    cueIndex: target.cueIndex,
+    reason: 'scroll',
+  };
 }
 
 /** The cue whose span contains `timeMs` exactly — used to highlight the active row in the editor. */

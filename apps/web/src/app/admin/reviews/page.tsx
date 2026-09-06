@@ -150,6 +150,7 @@ export default function AdminReviewsPage() {
     type: 'toggle' | 'delete';
     review: CustomerReview;
   } | null>(null);
+  const [isConfirmLoading, setIsConfirmLoading] = useState(false);
 
   const fetchReviews = useCallback(async (silent = false) => {
     try {
@@ -185,19 +186,13 @@ export default function AdminReviewsPage() {
       };
       try {
         if (editingReview) {
-          setReviews((prev) =>
-            prev.map((r) => (r.id === editingReview.id ? { ...r, ...payload } : r)),
-          );
-          setIsDialogOpen(false);
-          setEditingReview(null);
-          resetForm();
           await ApiClient.updateReview(editingReview.id, payload);
         } else {
-          setIsDialogOpen(false);
-          setEditingReview(null);
-          resetForm();
           await ApiClient.createReview(payload);
         }
+        setIsDialogOpen(false);
+        setEditingReview(null);
+        resetForm();
         await fetchReviews();
       } catch (err: any) {
         setFieldError(
@@ -228,40 +223,23 @@ export default function AdminReviewsPage() {
     setIsDialogOpen(true);
   };
 
-  const handleToggleStatus = async (review: CustomerReview) => {
-    const nextActive = !review.isActive;
-    setReviews((prev) => prev.map((r) => (r.id === review.id ? { ...r, isActive: nextActive } : r)));
-    try {
-      await ApiClient.setReviewActive(review.id, nextActive);
-      await fetchReviews();
-    } catch (err: any) {
-      setReviews((prev) =>
-        prev.map((r) => (r.id === review.id ? { ...r, isActive: review.isActive } : r)),
-      );
-      alert(err.message || 'Failed to update review status.');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    const previousReviews = reviews;
-    setReviews((prev) => prev.filter((r) => r.id !== id));
-    try {
-      await ApiClient.deleteReview(id);
-      await fetchReviews();
-    } catch (err: any) {
-      setReviews(previousReviews);
-      alert(err.message || 'Failed to delete review.');
-    }
-  };
-
-  const handleConfirmAction = () => {
+  const handleConfirmAction = async () => {
     if (!confirmTarget) return;
-    if (confirmTarget.type === 'toggle') {
-      handleToggleStatus(confirmTarget.review);
-    } else {
-      handleDelete(confirmTarget.review.id);
+    setIsConfirmLoading(true);
+    try {
+      if (confirmTarget.type === 'toggle') {
+        const nextActive = !confirmTarget.review.isActive;
+        await ApiClient.setReviewActive(confirmTarget.review.id, nextActive);
+      } else {
+        await ApiClient.deleteReview(confirmTarget.review.id);
+      }
+      setConfirmTarget(null);
+      await fetchReviews();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update review.');
+    } finally {
+      setIsConfirmLoading(false);
     }
-    setConfirmTarget(null);
   };
 
   if (!mounted || (loading && reviews.length === 0)) {
@@ -564,8 +542,9 @@ export default function AdminReviewsPage() {
         variant={
           confirmTarget?.type === 'delete' || confirmTarget?.review.isActive ? 'danger' : 'default'
         }
+        isLoading={isConfirmLoading}
         onConfirm={handleConfirmAction}
-        onCancel={() => setConfirmTarget(null)}
+        onCancel={() => !isConfirmLoading && setConfirmTarget(null)}
       />
     </div>
   );

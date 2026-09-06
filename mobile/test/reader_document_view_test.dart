@@ -127,29 +127,89 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
-  group('the document is the default view', () {
+  group('opening the reader', () {
+    testWidgets('the document is covered while the page is still travelling',
+        (tester) async {
+      // The regression this exists for: the document is a native platform
+      // view, which does not travel with the Flutter layer during a page
+      // transition — sliding one in tears and ghosts. It gets covered for the
+      // length of the animation, and this has already been lost once.
+      tester.view.physicalSize = const Size(400, 860);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final player = ReaderAudioController();
+      addTearDown(player.dispose);
+
+      final container = ProviderContainer(overrides: [
+        sharedPrefsProvider.overrideWithValue(prefs),
+        booksRepositoryProvider.overrideWith((ref) => _SilentBooksRepository()),
+        readerAudioProvider.overrideWithValue(player),
+        routerProvider.overrideWith((ref) => GoRouter(routes: [
+              GoRoute(path: '/', builder: (_, __) => const SizedBox.shrink()),
+            ])),
+        readerSourceProvider.overrideWith(
+          (ref, id) async => const ReaderSource(
+            content: BookReaderContent(
+              bookId: bookId,
+              title: 'Kerala History',
+              author: 'PSC',
+              coverUrl: '',
+              category: 'Kerala PSC',
+              chapters: chapters,
+            ),
+          ),
+        ),
+        bookProgressProvider.overrideWith((ref, id) async => null),
+      ]);
+      addTearDown(container.dispose);
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          navigatorKey: navigatorKey,
+          home: const Scaffold(body: Text('the book page')),
+        ),
+      ));
+
+      // Pushed rather than used as `home`: a first route has no transition to
+      // glitch during, which is exactly the case that would pass vacuously.
+      navigatorKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const BookReaderScreen(bookId: bookId),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(
+        find.byKey(documentTransitionCoverKey),
+        findsOneWidget,
+        reason: 'mid-transition the platform view must not be on show',
+      );
+
+      // Past the end of the route animation the real document is handed back.
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byKey(documentTransitionCoverKey), findsNothing);
+    });
+  });
+
+  group('the document is the default — and only — view', () {
     testWidgets('a topic with a PDF opens on it, with nothing to tap first',
         (tester) async {
       await pump(tester, size: const Size(400, 860));
 
       // The old flow put a tile on a page of notes and made the student find
-      // it. The notes are what should now be one toggle away, not the document.
+      // it, with a toggle back and forth. That toggle is gone: a topic with a
+      // PDF shows only the document, even though this one also carries notes.
       expect(find.text('The written notes for this topic.'), findsNothing);
-      expect(find.byTooltip('Show the written notes'), findsOneWidget);
-    });
-
-    testWidgets('the toggle swaps to the notes and back', (tester) async {
-      await pump(tester, size: const Size(400, 860));
-
-      await tester.tap(find.byTooltip('Show the written notes'));
-      await tester.pump(const Duration(milliseconds: 100));
-
-      expect(find.text('The written notes for this topic.'), findsOneWidget);
-      expect(find.byTooltip('Show the document'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Show the document'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('The written notes for this topic.'), findsNothing);
+      expect(find.byTooltip('Show the written notes'), findsNothing);
+      expect(find.byTooltip('Show the document'), findsNothing);
     });
 
     testWidgets('a topic with no document has no toggle and shows its notes',
@@ -190,8 +250,9 @@ void main() {
 
       expect(find.byTooltip('Back'), findsOneWidget);
       expect(find.byTooltip('Chapters and topics'), findsOneWidget);
-      // This topic has notes as well, so the way to them is offered.
-      expect(find.byTooltip('Show the written notes'), findsOneWidget);
+      // The document is this topic's only view, even though it also has
+      // notes — there is no toggle to offer.
+      expect(find.byTooltip('Show the written notes'), findsNothing);
       // Nothing is playing, so auto-scroll has nothing to follow and stays out
       // of the way.
       expect(find.byTooltip('Follow the audio'), findsNothing);
@@ -206,21 +267,19 @@ void main() {
       await pump(tester, size: const Size(400, 860), audio: audio);
 
       // Nothing playing: the switch has nothing to follow and is not built.
-      expect(find.byTooltip('Pages follow the audio — tap to stop'),
-          findsNothing);
+      // It wears its off label, since following starts off until asked for.
+      expect(find.byTooltip('Follow the audio'), findsNothing);
 
       audio.playing.value = true;
       await tester.pump(const Duration(milliseconds: 400));
-      expect(find.byTooltip('Pages follow the audio — tap to stop'),
-          findsOneWidget);
+      expect(find.byTooltip('Follow the audio'), findsOneWidget);
 
       audio.playing.value = false;
       // Two frames: the first runs the switcher's transition out, the second
       // is where the outgoing child actually leaves the tree.
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump(const Duration(milliseconds: 400));
-      expect(find.byTooltip('Pages follow the audio — tap to stop'),
-          findsNothing);
+      expect(find.byTooltip('Follow the audio'), findsNothing);
     });
 
     testWidgets('landscape is the same bare page', (tester) async {
@@ -257,11 +316,14 @@ void main() {
     testWidgets('sideways the notes keep a readable line length',
         (tester) async {
       await pump(tester, size: const Size(880, 410));
-      await tester.tap(find.byTooltip('Show the written notes'));
-      await tester.pump(const Duration(milliseconds: 100));
+      // Topic one carries a PDF and only ever shows its document, so the
+      // notes page is reached through the other topic instead.
+      await openContents(tester);
+      await tester.tap(find.text('Ayyankali').last);
+      await tester.pump(const Duration(milliseconds: 400));
 
       final sideways =
-          tester.getSize(find.text('The written notes for this topic.')).width;
+          tester.getSize(find.text('A topic with no document at all.')).width;
       // Body text run across the full 880dp is a line no one can track back
       // from, so the side padding absorbs the difference instead.
       expect(sideways, lessThanOrEqualTo(680));
@@ -270,13 +332,14 @@ void main() {
 
     testWidgets('upright the notes still span the screen', (tester) async {
       await pump(tester, size: const Size(400, 860));
-      await tester.tap(find.byTooltip('Show the written notes'));
-      await tester.pump(const Duration(milliseconds: 100));
+      await openContents(tester);
+      await tester.tap(find.text('Ayyankali').last);
+      await tester.pump(const Duration(milliseconds: 400));
 
       // A phone held upright is already narrower than a readable measure, so
       // nothing is taken off it.
       expect(
-        tester.getSize(find.text('The written notes for this topic.')).width,
+        tester.getSize(find.text('A topic with no document at all.')).width,
         400 - 32,
       );
     });

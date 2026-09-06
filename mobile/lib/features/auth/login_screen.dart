@@ -33,6 +33,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _submitting = false;
   String? _busyProvider;
   String? _error;
+  bool get _isProcessing => _submitting || _busyProvider != null;
 
   @override
   void dispose() {
@@ -47,6 +48,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isProcessing) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     FocusScope.of(context).unfocus();
     setState(() {
@@ -68,6 +70,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _social(String provider) async {
+    if (_isProcessing) return;
+    FocusScope.of(context).unfocus();
     setState(() {
       _busyProvider = provider;
       _error = null;
@@ -93,6 +97,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _goOnwards();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Sign in failed. Please try again.');
     } finally {
       if (mounted) setState(() => _busyProvider = null);
     }
@@ -125,111 +131,144 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _goOnwards();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Google sign-in failed. Please try again.');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final isProcessing = _isProcessing;
 
     return AuthScaffold(
       title: 'Welcome back',
       subtitle:
           'Sign in to pick up your books, quizzes and rank tracking where you left off.',
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_error != null) ...[
-              _ErrorBanner(message: _error!),
-              const SizedBox(height: 16),
-            ],
-            TextFormField(
-              controller: _email,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.email],
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                hintText: 'you@example.com',
-                prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
-              ),
-              validator: (value) {
-                final v = value?.trim() ?? '';
-                if (v.isEmpty) return 'Enter your email';
-                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
-                  return 'Enter a valid email address';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _password,
-              obscureText: _obscure,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.password],
-              onFieldSubmitted: (_) => _submit(),
-              decoration: InputDecoration(
-                labelText: 'Password',
-                prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscure
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                    size: 20,
-                  ),
-                  onPressed: () => setState(() => _obscure = !_obscure),
-                ),
-              ),
-              validator: (value) =>
-                  (value ?? '').isEmpty ? 'Enter your password' : null,
-            ),
-            const SizedBox(height: 22),
-            GradientButton(
-              label: 'Sign in',
-              icon: Icons.login_rounded,
-              isLoading: _submitting,
-              onPressed: _submitting ? null : _submit,
-            ),
-            const SizedBox(height: 22),
-            const AuthDivider(),
-            const SizedBox(height: 16),
-            SocialSignInRow(
-              busyProvider: _busyProvider,
-              onGoogle: () => _social('google'),
-              onApple: () => _social('apple'),
-            ),
-            const SizedBox(height: 26),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'New here?',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: palette.textSecondary,
-                      ),
-                ),
-                TextButton(
-                  onPressed: () => context.push(
-                    widget.redirect == null
-                        ? AppRoutes.signup
-                        : '${AppRoutes.signup}?redirect=${Uri.encodeComponent(widget.redirect!)}',
-                  ),
-                  child: const Text('Create an account'),
-                ),
+      child: AbsorbPointer(
+        absorbing: isProcessing,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_error != null) ...[
+                _ErrorBanner(message: _error!),
+                const SizedBox(height: 16),
               ],
-            ),
-            TextButton(
-              onPressed: () => context.go(AppRoutes.home),
-              child: Text(
-                'Browse as a guest',
-                style: TextStyle(color: palette.textMuted),
+              TextFormField(
+                controller: _email,
+                enabled: !isProcessing,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  hintText: 'you@example.com',
+                  prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
+                ),
+                validator: (value) {
+                  final v = value?.trim() ?? '';
+                  if (v.isEmpty) return 'Enter your email';
+                  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
+                    return 'Enter a valid email address';
+                  }
+                  return null;
+                },
               ),
-            ),
-          ],
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _password,
+                enabled: !isProcessing,
+                obscureText: _obscure,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.password],
+                onFieldSubmitted: (_) => _submit(),
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
+                  suffixIcon: IconButton(
+                    tooltip: _obscure ? 'Show password' : 'Hide password',
+                    icon: Icon(
+                      _obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 20,
+                      color: palette.textSecondary,
+                    ),
+                    onPressed: isProcessing ? null : () => setState(() => _obscure = !_obscure),
+                  ),
+                ),
+                validator: (value) =>
+                    (value ?? '').isEmpty ? 'Enter your password' : null,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: isProcessing
+                      ? null
+                      : () => context.push(AppRoutes.forgotPassword),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    'Forgot password?',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isProcessing ? palette.textMuted : AppColors.cyan,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              GradientButton(
+                label: 'Sign in',
+                icon: Icons.login_rounded,
+                isLoading: _submitting,
+                onPressed: isProcessing ? null : _submit,
+              ),
+              const SizedBox(height: 22),
+              const AuthDivider(),
+              const SizedBox(height: 16),
+              SocialSignInRow(
+                busyProvider: _busyProvider,
+                disabled: isProcessing,
+                onGoogle: isProcessing ? null : () => _social('google'),
+                onApple: isProcessing ? null : () => _social('apple'),
+              ),
+              const SizedBox(height: 26),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'New here?',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: palette.textSecondary,
+                        ),
+                  ),
+                  TextButton(
+                    onPressed: isProcessing
+                        ? null
+                        : () => context.push(
+                              widget.redirect == null
+                                  ? AppRoutes.signup
+                                  : '${AppRoutes.signup}?redirect=${Uri.encodeComponent(widget.redirect!)}',
+                            ),
+                    child: const Text('Create an account'),
+                  ),
+                ],
+              ),
+              TextButton(
+                onPressed: isProcessing ? null : () => context.go(AppRoutes.home),
+                child: Text(
+                  'Browse as a guest',
+                  style: TextStyle(color: palette.textMuted),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

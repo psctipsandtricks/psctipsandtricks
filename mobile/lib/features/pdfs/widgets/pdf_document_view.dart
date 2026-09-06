@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/material.dart';
@@ -26,19 +25,6 @@ class PdfViewState {
   bool get isReady => pageCount > 0;
 }
 
-/// Below this a viewport is too short to show a whole page at a size anyone
-/// could read, so the document scrolls fitted to the width instead. Matches the
-/// reader's own tablet threshold: both are asking "is this wide screen a tablet
-/// or a phone lying on its side?".
-const _wholePageMinHeight = 600.0;
-
-/// A scrolling PDF, with its download, its remembered place, and its
-/// follow-the-narration behaviour.
-///
-/// Extracted from the full-screen viewer so the reader can show the same
-/// document inline. Both surfaces then behave identically — same continuous
-/// vertical scroll, same resume point, same auto page-turn — rather than the
-/// reader growing a second, subtly different implementation.
 class PdfDocumentView extends ConsumerStatefulWidget {
   const PdfDocumentView({
     super.key,
@@ -72,7 +58,6 @@ class PdfDocumentView extends ConsumerStatefulWidget {
 /// Public so a host can hold a [GlobalKey] to it and call [syncNow].
 class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   String? _localPath;
-  Uint8List? _pdfBytes;
   Object? _error;
   double _downloadProgress = 0;
 
@@ -146,7 +131,6 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
       _needsFirstSync = true;
       _renderedDocument = null;
       _localPath = null;
-      _pdfBytes = null;
       _prepare();
     }
   }
@@ -266,18 +250,7 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
     // An offline copy is already decrypted on disk; render it directly.
     final local = widget.localPath;
     if (local != null && File(local).existsSync()) {
-      try {
-        final bytes = await File(local).readAsBytes();
-        if (mounted) {
-          setState(() {
-            _localPath = local;
-            _pdfBytes = bytes;
-          });
-        }
-      } catch (e) {
-        debugPrint('===> Error reading local PDF bytes: $e');
-        if (mounted) setState(() => _localPath = local);
-      }
+      if (mounted) setState(() => _localPath = local);
       return;
     }
 
@@ -290,10 +263,8 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
       // and so the same document always resolves to the same cached file.
       final name = crypto.md5.convert(widget.url.codeUnits).toString();
       final file = File('${pdfDir.path}/$name.pdf');
-      debugPrint('===> PDF prepare: url=${widget.url}, target file=${file.path}, exists=${file.existsSync()}, size=${file.existsSync() ? file.lengthSync() : 0}');
 
       if (!file.existsSync() || file.lengthSync() == 0) {
-        debugPrint('===> PDF downloading from ${widget.url}...');
         await ref.read(apiClientProvider).download(
           widget.url,
           file.path,
@@ -303,22 +274,14 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
             }
           },
         );
-        debugPrint('===> PDF download finished! size=${file.lengthSync()}');
       }
 
-      final bytes = await file.readAsBytes();
       if (mounted) {
-        debugPrint('===> Setting _localPath=${file.path} and _pdfBytes=${bytes.length}');
-        setState(() {
-          _localPath = file.path;
-          _pdfBytes = bytes;
-        });
+        setState(() => _localPath = file.path);
       }
     } on ApiException catch (e) {
-      debugPrint('===> PDF download ApiException: $e');
       if (mounted) setState(() => _error = e);
-    } catch (e, st) {
-      debugPrint('===> PDF download error: $e\n$st');
+    } catch (e) {
       if (mounted) {
         setState(() => _error =
             const ApiException('Could not open this document. Please try again.'));
@@ -331,7 +294,7 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
     if (_error != null) {
       return ErrorView(error: _error!, onRetry: _prepare);
     }
-    if (_localPath == null || _pdfBytes == null) {
+    if (_localPath == null) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -358,53 +321,28 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
       );
     }
 
-    // Two genuinely different documents, chosen by how much height there is
-    // to put a page into — not by orientation alone.
-    //
-    // Fit-the-width, scrolling as one continuous column, is the default and
-    // the posture people actually read in on a phone: the page spans the
-    // screen edge to edge, so turning the phone sideways *magnifies* the text
-    // instead of shrinking it.
-    //
-    // Fit-the-whole-page, one per screen with a snap, only pays off where
-    // there is real height to fit a page into. A landscape phone has around
-    // 411dp, and a whole A4 page inside what is left of that after the app bar
-    // and the transport comes out barely 200dp wide — a stamp, which is what
-    // this screen used to show. A landscape tablet or a large foldable does
-    // have the height, and there a page per screen is the point of the extra
-    // room.
-    // Measured off the box this actually gets rather than off the screen: the
-    // reader hands it what is left under the app bar and over the transport,
-    // and on a tablet only the column beside the pinned contents.
-    return LayoutBuilder(builder: (context, constraints) {
-      final screen = MediaQuery.sizeOf(context);
-      final width =
-          constraints.maxWidth.isFinite ? constraints.maxWidth : screen.width;
-      final height = constraints.maxHeight.isFinite
-          ? constraints.maxHeight
-          : screen.height;
-      final wholePage = width > height && height >= _wholePageMinHeight;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
 
-      return PDFView(
-        key: ValueKey('$_localPath-${_pdfBytes?.length}-${width.round()}'),
-        filePath: _localPath,
-        pdfData: _pdfBytes,
+    return Container(
+      color: Colors.white,
+      child: PDFView(
+        key: ValueKey('$_localPath-$isLandscape'),
+        filePath: _localPath!,
         enableSwipe: true,
         swipeHorizontal: false,
         autoSpacing: false,
         pageFling: false,
         pageSnap: false,
-        fitEachPage: false,
-        fitPolicy: FitPolicy.WIDTH,
+        fitEachPage: true,
+        fitPolicy: isLandscape ? FitPolicy.BOTH : FitPolicy.WIDTH,
         defaultPage: _currentPage > 0 ? _currentPage : _resumePage,
         nightMode: false,
         backgroundColor: Colors.white,
         onViewCreated: (controller) {
-          debugPrint('===> PDFView onViewCreated called');
           _pdf = controller;
         },
         onRender: (pages) {
-          debugPrint('===> PDFView onRender called with pages: $pages');
           final isFirstRender = _renderedDocument != _localPath;
           _renderedDocument = _localPath;
           setState(() => _pageCount = pages ?? 0);
@@ -412,7 +350,6 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
           if (isFirstRender) _syncToAudio(seeking: true);
         },
         onPageChanged: (page, total) {
-          debugPrint('===> PDFView onPageChanged: $page / $total');
           final next = page ?? 0;
           if (_lastAutoPage != next) _lastManualTurn = DateTime.now();
           setState(() => _currentPage = next);
@@ -420,16 +357,17 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
           _rememberPage(next);
         },
         onError: (e) {
-          debugPrint('===> PDFView onError: $e');
-          setState(
-            () => _error = const ApiException('This document could not be rendered.'),
-          );
+          if (mounted) {
+            setState(
+              () => _error = const ApiException('This document could not be rendered.'),
+            );
+          }
         },
         onPageError: (page, e) {
-          debugPrint('===> PDFView onPageError on page $page: $e');
+          debugPrint('PDFView error on page $page: $e');
         },
-      );
-    });
+      ),
+    );
   }
 }
 

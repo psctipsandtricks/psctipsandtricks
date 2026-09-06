@@ -42,7 +42,7 @@ class Order {
   /// The 16:9 catalog cover (`book.coverUrl`).
   final String? bookCoverUrl;
 
-  /// The 2:3 book-size hero cover uploaded from the Admin Panel (`book.heroCoverUrl`).
+  /// The 3:4 book-size hero cover uploaded from the Admin Panel (`book.heroCoverUrl`).
   final String? bookHeroCoverUrl;
   final String? quizTitle;
   final String? razorpayPaymentId;
@@ -51,7 +51,7 @@ class Order {
   String get itemTitle => bookTitle ?? quizTitle ?? 'Purchase';
   bool get isBook => bookId != null;
 
-  /// Prefer the 2:3 hero cover for book artwork, falling back to the catalog cover.
+  /// Prefer the 3:4 hero cover for book artwork, falling back to the catalog cover.
   String? get bookArtworkUrl {
     final hero = bookHeroCoverUrl?.trim();
     if (hero != null && hero.isNotEmpty) return hero;

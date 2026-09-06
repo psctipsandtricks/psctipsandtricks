@@ -310,6 +310,7 @@ export default function AdminCommunityPage() {
     | { type: 'unblock-member'; userId: string; name: string }
     | null
   >(null);
+  const [isConfirmActionLoading, setIsConfirmActionLoading] = useState(false);
 
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<{ id: string; name: string } | null>(null);
@@ -349,6 +350,16 @@ export default function AdminCommunityPage() {
     );
   }
 
+  const handleToggleLockGroup = (groupId: string) => {
+    const targetGroup = groups.find((g) => g.id === groupId);
+    if (!targetGroup) return;
+    toggleLockMutation.mutate(groupId);
+  };
+
+  const handleDeleteGroup = (groupId: string) => {
+    deleteGroupMutation.mutate(groupId);
+  };
+
   const handleOpenCreateModal = () => {
     setEditingGroup(null);
     groupFormik.resetForm({
@@ -375,14 +386,6 @@ export default function AdminCommunityPage() {
     setIsGroupModalOpen(true);
   };
 
-  const handleToggleLockGroup = (groupId: string) => {
-    toggleLockMutation.mutate(groupId);
-  };
-
-  const handleDeleteGroup = (groupId: string) => {
-    deleteGroupMutation.mutate(groupId);
-  };
-
   const handleOpenMembersModal = (group: AdminGroup) => {
     setActiveGroup({ id: group.id, name: group.name });
     // Start every roster from a clean slate rather than inheriting the last
@@ -397,16 +400,27 @@ export default function AdminCommunityPage() {
     removeMemberMutation.mutate(userId);
   };
 
-  const handleConfirmAction = () => {
+  const handleConfirmAction = async () => {
     if (!confirmAction) return;
-    if (confirmAction.type === 'lock') handleToggleLockGroup(confirmAction.group.id);
-    else if (confirmAction.type === 'delete-group') handleDeleteGroup(confirmAction.group.id);
-    else if (confirmAction.type === 'block-member')
-      setMemberBlockedMutation.mutate({ userId: confirmAction.userId, blocked: true });
-    else if (confirmAction.type === 'unblock-member')
-      setMemberBlockedMutation.mutate({ userId: confirmAction.userId, blocked: false });
-    else handleRemoveMember(confirmAction.userId);
-    setConfirmAction(null);
+    setIsConfirmActionLoading(true);
+    try {
+      if (confirmAction.type === 'lock') {
+        await toggleLockMutation.mutateAsync(confirmAction.group.id);
+      } else if (confirmAction.type === 'delete-group') {
+        await deleteGroupMutation.mutateAsync(confirmAction.group.id);
+      } else if (confirmAction.type === 'block-member') {
+        await setMemberBlockedMutation.mutateAsync({ userId: confirmAction.userId, blocked: true });
+      } else if (confirmAction.type === 'unblock-member') {
+        await setMemberBlockedMutation.mutateAsync({ userId: confirmAction.userId, blocked: false });
+      } else {
+        await removeMemberMutation.mutateAsync(confirmAction.userId);
+      }
+      setConfirmAction(null);
+    } catch (err: any) {
+      alert(err.message || 'Action failed.');
+    } finally {
+      setIsConfirmActionLoading(false);
+    }
   };
 
   // Category options are derived from the groups that actually exist, so the
@@ -1319,8 +1333,9 @@ export default function AdminCommunityPage() {
             ? 'danger'
             : 'default'
         }
+        isLoading={isConfirmActionLoading}
         onConfirm={handleConfirmAction}
-        onCancel={() => setConfirmAction(null)}
+        onCancel={() => !isConfirmActionLoading && setConfirmAction(null)}
       />
     </div>
   );

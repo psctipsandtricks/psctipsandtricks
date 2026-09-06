@@ -129,6 +129,7 @@ export default function QuizQuestionsStudioPage() {
 
   // Delete Confirm State
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
+  const [isDeletingQuestion, setIsDeletingQuestion] = useState(false);
 
   // Read-only "View Question" Modal State
   const [viewIndex, setViewIndex] = useState<number | null>(null);
@@ -336,6 +337,7 @@ export default function QuizQuestionsStudioPage() {
       // The server never got the change — undo the optimistic update so the
       // table doesn't show a question that doesn't actually exist yet.
       setQuestions(previousQuestions);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -360,8 +362,10 @@ export default function QuizQuestionsStudioPage() {
       nextQuestions = [...questions, currentForm];
     }
 
-    setIsModalOpen(false);
-    await saveQuestionsToBackend(nextQuestions);
+    const success = await saveQuestionsToBackend(nextQuestions);
+    if (success) {
+      setIsModalOpen(false);
+    }
   };
 
   // Reordering Questions
@@ -515,9 +519,13 @@ export default function QuizQuestionsStudioPage() {
   // Delete Question
   const handleDeleteQuestionConfirm = async () => {
     if (deleteIndex === null) return;
+    setIsDeletingQuestion(true);
     const nextQuestions = questions.filter((_, idx) => idx !== deleteIndex);
-    setDeleteIndex(null);
-    await saveQuestionsToBackend(nextQuestions);
+    const success = await saveQuestionsToBackend(nextQuestions);
+    setIsDeletingQuestion(false);
+    if (success) {
+      setDeleteIndex(null);
+    }
   };
 
   // Filtered Questions List for Table Search
@@ -1185,6 +1193,7 @@ export default function QuizQuestionsStudioPage() {
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={deleteIndex !== null}
+        isLoading={isDeletingQuestion}
         title="Delete Question"
         description={
           deleteIndex !== null

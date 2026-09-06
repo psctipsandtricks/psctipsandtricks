@@ -9,6 +9,8 @@ import { AppleStrategy } from './apple.strategy';
 import { GoogleConfiguredGuard, AppleConfiguredGuard } from './oauth-configured.guard';
 import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
 
+import { MailService } from './mail.service';
+
 @Module({
   imports: [
     PassportModule,
@@ -17,6 +19,7 @@ import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
   controllers: [AuthController],
   providers: [
     AuthService,
+    MailService,
     JwtStrategy,
     GoogleStrategy,
     AppleStrategy,
@@ -25,6 +28,6 @@ import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
     GoogleAuthGuard,
     AppleAuthGuard,
   ],
-  exports: [AuthService],
+  exports: [AuthService, MailService],
 })
 export class AuthModule {}

@@ -55,6 +55,7 @@ export default function AdminChapterVideosPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Video | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
 
   // Attached PDF state for video modal
@@ -101,14 +102,6 @@ export default function AdminChapterVideosPage() {
           isActive: values.isActive,
         };
 
-        if (editingVideo) {
-          setVideos((prev) =>
-            prev.map((v) => (v.id === editingVideo.id ? { ...v, ...payload } : v)),
-          );
-        }
-        setIsDialogOpen(false);
-        setEditingVideo(null);
-
         let target: Video;
         if (editingVideo) {
           target = await ApiClient.updateVideo(editingVideo.id, payload);
@@ -124,10 +117,12 @@ export default function AdminChapterVideosPage() {
           await ApiClient.uploadVideoPdf(target.id, pdfFile, setUploadPercent);
         }
 
+        setIsDialogOpen(false);
+        setEditingVideo(null);
         resetForm();
         setPdfFile(null);
         setRemoveExistingPdf(false);
-        await load(true);
+        await load();
       } catch (err: any) {
         setFieldError('youtubeUrl', err.message || 'Failed to save video.');
       } finally {
@@ -170,15 +165,17 @@ export default function AdminChapterVideosPage() {
     setRemoveExistingPdf(false);
   };
 
-  const handleDelete = async (id: string) => {
-    const previous = videos;
-    setVideos((prev) => prev.filter((v) => v.id !== id));
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await ApiClient.deleteVideo(id);
-      await load(true);
+      setIsDeleting(true);
+      await ApiClient.deleteVideo(deleteTarget.id);
+      setDeleteTarget(null);
+      await load();
     } catch (err: any) {
-      setVideos(previous);
       setPageError(err.message || 'Failed to delete video.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -577,6 +574,7 @@ export default function AdminChapterVideosPage() {
 
       <ConfirmDialog
         isOpen={deleteTarget !== null}
+        isLoading={isDeleting}
         title="Delete Video"
         description={
           deleteTarget
@@ -585,10 +583,7 @@ export default function AdminChapterVideosPage() {
         }
         confirmLabel="Delete"
         variant="danger"
-        onConfirm={() => {
-          if (deleteTarget) handleDelete(deleteTarget.id);
-          setDeleteTarget(null);
-        }}
+        onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
     </div>

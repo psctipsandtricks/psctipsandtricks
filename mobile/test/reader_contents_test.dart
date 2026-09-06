@@ -22,6 +22,8 @@ void main() {
           title: 'Sree Narayana Guru',
           orderIndex: 0,
           audioUrl: 'https://cdn.test/t1.mp3',
+          youtubeUrl: 'https://youtube.com/watch?v=12345',
+          pdfUrl: 'https://cdn.test/t1.pdf',
           subtopics: [
             Subtopic(
               id: 's1',
@@ -67,6 +69,7 @@ void main() {
     int maxReached = 0,
     void Function(int)? onSelect,
     void Function(int)? onPlayAudio,
+    void Function(ReadingUnit)? onPlayVideo,
   }) async {
     await tester.pumpWidget(MaterialApp(
       theme: AppTheme.light(),
@@ -79,6 +82,7 @@ void main() {
           totalUnits: units.length,
           onSelect: onSelect ?? (_) {},
           onPlayAudio: onPlayAudio ?? (_) {},
+          onPlayVideo: onPlayVideo,
         ),
       ),
     ));
@@ -182,6 +186,31 @@ void main() {
       expect(played, 1);
       // Playing is its own action — it must not also fire a plain selection.
       expect(selected, isNull);
+    });
+  });
+
+  group('video and media icons', () {
+    testWidgets('units with video get a video button and tapping it triggers onPlayVideo',
+        (tester) async {
+      ReadingUnit? playedVideo;
+      await pump(
+        tester,
+        activeIndex: 0,
+        onPlayVideo: (unit) => playedVideo = unit,
+      );
+
+      expect(find.byTooltip('Watch video'), findsOneWidget);
+      await tester.tap(find.byTooltip('Watch video'));
+      await tester.pumpAndSettle();
+
+      expect(playedVideo, isNotNull);
+      expect(playedVideo?.title, 'Sree Narayana Guru');
+    });
+
+    testWidgets('PDF icons are completely removed from topic rows', (tester) async {
+      await pump(tester, activeIndex: 0);
+
+      expect(find.byIcon(Icons.picture_as_pdf_rounded), findsNothing);
     });
   });
 

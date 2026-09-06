@@ -10,6 +10,7 @@ class StudentDashboard {
     required this.subjects,
     required this.upcomingMockTests,
     required this.booksInProgress,
+    required this.inProgressQuizzes,
   });
 
   final DashboardStats stats;
@@ -18,9 +19,12 @@ class StudentDashboard {
   final List<SubjectPerformance> subjects;
   final List<UpcomingMockTest> upcomingMockTests;
   final List<BookProgress> booksInProgress;
+  final List<InProgressQuiz> inProgressQuizzes;
 
   bool get isEmpty =>
-      stats.totalAttempts == 0 && booksInProgress.isEmpty;
+      stats.totalAttempts == 0 &&
+      booksInProgress.isEmpty &&
+      inProgressQuizzes.isEmpty;
 
   factory StudentDashboard.fromJson(Map<String, dynamic> json) =>
       StudentDashboard(
@@ -31,6 +35,8 @@ class StudentDashboard {
         upcomingMockTests:
             J.list(json['upcomingMockTests'], UpcomingMockTest.fromJson),
         booksInProgress: J.list(json['booksInProgress'], BookProgress.fromJson),
+        inProgressQuizzes:
+            J.list(json['inProgressQuizzes'], InProgressQuiz.fromJson),
       );
 }
 
@@ -274,5 +280,40 @@ class BookProgress {
         lastChapterTitle: J.strOrNull(json['lastChapterTitle']),
         lastTopicTitle: J.strOrNull(json['lastTopicTitle']),
         lastReadAt: J.dateOrNull(json['lastReadAt']),
+      );
+}
+
+/// A quiz attempt the student started but hasn't submitted yet — drives the
+/// dashboard's "Resume Quiz" list.
+class InProgressQuiz {
+  const InProgressQuiz({
+    required this.id,
+    required this.quizId,
+    required this.title,
+    required this.totalQuestions,
+    required this.answeredCount,
+    required this.progressPercent,
+    required this.remainingSeconds,
+    this.startedAt,
+  });
+
+  final String id;
+  final String quizId;
+  final String title;
+  final int totalQuestions;
+  final int answeredCount;
+  final int progressPercent;
+  final int remainingSeconds;
+  final DateTime? startedAt;
+
+  factory InProgressQuiz.fromJson(Map<String, dynamic> json) => InProgressQuiz(
+        id: J.str(json['id']),
+        quizId: J.str(json['quizId']),
+        title: J.str(json['title'], 'Practice Quiz'),
+        totalQuestions: J.intVal(json['totalQuestions']),
+        answeredCount: J.intVal(json['answeredCount']),
+        progressPercent: J.intVal(json['progressPercent']),
+        remainingSeconds: J.intVal(json['remainingSeconds']),
+        startedAt: J.dateOrNull(json['startedAt']),
       );
 }

@@ -1,90 +1,219 @@
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:psc_tips_tricks_mobile/core/utils/pdf_sync_scroll.dart';
 import 'package:psc_tips_tricks_mobile/data/models/pdf_sync.dart';
 
+/// The same fixtures and the same expected numbers as the website's check of
+/// `pdf-audio-sync.ts`. One book, synced once, has to behave the same on both
+/// surfaces — these are the numbers that hold the two implementations together,
+/// so a change here should be made on the web side too.
 void main() {
-  PdfSyncMap parse(Object json) =>
-      PdfSyncMap.fromJson(Map<String, dynamic>.from(json as Map));
+  final map = PdfSyncMap.fromJson({
+    'offsetMs': 0,
+    'cues': [
+      {
+        'startMs': 0,
+        'endMs': 12500,
+        'page': 1,
+        'target': {'x': 0, 'y': 0.1, 'width': 1, 'height': 0.15},
+        'type': 'text',
+      },
+      {
+        'startMs': 12500,
+        'endMs': 30000,
+        'page': 1,
+        'target': {'x': 0, 'y': 0.45, 'width': 1, 'height': 0.3},
+        'type': 'image',
+      },
+      // Authored before regions existed: page only.
+      {'startMs': 30000, 'endMs': 45000, 'page': 2},
+      // Degenerate rect — thinner than a rounding artefact.
+      {
+        'startMs': 45000,
+        'endMs': 50000,
+        'page': 2,
+        'target': {'x': 0, 'y': 0, 'width': 1, 'height': 0.0001},
+      },
+      // Runs off the page, and claims a type that does not exist.
+      {
+        'startMs': 50000,
+        'endMs': 55000,
+        'page': 3,
+        'target': {'x': -0.2, 'y': 0.9, 'width': 2, 'height': 0.5},
+        'type': 'bogus',
+      },
+    ],
+  });
 
-  group('pdf sync map', () {
-    final map = parse({
-      'offsetMs': 0,
-      'cues': [
-        {'startMs': 0, 'endMs': 5000, 'page': 1},
-        {'startMs': 5000, 'endMs': 9000, 'page': 2},
-        // Deliberate gap: nothing is mapped between 9s and 20s.
-        {'startMs': 20000, 'endMs': 30000, 'page': 7},
-      ],
+  group('reading a map off the wire', () {
+    test('regions are kept', () {
+      expect(map.cues.length, 5);
+      final region = map.cues[1].target!;
+      expect(region.y, closeTo(0.45, 1e-9));
+      expect(region.height, closeTo(0.3, 1e-9));
+      expect(map.cues[1].type, PdfSyncRegionKind.image);
     });
 
-    test('returns the page for the cue the audio is inside, zero-based', () {
-      expect(map.pageAt(0), 0);
-      expect(map.pageAt(4999), 0);
-      expect(map.pageAt(5000), 1);
-      expect(map.pageAt(25000), 6);
+    test('a page-only cue is about its whole page', () {
+      expect(map.cues[2].target, isNull);
+      expect(map.cues[2].region.height, 1);
+      expect(map.cues[2].type, PdfSyncRegionKind.text);
     });
 
-    test('holds the previous page across a gap', () {
-      // The narrator is still talking over page 2 at 12s; the document must
-      // not wander off just because no cue covers that moment.
-      expect(map.pageAt(12000), 1);
-      expect(map.pageAt(19999), 1);
+    test('a degenerate region is dropped, not obeyed', () {
+      expect(map.cues[3].target, isNull);
     });
 
-    test('holds the first cue page before that cue begins', () {
-      // Matches the website: a lead-in of silence or an intro jingle should
-      // still have the deck showing page one rather than nothing.
-      final startsLate = parse({
-        'cues': [
-          {'startMs': 4000, 'endMs': 8000, 'page': 3},
-        ],
-      });
-      expect(startsLate.pageAt(0), 2);
-      expect(startsLate.pageAt(3999), 2);
-      expect(startsLate.pageAt(4000), 2);
+    test('a region running off the page is clipped to it', () {
+      final region = map.cues[4].target!;
+      expect(region.x, 0);
+      expect(region.width, 1);
+      expect(region.y, closeTo(0.9, 1e-9));
+      expect(region.height, closeTo(0.1, 1e-9));
     });
 
-    test('applies the global offset', () {
-      final shifted = parse({
-        'offsetMs': 2000,
-        'cues': [
-          {'startMs': 0, 'endMs': 5000, 'page': 1},
-          {'startMs': 5000, 'endMs': 9000, 'page': 2},
-        ],
-      });
-      // A +2s correction turns each page 2s later than the raw cue says.
-      expect(shifted.pageAt(6000), 0);
-      expect(shifted.pageAt(7000), 1);
+    test('an unknown type reads as text rather than failing the map', () {
+      expect(map.cues[4].type, PdfSyncRegionKind.text);
+    });
+  });
+
+  group('resolving a target at an instant', () {
+    test('before the first cue, its target is held', () {
+      expect(map.targetAt(-5000)!.cueIndex, 0);
     });
 
-    test('sorts cues that arrive out of order', () {
-      final jumbled = parse({
-        'cues': [
-          {'startMs': 8000, 'endMs': 9000, 'page': 3},
-          {'startMs': 0, 'endMs': 1000, 'page': 1},
-        ],
-      });
-      expect(jumbled.pageAt(500), 0);
-      expect(jumbled.pageAt(8500), 2);
+    test('inside a cue it is active, with that cue\'s region', () {
+      final target = map.targetAt(20000)!;
+      expect(target.active, isTrue);
+      expect(target.type, PdfSyncRegionKind.image);
+      expect(target.region.y, closeTo(0.45, 1e-9));
+      expect(target.page, 1);
     });
 
-    test('drops cues that could only mislead', () {
-      final messy = parse({
-        'cues': [
-          {'startMs': 5000, 'endMs': 1000, 'page': 2}, // ends before it starts
-          {'startMs': 0, 'endMs': 1000, 'page': 0}, // pages are 1-based
-          {'startMs': 2000, 'endMs': 3000, 'page': 4},
-        ],
-      });
-      expect(messy.cues.length, 1);
-      expect(messy.pageAt(2500), 3);
+    test('a gap holds the previous cue, but is not active', () {
+      final target = map.targetAt(999000)!;
+      expect(target.cueIndex, 4);
+      expect(target.active, isFalse);
     });
 
-    test('an empty or malformed blob is simply "no map"', () {
-      expect(PdfSyncMap.fromDynamic(null), isNull);
-      expect(PdfSyncMap.fromDynamic('nonsense'), isNull);
-      expect(PdfSyncMap.fromDynamic({'cues': []}), isNull);
-      expect(PdfSyncMap.fromDynamic({'cues': <dynamic>[]}), isNull);
+    test('the global offset shifts the lookup', () {
+      final shifted = PdfSyncMap(cues: map.cues, offsetMs: 20000);
+      expect(shifted.targetAt(20000)!.cueIndex, 0);
+    });
+
+    test('an empty map has nothing to say', () {
+      expect(const PdfSyncMap(cues: []).targetAt(1000), isNull);
+    });
+  });
+
+  group('is the region already on screen', () {
+    const view = SyncSpan(1000, 1800); // 800 tall
+
+    test('fully, half, not at all', () {
+      expect(visibleFraction(const SyncSpan(1100, 1300), view), 1);
+      expect(visibleFraction(const SyncSpan(1700, 1900), view), 0.5);
+      expect(visibleFraction(const SyncSpan(2000, 2100), view), 0);
+    });
+
+    test('mostly visible is settled; barely peeking is not', () {
+      expect(isRegionSettled(const SyncSpan(1100, 1300), view), isTrue);
+      expect(isRegionSettled(const SyncSpan(1750, 1950), view), isFalse);
+    });
+
+    test('a page-tall diagram settles on filling the screen', () {
+      // It can never be "mostly visible" — being inside it is arriving at it.
+      expect(isRegionSettled(const SyncSpan(900, 2600), view), isTrue);
+      expect(isRegionSettled(const SyncSpan(1700, 3400), view), isFalse);
+    });
+  });
+
+  group('where to scroll', () {
+    test('a short region sits 30% down the viewport', () {
+      expect(scrollOffsetForRegion(const SyncSpan(5000, 5200), 800, 20000),
+          5000 - 240);
+    });
+
+    test('a region taller than the screen aligns near the top', () {
+      expect(scrollOffsetForRegion(const SyncSpan(5000, 6000), 800, 20000),
+          5000 - 48);
+    });
+
+    test('clamped to the document at both ends', () {
+      expect(scrollOffsetForRegion(const SyncSpan(10, 60), 800, 20000), 0);
+      expect(scrollOffsetForRegion(const SyncSpan(19900, 19950), 800, 20000),
+          19200);
+    });
+  });
+
+  group('the decision to move at all', () {
+    const view = SyncSpan(1000, 1800);
+    const target = ResolvedSyncTarget(
+      cueIndex: 3,
+      page: 2,
+      region: PdfSyncRegion.whole,
+      type: PdfSyncRegionKind.text,
+      active: true,
+    );
+
+    test('nothing to follow', () {
+      final decision = decideSyncScroll(
+        target: null,
+        appliedCueIndex: 1,
+        regionSpan: null,
+        viewport: view,
+        documentExtent: 9000,
+      );
+      expect(decision.reason, SyncScrollReason.noTarget);
+      expect(decision.scrollTo, isNull);
+    });
+
+    test('an unmeasured page waits rather than guessing', () {
+      final decision = decideSyncScroll(
+        target: target,
+        appliedCueIndex: 1,
+        regionSpan: null,
+        viewport: view,
+        documentExtent: 9000,
+      );
+      expect(decision.reason, SyncScrollReason.layoutPending);
+      expect(decision.cueIndex, 1, reason: 'the old cue stays the applied one');
+    });
+
+    test('a new cue already on screen does not move the page', () {
+      // The case that carries a reader through a figure between two narrated
+      // paragraphs: the cue changed, but there is nothing to do about it.
+      final decision = decideSyncScroll(
+        target: target,
+        appliedCueIndex: 1,
+        regionSpan: const SyncSpan(1100, 1300),
+        viewport: view,
+        documentExtent: 9000,
+      );
+      expect(decision.reason, SyncScrollReason.settled);
+      expect(decision.scrollTo, isNull);
+      expect(decision.cueIndex, 3, reason: 'handled, just without scrolling');
+    });
+
+    test('an off-screen cue scrolls to it', () {
+      final decision = decideSyncScroll(
+        target: target,
+        appliedCueIndex: 1,
+        regionSpan: const SyncSpan(5000, 5200),
+        viewport: view,
+        documentExtent: 20000,
+      );
+      expect(decision.reason, SyncScrollReason.scroll);
+      expect(decision.scrollTo, 4760);
+    });
+
+    test('the same cue drifted off screen is chased back', () {
+      final decision = decideSyncScroll(
+        target: target,
+        appliedCueIndex: 3,
+        regionSpan: const SyncSpan(5000, 5200),
+        viewport: view,
+        documentExtent: 20000,
+      );
+      expect(decision.reason, SyncScrollReason.scroll);
     });
   });
 }

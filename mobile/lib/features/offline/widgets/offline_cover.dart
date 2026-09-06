@@ -9,7 +9,7 @@ import '../../../core/widgets/app_image.dart';
 import '../../../data/models/offline.dart';
 import '../offline_providers.dart';
 
-/// A downloaded book's 2:3 hero cover, read back out of the encrypted vault.
+/// A downloaded book's 3:4 hero cover, read back out of the encrypted vault.
 ///
 /// Decryption is asynchronous, so the widget paints a neutral placeholder first
 /// and swaps the image in — the alternative, blocking the list build on file
@@ -55,7 +55,7 @@ class _OfflineCoverState extends ConsumerState<OfflineCover> {
 
   @override
   Widget build(BuildContext context) {
-    final height = widget.width * 1.5; // Exact 2:3 book size hero aspect ratio
+    final height = widget.width * (4 / 3); // Exact 3:4 book size hero aspect ratio
     final radius = BorderRadius.circular(AppTheme.radiusMd);
     final file = _file;
 

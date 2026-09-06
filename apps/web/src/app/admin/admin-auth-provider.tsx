@@ -36,6 +36,10 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         if (u?.id) {
           const profile = await ApiClient.getUserProfile(u.id);
           if (profile) {
+            if (profile.status === 'SUSPENDED') {
+              logoutAdmin();
+              return;
+            }
             localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(profile));
             setAdminUser(profile as any);
           }
@@ -51,8 +55,13 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       const token = localStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
       const storedUser = localStorage.getItem(ADMIN_USER_KEY);
       if (token && storedUser) {
-        setAdminUser(JSON.parse(storedUser));
-        refreshAdminUser();
+        const u = JSON.parse(storedUser);
+        if (u?.status === 'SUSPENDED') {
+          logoutAdmin();
+        } else {
+          setAdminUser(u);
+          refreshAdminUser();
+        }
       }
     } catch (err) {
       console.error('Error restoring admin session:', err);
@@ -80,8 +89,13 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         } else if (e.key === ADMIN_USER_KEY && e.newValue) {
           // Logged in in another tab
           try {
-            setAdminUser(JSON.parse(e.newValue));
-            refreshAdminUser();
+            const parsed = JSON.parse(e.newValue);
+            if (parsed?.status === 'SUSPENDED') {
+              logoutAdmin();
+            } else {
+              setAdminUser(parsed);
+              refreshAdminUser();
+            }
           } catch (err) {
             console.error('Error syncing admin user from storage event:', err);
           }
@@ -98,16 +112,25 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loginAdmin = async (email: string, password: string) => {
-    const response = await ApiClient.login({ email, password });
+    const response = await ApiClient.login({ email: email.trim(), password });
     if (response.user.role !== 'ADMIN' && response.user.role !== 'STAFF') {
       // Deliberately never touch admin storage — a valid student login
       // attempted here must not create any admin session, partial or otherwise.
-      throw new Error('This account does not have admin access.');
+      throw new Error('Access Denied: This account does not have administrative access.');
+    }
+    if ((response.user as any).status === 'SUSPENDED') {
+      logoutAdmin();
+      throw new Error('Access Denied: Your account is currently suspended. Please contact a Super Administrator.');
     }
     localStorage.setItem(ADMIN_ACCESS_TOKEN_KEY, response.accessToken);
     localStorage.setItem(ADMIN_REFRESH_TOKEN_KEY, response.refreshToken);
     localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(response.user));
     setAdminUser(response.user);
+    if (typeof window !== 'undefined') {
+      try {
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch {}
+    }
   };
 
   const loginWithTokens = async (accessToken: string, refreshToken: string): Promise<User> => {

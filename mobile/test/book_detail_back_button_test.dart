@@ -19,6 +19,7 @@ class _SilentAudio extends ReaderAudioController {
     String? label,
     String? album,
     bool autoPlay = false,
+    Duration? initialPosition,
   }) async {
     title.value = label;
   }

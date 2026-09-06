@@ -237,7 +237,7 @@ export function HomeBookCarousel({ initialBooks }: { initialBooks?: Book[] }) {
           onTouchEnd={handleTouchEnd}
         >
           {loading ? (
-            <div className="w-full max-w-[340px] sm:max-w-[380px] aspect-[1/1.38] rounded-2xl bg-slate-200/80 dark:bg-slate-800/60 animate-pulse border border-slate-300/50 dark:border-slate-700/50" />
+            <div className="w-full max-w-[340px] sm:max-w-[380px] aspect-[3/4] rounded-2xl bg-slate-200/80 dark:bg-slate-800/60 animate-pulse border border-slate-300/50 dark:border-slate-700/50" />
           ) : books.length === 0 ? null : (
             <div className="w-full max-w-[420px] min-[420px]:max-w-[480px] sm:max-w-[540px] md:max-w-[580px] flex flex-col items-center">
               {/* 3D Showcase Viewport */}
@@ -334,7 +334,7 @@ export function HomeBookCarousel({ initialBooks }: { initialBooks?: Book[] }) {
                       >
                         {/* Book Container with Realistic Depth & 3D Hardcover Styling */}
                         <div
-                          className={`relative w-[215px] min-[420px]:w-[250px] sm:w-[290px] md:w-[320px] lg:w-[320px] xl:w-[340px] aspect-[1/1.38] rounded-xl sm:rounded-2xl overflow-hidden bg-slate-900 transition-all duration-500 ${
+                          className={`relative w-[215px] min-[420px]:w-[250px] sm:w-[290px] md:w-[320px] lg:w-[320px] xl:w-[340px] aspect-[3/4] rounded-xl sm:rounded-2xl overflow-hidden bg-slate-900 transition-all duration-500 ${
                             isCenter
                               ? 'cover-sheen shadow-[0_22px_60px_rgba(0,0,0,0.4)] dark:shadow-[0_28px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/20 group-hover:scale-[1.02] group-hover:-translate-y-1.5'
                               : 'shadow-xl ring-1 ring-white/10'

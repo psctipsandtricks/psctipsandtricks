@@ -32,6 +32,7 @@ export function formatAspectRatio(width: number, height: number): string {
   if (Math.abs(ratio - 16 / 9) < 0.04) return '16:9';
   if (Math.abs(ratio - 2 / 3) < 0.04) return '2:3';
   if (Math.abs(ratio - 3 / 2) < 0.04) return '3:2';
+  if (Math.abs(ratio - 3 / 4) < 0.04) return '3:4';
   if (Math.abs(ratio - 4 / 3) < 0.04) return '4:3';
   if (Math.abs(ratio - 1) < 0.04) return '1:1';
   if (Math.abs(ratio - 9 / 16) < 0.04) return '9:16';
@@ -124,8 +125,8 @@ export async function validateCatalogCover(file: File): Promise<ImageDimensionRe
 
 /**
  * Validates Book Size Hero Cover:
- * - 2:3 portrait aspect ratio (tolerance +/- 0.035)
- * - Recommended: 1024 x 1536 px
+ * - 3:4 portrait aspect ratio (tolerance +/- 0.035)
+ * - Recommended: 1200 x 1600 px
  * - Max size: 5MB
  */
 export async function validateHeroCover(file: File): Promise<ImageDimensionResult> {
@@ -143,17 +144,17 @@ export async function validateHeroCover(file: File): Promise<ImageDimensionResul
   try {
     const { width, height } = await getImageDimensions(file);
     const ratio = width / height;
-    const targetRatio = 2 / 3; // ~0.6666
+    const targetRatio = 3 / 4; // 0.75
     const detectedRatio = formatAspectRatio(width, height);
 
-    // Tolerance for minor pixel rounding (e.g. 1024x1536 is 0.6666, 600x900 is 0.6666)
+    // Tolerance for minor pixel rounding (e.g. 1200x1600 is 0.75, 1086x1448 is 0.75)
     if (Math.abs(ratio - targetRatio) > 0.035) {
       return {
         valid: false,
         width,
         height,
         detectedRatio,
-        errorMessage: `Detected ${width} × ${height} px (${detectedRatio}). Required: 2:3 portrait aspect ratio (Recommended 1024 × 1536 px).`,
+        errorMessage: `Detected ${width} × ${height} px (${detectedRatio}). Required: 3:4 portrait aspect ratio (Recommended 1200 × 1600 px).`,
       };
     }
 
@@ -161,7 +162,7 @@ export async function validateHeroCover(file: File): Promise<ImageDimensionResul
       valid: true,
       width,
       height,
-      detectedRatio: '2:3',
+      detectedRatio: '3:4',
     };
   } catch (err: any) {
     return {

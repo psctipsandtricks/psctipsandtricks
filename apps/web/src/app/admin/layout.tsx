@@ -71,6 +71,10 @@ function AdminLayoutGate({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (pathname === '/admin/forgot-password') {
+    return <>{children}</>;
+  }
+
   if (!adminUser || (adminUser.role !== 'ADMIN' && adminUser.role !== 'STAFF') || (adminUser as any).status === 'SUSPENDED') {
     return <AdminLoginForm />;
   }
@@ -88,6 +92,71 @@ function AdminLayoutGate({ children }: { children: React.ReactNode }) {
     >
       {children}
     </AdminPanelShell>
+  );
+}
+
+const ROUTE_PERMISSION_MAP: { prefix: string; perm: string }[] = [
+  { prefix: '/admin/quizzes', perm: 'manageQuizzes' },
+  { prefix: '/admin/question-bank', perm: 'manageQuizzes' },
+  { prefix: '/admin/books', perm: 'manageBooks' },
+  { prefix: '/admin/videos', perm: 'manageVideos' },
+  { prefix: '/admin/pdfs', perm: 'managePdfs' },
+  { prefix: '/admin/users', perm: 'manageUsers' },
+  { prefix: '/admin/staff', perm: 'manageStaff' },
+  { prefix: '/admin/community', perm: 'manageChat' },
+  { prefix: '/admin/orders', perm: 'viewOrders' },
+  { prefix: '/admin/coupons', perm: 'manageCoupons' },
+  { prefix: '/admin/notifications', perm: 'manageNotifications' },
+  { prefix: '/admin/announcements', perm: 'manageAnnouncements' },
+  { prefix: '/admin/reviews', perm: 'manageReviews' },
+  { prefix: '/admin/social-links', perm: 'manageSocialLinks' },
+  { prefix: '/admin/app-update', perm: 'manageAppUpdate' },
+  { prefix: '/admin', perm: 'viewAnalytics' },
+];
+
+function isRouteAuthorized(
+  pathname: string | null,
+  user: NonNullable<ReturnType<typeof useAdminAuth>['adminUser']>,
+): boolean {
+  if (!pathname) return true;
+  if (user.role === 'ADMIN') return true;
+  if (pathname === '/admin/forgot-password') return true;
+
+  const permissions = (user as any)?.staffPermission || {};
+
+  for (const item of ROUTE_PERMISSION_MAP) {
+    if (item.prefix === '/admin') {
+      if (pathname === '/admin' || pathname === '/admin/') {
+        return Boolean(permissions[item.perm]);
+      }
+    } else if (pathname === item.prefix || pathname.startsWith(item.prefix + '/')) {
+      if (item.perm === 'viewOrders') {
+        return Boolean(permissions.viewOrders || permissions.manageOrders);
+      }
+      return Boolean(permissions[item.perm]);
+    }
+  }
+
+  return true;
+}
+
+function AdminNotFoundPage({ firstPermittedHref }: { firstPermittedHref?: string }) {
+  return (
+    <div className="flex-1 min-h-[60vh] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-200">
+      <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-500 dark:text-cyan-400 flex items-center justify-center text-2xl font-black mb-4 shadow-xs">
+        404
+      </div>
+      <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white mb-2">Page Not Found</h2>
+      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md leading-relaxed mb-6 font-medium">
+        The page you are looking for does not exist or has been moved.
+      </p>
+      <Link
+        href={firstPermittedHref || '/admin'}
+        className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xs transition-all shadow-md cursor-pointer inline-flex items-center gap-1.5"
+      >
+        <span>Return to Dashboard</span>
+      </Link>
+    </div>
   );
 }
 
@@ -148,6 +217,9 @@ function AdminPanelShell({
           if (!item.perm) return true;
           return Boolean((adminUser as any)?.staffPermission?.[item.perm]);
         });
+
+  const isAuthorized = isRouteAuthorized(pathname, adminUser);
+  const firstPermittedHref = sidebarItems[0]?.href || '/admin';
 
   return (
     <div className="h-screen h-[100vh] flex bg-slate-50 dark:bg-[#060b18] text-slate-900 dark:text-slate-100 transition-colors duration-300 overflow-hidden">
@@ -232,7 +304,7 @@ function AdminPanelShell({
 
         {/* Mobile Navigation Drawer Sheet */}
         {mobileNavOpen && (
-          <div className="md:hidden border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl px-3 py-3 space-y-1 z-30 shadow-xl animate-in slide-in-from-top-2">
+          <div className="md:hidden border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-2xl px-3 py-3 space-y-1 z-30 shadow-xl animate-in slide-in-from-top-2 max-h-[calc(100vh-5rem)] overflow-y-auto custom-scrollbar">
             {sidebarItems.map((item) => {
               const isActive = pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href));
               return (
@@ -267,7 +339,9 @@ function AdminPanelShell({
           </div>
         )}
 
-        <main className="flex-1 flex flex-col min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6">{children}</main>
+        <main className="flex-1 flex flex-col min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6">
+          {isAuthorized ? children : <AdminNotFoundPage firstPermittedHref={firstPermittedHref} />}
+        </main>
 
         {/* Admin Logout Confirmation Modal */}
         {showLogoutModal &&
