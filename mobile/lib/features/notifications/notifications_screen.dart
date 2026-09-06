@@ -185,7 +185,7 @@ class _NotificationCard extends ConsumerWidget {
     }
 
     try {
-      ref.read(routerProvider).push(destination.location!);
+      ref.read(routerProvider).go(destination.location!);
     } catch (e) {
       if (kDebugMode) debugPrint('Could not open ${destination.location}: $e');
     }

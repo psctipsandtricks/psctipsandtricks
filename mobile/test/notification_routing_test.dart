@@ -56,10 +56,45 @@ void main() {
       expect(resolveNotificationDestination(null), isNull);
     });
 
-    test('passes http links through for the browser', () {
+    test('resolves full website URLs that match in-app paths directly into app routes', () {
+      expect(
+        resolveNotificationDestination('https://psctipsandtricks.com/books/9f2c-abc')?.location,
+        '/books/9f2c-abc',
+      );
+      expect(
+        resolveNotificationDestination('https://psctipsandtricks.com/quizzes/quiz-123')?.location,
+        '/attempt/quiz-123',
+      );
+      expect(
+        resolveNotificationDestination('https://psctipsandtricks.com/mock-tests/mock-456')?.location,
+        '/mock-tests/mock-456',
+      );
+      expect(
+        resolveNotificationDestination('https://psctipsandtricks.com/library?tab=videos')?.location,
+        '/library?tab=videos',
+      );
+    });
+
+    test('resolves custom app deep link schemes', () {
+      expect(
+        resolveNotificationDestination('psctips://books/9f2c-abc')?.location,
+        '/books/9f2c-abc',
+      );
+      expect(
+        resolveNotificationDestination('psctipsandtricks://attempt/quiz-123')?.location,
+        '/attempt/quiz-123',
+      );
+    });
+
+    test('passes non-app http links through for the browser', () {
       final d = resolveNotificationDestination('https://psctipsandtricks.com/offer');
       expect(d?.isExternal, isTrue);
       expect(d?.externalUrl.toString(), 'https://psctipsandtricks.com/offer');
+
+      final yt = resolveNotificationDestination('https://www.youtube.com/watch?v=xyz');
+      expect(yt?.isExternal, isTrue);
+      expect(yt?.externalUrl.toString(), 'https://www.youtube.com/watch?v=xyz');
+
       // A scheme with nothing after it is not a link.
       expect(resolveNotificationDestination('https://'), isNull);
     });

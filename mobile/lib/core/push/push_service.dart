@@ -70,6 +70,32 @@ class PushService {
     try {
       await _initLocalNotifications();
 
+      // Listen for foreground messages
+      FirebaseMessaging.onMessage.listen(_showForeground);
+
+      // Tapped from the tray while the app was in the background
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleTap);
+
+      // Check if the app was launched by tapping a push notification from terminated state
+      FirebaseMessaging.instance.getInitialMessage().then((initial) {
+        if (initial != null) {
+          _handleTap(initial);
+        }
+      }).catchError((e) {
+        if (kDebugMode) debugPrint('Error checking initial FCM message: $e');
+      });
+
+      // Background FCM token and permissions synchronization
+      unawaited(_setupFcmRegistration());
+    } catch (e) {
+      // A misconfigured Firebase project, a device without Play Services, or a
+      // student who declined the permission must not take the app down.
+      if (kDebugMode) debugPrint('Push notifications unavailable: $e');
+    }
+  }
+
+  Future<void> _setupFcmRegistration() async {
+    try {
       // Asks for POST_NOTIFICATIONS on Android 13+, and does nothing on older
       // releases where the permission is granted at install time.
       await FirebaseMessaging.instance.requestPermission();
@@ -85,22 +111,8 @@ class PushService {
       });
 
       await FirebaseMessaging.instance.subscribeToTopic(_broadcastTopic);
-
-      // A message that arrives while the app is open is delivered to Dart
-      // without ever reaching the tray, so it has to be drawn by hand.
-      FirebaseMessaging.onMessage.listen(_showForeground);
-
-      // Tapped from the tray while the app was merely backgrounded.
-      FirebaseMessaging.onMessageOpenedApp.listen(_handleTap);
-
-      // Tapped while the app was not running at all: the launch message is
-      // waiting rather than arriving on the stream.
-      final initial = await FirebaseMessaging.instance.getInitialMessage();
-      if (initial != null) _handleTap(initial);
     } catch (e) {
-      // A misconfigured Firebase project, a device without Play Services, or a
-      // student who declined the permission must not take the app down.
-      if (kDebugMode) debugPrint('Push notifications unavailable: $e');
+      if (kDebugMode) debugPrint('FCM registration setup error: $e');
     }
   }
 
@@ -129,6 +141,18 @@ class PushService {
             AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(_channel);
     await androidPlugin?.requestNotificationsPermission();
+
+    // Check if the app was cold-launched from tapping a local notification
+    final launchDetails = await _local.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true &&
+        launchDetails?.notificationResponse?.payload != null) {
+      try {
+        final data = Map<String, dynamic>.from(
+          jsonDecode(launchDetails!.notificationResponse!.payload!) as Map,
+        );
+        _route(data.map((k, v) => MapEntry(k, '$v')));
+      } catch (_) {}
+    }
   }
 
   /// Tells the API which student, if any, this device now belongs to.
@@ -213,13 +237,8 @@ class PushService {
     _route(message.data.map((k, v) => MapEntry(k, '$v')));
   }
 
-  /// Sends the student wherever the notification points, and marks it read.
-  ///
-  /// The destination is whatever the admin panel typed, so it is validated
-  /// before it is opened: a route this build does not have, a link meant for
-  /// the website, or a typo must land on the notification list rather than on
-  /// a blank screen. A notification with no destination lands there too — the
-  /// message is waiting in full.
+  /// Sends the student directly to the exact page/link associated with the
+  /// notification, or falls back to the notifications inbox if none is provided.
   void _route(Map<String, String> data) {
     _refreshInbox();
 
@@ -229,21 +248,36 @@ class PushService {
       _ref.read(readNotificationsProvider.notifier).markRead(notificationId);
     }
 
-    final destination = resolveNotificationDestination(data['route']);
+    // Extract target from any standard or entity payload keys
+    final rawTarget = (data['route']?.trim().isNotEmpty == true ? data['route'] : null) ??
+        (data['link']?.trim().isNotEmpty == true ? data['link'] : null) ??
+        (data['url']?.trim().isNotEmpty == true ? data['url'] : null) ??
+        (data['path']?.trim().isNotEmpty == true ? data['path'] : null) ??
+        (data['destination']?.trim().isNotEmpty == true ? data['destination'] : null) ??
+        (data['redirectUrl']?.trim().isNotEmpty == true ? data['redirectUrl'] : null) ??
+        (data['target']?.trim().isNotEmpty == true ? data['target'] : null) ??
+        (data['click_action']?.trim().isNotEmpty == true ? data['click_action'] : null) ??
+        (data['bookId']?.trim().isNotEmpty == true ? '/books/${data['bookId']!.trim()}' : null) ??
+        (data['quizId']?.trim().isNotEmpty == true ? '/attempt/${data['quizId']!.trim()}' : null) ??
+        (data['mockTestId']?.trim().isNotEmpty == true ? '/mock-tests/${data['mockTestId']!.trim()}' : null) ??
+        (data['groupId']?.trim().isNotEmpty == true ? '/community/${data['groupId']!.trim()}' : null) ??
+        (data['orderId']?.trim().isNotEmpty == true ? '/orders' : null);
+
+    final destination = resolveNotificationDestination(rawTarget);
 
     if (destination != null && destination.isExternal) {
       launchUrl(destination.externalUrl!, mode: LaunchMode.externalApplication);
       return;
     }
 
-    // An unusable destination is not an error to show anyone — the list is
-    // always a sane place to arrive.
+    // When an exact destination is provided, navigate directly to it;
+    // only fall back to the notifications screen if no valid destination was specified.
     final target = destination?.location ?? AppRoutes.notifications;
 
     try {
-      _ref.read(routerProvider).push(target);
+      _ref.read(routerProvider).go(target);
     } catch (e) {
-      if (kDebugMode) debugPrint('Could not open $target from a notification: $e');
+      if (kDebugMode) debugPrint('Could not navigate to $target from notification: $e');
     }
   }
 
