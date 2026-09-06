@@ -249,44 +249,10 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
     }
   }, [showLeaderboardView, testId, selectedAnswers]);
 
-  if (loading || authLoading || !user) {
-    return <QuizTakingSkeleton />;
-  }
-
-  if (error || !mockTest) {
-    return (
-      <div className="max-w-3xl mx-auto py-20 text-center space-y-4">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{error || 'Mock test not found.'}</h2>
-        <Link href="/quizzes">
-          <Button variant="gold" className="flex items-center space-x-2 mx-auto">
-            <ChevronLeft className="w-4 h-4" />
-            <span>Back to Quiz Hub</span>
-          </Button>
-        </Link>
-      </div>
-    );
-  }
-
-  // Premium test with no settled payment: nothing below this point should run.
-  if (isLocked) {
-    return (
-      <QuizPaywall
-        quizId={mockTest.quizId || mockTest.quiz?.id}
-        title={mockTest.title}
-        access={access}
-        loginRedirect={`/mock-tests/${testId}`}
-        onUnlocked={loadMockTest}
-        subtitle={
-          isCompleted
-            ? 'This live mock test has ended. Purchase access to unlock the quiz for practice and review.'
-            : undefined
-        }
-      />
-    );
-  }
-
+  // Defined above the early returns below, because the auto-submit effect that
+  // calls it is a hook and must run on every render — see that effect's note.
   const handleSubmit = async () => {
-    if (isSubmitting || isSubmitted || !testId) return;
+    if (isSubmitting || isSubmitted || !testId || !mockTest) return;
     setIsSubmitting(true);
 
     const answerPayload = questions.map((q) => {
@@ -332,12 +298,55 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
     }
   };
 
-  // Only auto-submit when the test has actually joined and timer hits 0
+  // Only auto-submit when the test has actually joined and the timer hits 0.
+  //
+  // This is the LAST hook in the component, and it has to stay above every
+  // early return under it. React identifies hooks by call order, so a hook
+  // placed below `if (loading) return …` runs on the renders that get past the
+  // guard and not on the ones that don't — which is exactly the sequence here
+  // (first render loads, the next one doesn't) and throws "Rendered more hooks
+  // than during the previous render", taking the whole page down.
   useEffect(() => {
     if (!showQuizView || !hasJoined || isSubmitted || isSubmitting || timeLeft === null || timeLeft > 0) return;
     handleSubmit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft, showQuizView, hasJoined, isSubmitted, isSubmitting]);
+
+  if (loading || authLoading || !user) {
+    return <QuizTakingSkeleton />;
+  }
+
+  if (error || !mockTest) {
+    return (
+      <div className="max-w-3xl mx-auto py-20 text-center space-y-4">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{error || 'Mock test not found.'}</h2>
+        <Link href="/quizzes">
+          <Button variant="gold" className="flex items-center space-x-2 mx-auto">
+            <ChevronLeft className="w-4 h-4" />
+            <span>Back to Quiz Hub</span>
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  // Premium test with no settled payment: nothing below this point should run.
+  if (isLocked) {
+    return (
+      <QuizPaywall
+        quizId={mockTest.quizId || mockTest.quiz?.id}
+        title={mockTest.title}
+        access={access}
+        loginRedirect={`/mock-tests/${testId}`}
+        onUnlocked={loadMockTest}
+        subtitle={
+          isCompleted
+            ? 'This live mock test has ended. Purchase access to unlock the quiz for practice and review.'
+            : undefined
+        }
+      />
+    );
+  }
 
   const handleExportPDF = async () => {
     if (isExportingPDF) return;
