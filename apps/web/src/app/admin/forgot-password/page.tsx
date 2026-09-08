@@ -35,6 +35,16 @@ function AdminForgotPasswordContent() {
   const [serverMsg, setServerMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Resend cooldown countdown timer
+  React.useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   // Step 1: Request OTP by Staff Email
   const emailFormik = useFormik({
@@ -47,6 +57,7 @@ function AdminForgotPasswordContent() {
         const res = await ApiClient.adminForgotPassword({ email: values.email });
         setTargetEmail(values.email.trim());
         setServerMsg(res.message || `A 6-digit recovery OTP has been sent to ${values.email}`);
+        setResendCooldown(30);
         setStep('verify_otp');
       } catch (err: any) {
         setErrorMsg(err?.message || 'Access Denied: This email address is not registered as an active staff or administrator account.');
@@ -69,7 +80,7 @@ function AdminForgotPasswordContent() {
           otp: values.otp.trim(),
         });
         setVerifiedOtp(values.otp.trim());
-        setServerMsg(res.message || 'OTP verified successfully!');
+        setServerMsg(res.message || 'OTP verified successfully.');
         setStep('create_password');
       } catch (err: any) {
         setErrorMsg(err?.message || 'Invalid or expired OTP code. Please check your email and try again.');
@@ -103,12 +114,13 @@ function AdminForgotPasswordContent() {
   });
 
   const handleResendOtp = async () => {
-    if (!targetEmail || resending) return;
+    if (!targetEmail || resending || resendCooldown > 0) return;
     setResending(true);
     setErrorMsg('');
     try {
       const res = await ApiClient.adminForgotPassword({ email: targetEmail });
       setServerMsg(res.message || `A new OTP has been sent to ${targetEmail}`);
+      setResendCooldown(30);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to resend OTP.');
     } finally {
@@ -191,6 +203,7 @@ function AdminForgotPasswordContent() {
               )}
 
               <form onSubmit={emailFormik.handleSubmit} className="space-y-4 pt-1" noValidate>
+                <fieldset disabled={emailFormik.isSubmitting} className="contents disabled:opacity-80 disabled:pointer-events-none disabled:cursor-wait">
                 <Input
                   label="Staff Email Address"
                   name="email"
@@ -210,6 +223,7 @@ function AdminForgotPasswordContent() {
                 >
                   Send Recovery OTP 📩
                 </Button>
+                </fieldset>
               </form>
 
               <div className="text-center pt-2">
@@ -252,6 +266,7 @@ function AdminForgotPasswordContent() {
               )}
 
               <form onSubmit={otpFormik.handleSubmit} className="space-y-4 pt-1" noValidate>
+                <fieldset disabled={otpFormik.isSubmitting} className="contents disabled:opacity-80 disabled:pointer-events-none disabled:cursor-wait">
                 <Input
                   label="6-Digit OTP Code"
                   name="otp"
@@ -271,6 +286,7 @@ function AdminForgotPasswordContent() {
                 >
                   Verify OTP ➔
                 </Button>
+                </fieldset>
               </form>
 
               <div className="flex items-center justify-between text-xs pt-2">
@@ -288,11 +304,15 @@ function AdminForgotPasswordContent() {
 
                 <button
                   type="button"
-                  disabled={resending}
+                  disabled={resending || resendCooldown > 0}
                   onClick={handleResendOtp}
-                  className="text-amber-500 hover:underline font-semibold disabled:opacity-50"
+                  className="text-amber-500 hover:underline font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {resending ? 'Sending…' : 'Resend Code'}
+                  {resending
+                    ? 'Sending…'
+                    : resendCooldown > 0
+                    ? `Resend in ${resendCooldown}s`
+                    : 'Resend Code'}
                 </button>
               </div>
             </>
@@ -313,6 +333,13 @@ function AdminForgotPasswordContent() {
                 </CardDescription>
               </div>
 
+              {serverMsg && (
+                <div className="p-3.5 text-xs rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-semibold leading-relaxed flex items-center justify-center gap-2 animate-in fade-in duration-200">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{serverMsg}</span>
+                </div>
+              )}
+
               {errorMsg && (
                 <div className="p-3.5 text-xs rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-semibold leading-relaxed flex items-start gap-2.5 animate-in fade-in duration-200">
                   <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-rose-500 dark:text-rose-400" />
@@ -321,6 +348,7 @@ function AdminForgotPasswordContent() {
               )}
 
               <form onSubmit={passwordFormik.handleSubmit} className="space-y-4 pt-1" noValidate>
+                <fieldset disabled={passwordFormik.isSubmitting} className="contents disabled:opacity-80 disabled:pointer-events-none disabled:cursor-wait">
                 <Input
                   label="New Password"
                   name="newPassword"
@@ -351,6 +379,7 @@ function AdminForgotPasswordContent() {
                 >
                   Save New Password 👑
                 </Button>
+                </fieldset>
               </form>
             </>
           )}

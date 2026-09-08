@@ -487,6 +487,7 @@ export function LibraryFolderManager({
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         title={editingItem ? `Edit ${nounSingular}` : `Add ${nounSingular}`}
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

@@ -35,6 +35,16 @@ function ForgotPasswordContent() {
   const [serverMsg, setServerMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Resend cooldown countdown timer
+  React.useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   // Step 1: Request OTP by Email
   const emailFormik = useFormik({
@@ -47,6 +57,7 @@ function ForgotPasswordContent() {
         const res = await ApiClient.forgotPassword({ email: values.email });
         setTargetEmail(values.email.trim());
         setServerMsg(res.message || `We sent a 6-digit OTP code to ${values.email}`);
+        setResendCooldown(30);
         setStep('verify_otp');
       } catch (err: any) {
         setErrorMsg(err?.message || 'Could not send verification email. Please try again.');
@@ -69,7 +80,7 @@ function ForgotPasswordContent() {
           otp: values.otp.trim(),
         });
         setVerifiedOtp(values.otp.trim());
-        setServerMsg(res.message || 'OTP verified successfully!');
+        setServerMsg(res.message || 'OTP verified successfully.');
         setStep('create_password');
       } catch (err: any) {
         setErrorMsg(err?.message || 'Invalid or expired OTP code. Please check your email and try again.');
@@ -103,12 +114,13 @@ function ForgotPasswordContent() {
   });
 
   const handleResendOtp = async () => {
-    if (!targetEmail || resending) return;
+    if (!targetEmail || resending || resendCooldown > 0) return;
     setResending(true);
     setErrorMsg('');
     try {
       const res = await ApiClient.forgotPassword({ email: targetEmail });
       setServerMsg(res.message || `A new OTP has been sent to ${targetEmail}`);
+      setResendCooldown(30);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to resend OTP.');
     } finally {
@@ -285,11 +297,15 @@ function ForgotPasswordContent() {
 
               <button
                 type="button"
-                disabled={resending}
+                disabled={resending || resendCooldown > 0}
                 onClick={handleResendOtp}
-                className="text-amber-500 hover:underline font-semibold disabled:opacity-50"
+                className="text-amber-500 hover:underline font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {resending ? 'Sending…' : 'Resend Code'}
+                {resending
+                  ? 'Sending…'
+                  : resendCooldown > 0
+                  ? `Resend in ${resendCooldown}s`
+                  : 'Resend Code'}
               </button>
             </div>
           </>
@@ -309,6 +325,13 @@ function ForgotPasswordContent() {
                 OTP verified successfully! Please enter and confirm your new account password.
               </CardDescription>
             </div>
+
+            {serverMsg && (
+              <div className="p-3 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold text-center flex items-center justify-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span>{serverMsg}</span>
+              </div>
+            )}
 
             {errorMsg && (
               <div className="p-3 text-xs rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center animate-in fade-in">

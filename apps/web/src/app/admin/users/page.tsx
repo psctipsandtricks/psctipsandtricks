@@ -31,7 +31,10 @@ function formatOrderDateTime(isoString?: string) {
   if (!isoString) return { date: '-', time: '-' };
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return { date: '-', time: '-' };
-  const date = d.toISOString().split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const date = `${y}-${m}-${day}`;
   const time = d.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -532,7 +535,7 @@ export default function AdminUsersPage() {
         onCancel={() => !isConfirmLoading && setConfirmTarget(null)}
       />
 
-      <Dialog isOpen={isCreateDialogOpen} onClose={() => setIsCreateDialogOpen(false)} title="Add New Student Account">
+      <Dialog isOpen={isCreateDialogOpen} onClose={() => setIsCreateDialogOpen(false)} title="Add New Student Account" isLoading={createFormik.isSubmitting}>
         <form className="space-y-4 pt-2" onSubmit={createFormik.handleSubmit} noValidate>
           <Input
             label="Full Name"
@@ -582,6 +585,7 @@ export default function AdminUsersPage() {
         onClose={() => setEditingStudent(null)}
         title="Edit Student Account"
         description={editingStudent?.email}
+        isLoading={editFormik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={editFormik.handleSubmit} noValidate>
           <Input
@@ -706,7 +710,10 @@ export default function AdminUsersPage() {
                   const isBook = Boolean(order.bookId || order.book);
                   const isQuiz = Boolean(order.quizId || order.quiz);
                   const productTitle = order.book?.title || order.quiz?.title || order.description || 'General Order';
-                  const isManual = order.razorpayOrderId === '[MANUAL_ORDER]' || order.razorpayOrderId?.startsWith('[MANUAL_ORDER]');
+                  const isManual =
+                    order.razorpayOrderId === 'MANUAL_GRANT' ||
+                    order.razorpayOrderId === '[MANUAL_ORDER]' ||
+                    order.razorpayOrderId?.startsWith('[MANUAL_ORDER]');
 
                   return (
                     <div

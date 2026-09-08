@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import {
@@ -44,6 +44,10 @@ import {
   RefreshCw,
   Info,
   Loader2,
+  ShieldCheck,
+  CalendarClock,
+  CalendarX,
+  Ban,
 } from 'lucide-react';
 import { OrdersPageSkeleton } from '../admin-skeleton';
 import { ApiClient } from '@/lib/api-client';
@@ -71,6 +75,22 @@ interface OrderRecord {
   isManual?: boolean;
   bookId?: string;
   quizId?: string;
+  access?: OrderAccess;
+}
+
+/**
+ * What the order currently entitles the buyer to — resolved by the API, which
+ * is the only side that knows the book's subscription terms and can judge
+ * expiry against a trustworthy clock.
+ *
+ * Separate from `status`, which is about the payment: a captured payment for a
+ * lapsed subscription is a SUCCESS order that grants nothing.
+ */
+interface OrderAccess {
+  state: 'FULL_ACCESS' | 'TIME_LIMITED' | 'EXPIRED' | 'NOT_GRANTED';
+  validTill: string | null;
+  expiresInDays: number | null;
+  reason?: string | null;
 }
 
 const manualOrderSchema = Yup.object({
@@ -378,6 +398,10 @@ function StudentSearchCombobox({
   );
 }
 
+/** Shown wherever a manual grant is refused for something already in force. */
+const ALREADY_OWNED_MESSAGE =
+  'This product has already been purchased and is currently active for this user.';
+
 export default function AdminOrdersPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -401,6 +425,25 @@ export default function AdminOrdersPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [userSearch, setUserSearch] = useState('');
+  /**
+   * What the selected student already holds — book and quiz ids with a live
+   * SUCCESS order behind them. Granting one of these again would leave two
+   * active orders for the same item, so they are struck out of the picker.
+   */
+  const [activeGrants, setActiveGrants] = useState<{
+    userId: string;
+    bookIds: Set<string>;
+    quizIds: Set<string>;
+  } | null>(null);
+  const [loadingGrants, setLoadingGrants] = useState(false);
+  /**
+   * Read by the submit handler, which is built before the check below exists.
+   * A ref rather than a dependency so the handler always sees the current
+   * student's holdings.
+   */
+  const isAlreadyOwnedRef = useRef<(itemId: string, itemType: string) => boolean>(
+    () => false,
+  );
 
   // PDF Export Modal State
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -527,7 +570,7 @@ export default function AdminOrdersPage() {
           razorpayOrderId: o.razorpayOrderId || undefined,
           razorpaySignature: o.razorpaySignature || undefined,
           status: o.status,
-          date: createdDate ? createdDate.toISOString().split('T')[0] : '',
+          date: createdDate ? formatLocalDate(createdDate) : '',
           timeFormatted: createdDate
             ? createdDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
             : '',
@@ -537,6 +580,7 @@ export default function AdminOrdersPage() {
           isManual: o.razorpayOrderId === MANUAL_ORDER_TAG,
           bookId: o.bookId || undefined,
           quizId: o.quizId || undefined,
+          access: o.access as OrderAccess | undefined,
         };
       });
       setOrders(formatted);
@@ -578,6 +622,14 @@ export default function AdminOrdersPage() {
     validationSchema: manualOrderSchema,
     onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
       try {
+        // The picker already disables these, but a student can be switched
+        // after an item was chosen, and the server refuses either way — this
+        // just puts the reason in front of the admin without a round trip.
+        if (isAlreadyOwnedRef.current(values.itemId, values.itemType)) {
+          setFieldError('itemId', ALREADY_OWNED_MESSAGE);
+          setSubmitting(false);
+          return;
+        }
         const rawAmount = String(values.amount ?? '').trim();
         const rawNote = String(values.note ?? '').trim();
         const rawOrderDate = String(values.orderDate ?? '').trim();
@@ -602,6 +654,8 @@ export default function AdminOrdersPage() {
           amount: rawAmount !== '' ? Number(rawAmount) : undefined,
           note: rawNote !== '' ? rawNote : undefined,
           purchaseDate: purchaseDateCombined,
+          orderDate: purchaseDateCombined,
+          createdAt: purchaseDateCombined,
         });
         resetForm();
         setUserSearch('');
@@ -672,6 +726,85 @@ export default function AdminOrdersPage() {
   }, [quizzes]);
 
   const itemOptions = formik.values.itemType === 'book' ? premiumBooks : premiumQuizzes;
+
+  /**
+   * Loads what the chosen student already holds, so the item picker can strike
+   * out anything already active for them.
+   *
+   * Only orders still in force count: a subscription that has run out is not
+   * active, and re-granting one by hand is how a renewal is done.
+   */
+  const selectedUserId = formik.values.userId;
+  useEffect(() => {
+    if (!isGrantDialogOpen || !selectedUserId) {
+      setActiveGrants(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingGrants(true);
+    ApiClient.getUserOrders(selectedUserId)
+      .then((rows) => {
+        if (cancelled) return;
+        const now = Date.now();
+        const live = (rows || []).filter((o: any) => {
+          if (o.status !== 'SUCCESS') return false;
+          if (!o.validTill) return true;
+          const till = Date.parse(o.validTill);
+          return Number.isNaN(till) || till > now;
+        });
+        setActiveGrants({
+          userId: selectedUserId,
+          bookIds: new Set(live.filter((o: any) => o.bookId).map((o: any) => o.bookId as string)),
+          quizIds: new Set(live.filter((o: any) => o.quizId).map((o: any) => o.quizId as string)),
+        });
+      })
+      // Left null on failure: the picker stays fully enabled and the server's
+      // own refusal is what stops a duplicate.
+      .catch(() => {
+        if (!cancelled) setActiveGrants(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingGrants(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isGrantDialogOpen, selectedUserId]);
+
+  /** True when this student already holds a live order for the item. */
+  const isAlreadyOwned = useCallback(
+    (itemId: string, itemType: string) => {
+      if (!activeGrants || activeGrants.userId !== selectedUserId) return false;
+      return itemType === 'book'
+        ? activeGrants.bookIds.has(itemId)
+        : activeGrants.quizIds.has(itemId);
+    },
+    [activeGrants, selectedUserId],
+  );
+
+  // Picking the item before the student, or switching student afterwards, can
+  // leave a selection that turns out to be already active. Drop it rather than
+  // let the form carry a choice the picker now shows as unavailable.
+  useEffect(() => {
+    const chosen = formik.values.itemId;
+    if (!chosen) return;
+    if (!isAlreadyOwned(chosen, formik.values.itemType)) return;
+    // Validation is skipped on both writes so the schema's "required" message
+    // does not immediately overwrite the specific reason set below.
+    formik.setFieldValue('itemId', '', false);
+    formik.setFieldValue('amount', '', false);
+    formik.setFieldTouched('itemId', true, false);
+    formik.setFieldError('itemId', ALREADY_OWNED_MESSAGE);
+    // formik's helpers are stable; re-running on its whole object would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAlreadyOwned, formik.values.itemId, formik.values.itemType]);
+
+  isAlreadyOwnedRef.current = isAlreadyOwned;
+
+  const ownedInThisTypeCount = useMemo(
+    () => itemOptions.filter((item) => isAlreadyOwned(item.id, formik.values.itemType)).length,
+    [itemOptions, isAlreadyOwned, formik.values.itemType],
+  );
 
   // Main Filtered Orders List
   const filteredOrders = useMemo(() => {
@@ -776,9 +909,16 @@ export default function AdminOrdersPage() {
         amount: rawEditAmount !== '' ? Number(rawEditAmount) : undefined,
         description: rawEditNote !== '' ? rawEditNote : undefined,
         purchaseDate: purchaseDateCombined,
+        orderDate: purchaseDateCombined,
+        createdAt: purchaseDateCombined,
       });
 
       // Update local state
+      const updatedDate = rawEditDate ? rawEditDate : editingOrder.date;
+      const updatedTimeFormatted = rawEditDate && purchaseDateCombined
+        ? new Date(purchaseDateCombined).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+        : editingOrder.timeFormatted;
+
       setOrders((prev) =>
         prev.map((o) =>
           o.id === editingOrder.id
@@ -787,7 +927,9 @@ export default function AdminOrdersPage() {
                 status: editStatus,
                 amount: rawEditAmount !== '' ? Number(rawEditAmount) : o.amount,
                 description: rawEditNote,
-                date: rawEditDate || o.date,
+                date: updatedDate,
+                timeFormatted: updatedTimeFormatted,
+                createdAtRaw: purchaseDateCombined || o.createdAtRaw,
               }
             : o
         )
@@ -915,6 +1057,105 @@ export default function AdminOrdersPage() {
       alert(err.message || 'Failed to generate PDF.');
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  /** `04 Sep 2027` — unambiguous at a glance, and short enough for a cell. */
+  const formatAccessDate = (iso: string | null | undefined) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  /** Why an unsettled order grants nothing, in words rather than an enum. */
+  const accessDeniedReason = (reason?: string | null) => {
+    switch (reason) {
+      case 'PENDING':
+        return 'Payment pending';
+      case 'REFUNDED':
+        return 'Refunded';
+      case 'CANCELLED':
+        return 'Cancelled';
+      case 'FAILED':
+        return 'Payment failed';
+      default:
+        return 'Not granted';
+    }
+  };
+
+  /**
+   * Whether the student can use what they bought — not whether the payment went
+   * through, which is the neighbouring column.
+   */
+  const renderAccessBadge = (order: OrderRecord) => {
+    const access = order.access;
+    if (!access) {
+      return <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>;
+    }
+
+    switch (access.state) {
+      case 'FULL_ACCESS':
+        return (
+          <div className="flex items-center gap-1.5 min-w-[150px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span className="text-[11px] font-extrabold text-emerald-700 dark:text-emerald-300 leading-tight">
+              Active &middot; Full Access
+            </span>
+          </div>
+        );
+
+      case 'TIME_LIMITED': {
+        // Only worth calling out when it is close enough to act on; every other
+        // row would just carry noise.
+        const endingSoon = (access.expiresInDays ?? 0) <= 30;
+        return (
+          <div className="min-w-[150px]">
+            <div className="flex items-center gap-1.5">
+              <CalendarClock className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+              <span className="text-[11px] font-extrabold text-cyan-700 dark:text-cyan-300 leading-tight">
+                Active &middot; Valid Until {formatAccessDate(access.validTill)}
+              </span>
+            </div>
+            {endingSoon && (
+              <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-0.5 pl-5">
+                {access.expiresInDays === 1 ? '1 day left' : `${access.expiresInDays} days left`}
+              </p>
+            )}
+          </div>
+        );
+      }
+
+      case 'EXPIRED':
+        return (
+          <div className="min-w-[150px]">
+            <div className="flex items-center gap-1.5">
+              <CalendarX className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span className="text-[11px] font-extrabold text-rose-700 dark:text-rose-300 leading-tight">
+                Expired
+              </span>
+            </div>
+            <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 pl-5">
+              on {formatAccessDate(access.validTill)}
+            </p>
+          </div>
+        );
+
+      case 'NOT_GRANTED':
+      default:
+        return (
+          <div className="min-w-[150px]">
+            <div className="flex items-center gap-1.5">
+              <Ban className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="text-[11px] font-extrabold text-slate-600 dark:text-slate-300 leading-tight">
+                Access Denied
+              </span>
+            </div>
+            <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 pl-5">
+              {accessDeniedReason(access.reason)}
+            </p>
+          </div>
+        );
     }
   };
 
@@ -1123,6 +1364,7 @@ export default function AdminOrdersPage() {
                 <TableHead className="whitespace-nowrap">Order ID</TableHead>
                 <TableHead className="whitespace-nowrap">Customer</TableHead>
                 <TableHead className="whitespace-nowrap">Item Purchased</TableHead>
+                <TableHead className="whitespace-nowrap">Access Status</TableHead>
                 <TableHead className="whitespace-nowrap">Date & Time</TableHead>
                 <TableHead className="whitespace-nowrap">Amount</TableHead>
                 <TableHead className="whitespace-nowrap">Razorpay Payment ID</TableHead>
@@ -1137,6 +1379,7 @@ export default function AdminOrdersPage() {
                     <TableCell className="py-4"><Skeleton className="h-5 w-24 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-36 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-44 rounded-lg" /></TableCell>
+                    <TableCell className="py-4"><Skeleton className="h-5 w-36 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-28 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-16 rounded-lg" /></TableCell>
                     <TableCell className="py-4"><Skeleton className="h-5 w-32 rounded-lg" /></TableCell>
@@ -1146,7 +1389,7 @@ export default function AdminOrdersPage() {
                 ))
               ) : paginatedOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
+                  <TableCell colSpan={9} className="text-center py-12">
                     <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                       <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
                         <ShoppingCart className="w-6 h-6" />
@@ -1205,7 +1448,12 @@ export default function AdminOrdersPage() {
                       </div>
                     </TableCell>
 
-                    {/* 4. Date & Purchase Time */}
+                    {/* 4. Access Status — what the buyer can actually use */}
+                    <TableCell className="whitespace-nowrap py-2.5">
+                      {renderAccessBadge(order)}
+                    </TableCell>
+
+                    {/* 5. Date & Purchase Time */}
                     <TableCell className="whitespace-nowrap">
                       <div>
                         <p className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -1220,22 +1468,22 @@ export default function AdminOrdersPage() {
                       </div>
                     </TableCell>
 
-                    {/* 5. Amount */}
+                    {/* 6. Amount */}
                     <TableCell className="font-mono font-bold text-cyan-600 dark:text-cyan-400 whitespace-nowrap">
                       ₹{order.amount}
                     </TableCell>
 
-                    {/* 6. Razorpay Payment ID */}
+                    {/* 7. Razorpay Payment ID */}
                     <TableCell className="font-mono text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                       {order.razorpayPaymentId}
                     </TableCell>
 
-                    {/* 7. Status */}
+                    {/* 8. Payment Status */}
                     <TableCell className="whitespace-nowrap">
                       {renderStatusBadge(order.status)}
                     </TableCell>
 
-                    {/* 8. Actions (View & Edit) */}
+                    {/* 9. Actions (View & Edit) */}
                     <TableCell className="whitespace-nowrap text-center py-2.5">
                       <div className="flex items-center justify-center space-x-1.5">
                         {/* View Order */}
@@ -1363,10 +1611,20 @@ export default function AdminOrdersPage() {
                 </span>
               </div>
 
+              {/* The same answer the table's Access Status column gives, so the
+                  two can never be read as disagreeing. */}
+              <div className="flex justify-between items-start py-2 border-b border-slate-200/70 dark:border-slate-800/70">
+                <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Access Status:</span>
+                </span>
+                <span className="text-right">{renderAccessBadge(viewingOrder)}</span>
+              </div>
+
               <div className="flex justify-between items-start py-2 border-b border-slate-200/70 dark:border-slate-800/70">
                 <span className="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Date & Purchase Time:</span>
+                  <span>Order Date & Time:</span>
                 </span>
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-right">
                   {viewingOrder.date} {viewingOrder.timeFormatted ? `· ${viewingOrder.timeFormatted}` : ''}
@@ -1427,6 +1685,7 @@ export default function AdminOrdersPage() {
         onClose={() => setEditingOrder(null)}
         title="Edit Order Record"
         className="max-w-md w-full"
+        isLoading={isUpdatingOrder}
       >
         {editingOrder && (
           <div className="space-y-4 pt-1">
@@ -1523,6 +1782,7 @@ export default function AdminOrdersPage() {
         onClose={() => setIsGrantDialogOpen(false)}
         title="Grant Manual Order"
         className="max-w-lg w-full"
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -1589,12 +1849,26 @@ export default function AdminOrdersPage() {
                       : ((item as Book).price ?? 0))
                   : ((item as Quiz).price ?? 0);
               const priceBadge = price > 0 ? ` (₹${price})` : '';
+              const owned = isAlreadyOwned(item.id, formik.values.itemType);
               return {
                 value: item.id,
                 label: `${item.title}${priceBadge}`,
+                disabled: owned,
+                description: owned ? ALREADY_OWNED_MESSAGE : undefined,
               };
             })}
             error={formik.touched.itemId ? (formik.errors.itemId as string) : undefined}
+            helperText={
+              !selectedUserId
+                ? 'Pick a student first to see what they already hold.'
+                : loadingGrants
+                  ? 'Checking what this student already has…'
+                  : ownedInThisTypeCount > 0
+                    ? `${ownedInThisTypeCount} ${
+                        ownedInThisTypeCount === 1 ? 'item is' : 'items are'
+                      } already active for this student and cannot be granted again.`
+                    : undefined
+            }
           />
 
           {/* Order Date & Order Time */}
@@ -1646,6 +1920,7 @@ export default function AdminOrdersPage() {
         onClose={() => setIsPdfModalOpen(false)}
         title="Download Orders & Transactions Statement"
         className="max-w-lg w-full"
+        isLoading={isGeneratingPdf}
       >
         <div className="space-y-4 pt-2">
           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">

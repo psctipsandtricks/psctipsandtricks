@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo } fr
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, Button, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@psc/ui';
-import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download } from 'lucide-react';
+import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download, AlertCircle, Receipt } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { QuizPaywall } from '@/app/quiz-paywall';
@@ -318,14 +318,32 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
 
   if (error || !mockTest) {
     return (
-      <div className="max-w-3xl mx-auto py-20 text-center space-y-4">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">{error || 'Mock test not found.'}</h2>
-        <Link href="/quizzes">
-          <Button variant="gold" className="flex items-center space-x-2 mx-auto">
-            <ChevronLeft className="w-4 h-4" />
-            <span>Back to Quiz Hub</span>
-          </Button>
-        </Link>
+      <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/5">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+            This product is no longer available.
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+            This live mock test has been removed and is no longer accessible. If you previously purchased this item, your purchase remains recorded in your order history.
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <Link href="/orders">
+            <Button variant="gold" className="font-bold flex items-center gap-2">
+              <Receipt className="w-4 h-4" />
+              <span>Back to Order History</span>
+            </Button>
+          </Link>
+          <Link href="/quizzes">
+            <Button variant="outline" className="font-bold flex items-center gap-2">
+              <ChevronLeft className="w-4 h-4" />
+              <span>Browse Quiz Hub</span>
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }

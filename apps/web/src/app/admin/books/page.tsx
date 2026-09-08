@@ -638,6 +638,7 @@ export default function AdminBooksPage() {
         }}
         title={editingBook ? 'Edit Book' : 'Add New Book'}
         className="max-w-3xl w-full"
+        isLoading={formik.isSubmitting}
       >
         <form onSubmit={formik.handleSubmit} className="space-y-4 pb-1">
           {/* ── SECTION 1: BOOK DETAILS ── */}

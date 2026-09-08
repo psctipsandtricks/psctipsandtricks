@@ -11,6 +11,7 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { UserRole } from '@prisma/client';
 import { SendNotificationDto } from './dto/send-notification.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { MarkNotificationsReadDto } from './dto/mark-read.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 
@@ -57,6 +58,16 @@ export class NotificationsController {
   @Patch(':id/read')
   async markRead(@Request() req: any, @Param('id') id: string) {
     return this.notificationsService.markNotificationRead(id, req.user.id);
+  }
+
+  @ApiOperation({
+    summary: 'Mark several notifications as read (all visible ones when no ids are given)',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('read')
+  async markManyRead(@Request() req: any, @Body() dto: MarkNotificationsReadDto) {
+    return this.notificationsService.markNotificationsRead(req.user.id, dto?.ids);
   }
 
   @ApiOperation({ summary: 'Register this device for push notifications' })

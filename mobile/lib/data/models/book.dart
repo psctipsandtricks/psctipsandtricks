@@ -106,6 +106,8 @@ class Book {
     this.access,
     this.chapters = const [],
     this.createdAt,
+    this.subscriptionType,
+    this.subscriptionDuration,
   });
 
   final String id;
@@ -130,6 +132,42 @@ class Book {
   final AccessState? access;
   final List<Chapter> chapters;
   final DateTime? createdAt;
+
+  /// How the book is sold: `FULL_TIME_ACCESS` (buy it once and keep it),
+  /// `SUBSCRIPTION` (access lapses), or the legacy `LIMITED_ACCESS`.
+  ///
+  /// This is what the book *is*, as opposed to [subscription], which is what
+  /// this student currently holds. Both are needed: before anyone buys, only
+  /// this says whether the sale is time-limited, and the app was advertising
+  /// "Lifetime access" on subscription books for exactly that reason.
+  final String? subscriptionType;
+
+  /// `1_MONTH` / `3_MONTHS` / `6_MONTHS` / `1_YEAR`, for a [subscriptionType]
+  /// of `SUBSCRIPTION`.
+  final String? subscriptionDuration;
+
+  bool get isSubscriptionBook => subscriptionType == 'SUBSCRIPTION';
+
+  /// How long a purchase lasts, in words — `1 year`, `6 months`. Null for a
+  /// book that does not lapse, which is what makes it safe to fall back to
+  /// wording about lifetime access.
+  String? get subscriptionTermLabel {
+    if (!isSubscriptionBook) return null;
+    switch (subscriptionDuration) {
+      case '1_MONTH':
+        return '1 month';
+      case '3_MONTHS':
+        return '3 months';
+      case '6_MONTHS':
+        return '6 months';
+      case '1_YEAR':
+        return '1 year';
+      default:
+        // Sold as a subscription with a term nobody here recognises: say that
+        // it is limited without inventing a length.
+        return null;
+    }
+  }
 
   /// Added recently enough to be worth flagging on a card.
   bool get isNew => isRecent(createdAt);
@@ -177,6 +215,8 @@ class Book {
         publicationYear: J.intOrNull(json['publicationYear']),
         isPremium: J.boolVal(json['isPremium']),
         downloadCount: J.intVal(json['downloadCount']),
+        subscriptionType: J.strOrNull(json['subscriptionType']),
+        subscriptionDuration: J.strOrNull(json['subscriptionDuration']),
         chaptersCount: J.intOrNull(json['chaptersCount']),
         topicsCount: J.intOrNull(json['topicsCount']),
         access: json['access'] is Map

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -61,6 +63,11 @@ class DashboardScreen extends ConsumerWidget {
                 children: [
                   const SizedBox(height: 8),
                   _StatsGrid(stats: dashboard.stats),
+                  const SizedBox(height: 10),
+                  _OverallAccuracyCard(
+                    stats: dashboard.stats,
+                    subjects: dashboard.subjects,
+                  ),
                   if (dashboard.trend.length > 1) ...[
                     const SizedBox(height: 26),
                     const SectionHeader(
@@ -69,15 +76,6 @@ class DashboardScreen extends ConsumerWidget {
                       icon: Icons.show_chart_rounded,
                     ),
                     _TrendChart(trend: dashboard.trend),
-                  ],
-                  if (dashboard.subjects.isNotEmpty) ...[
-                    const SizedBox(height: 26),
-                    const SectionHeader(
-                      title: 'Subject strengths',
-                      subtitle: 'Average score by category',
-                      icon: Icons.category_rounded,
-                    ),
-                    _Subjects(subjects: dashboard.subjects),
                   ],
                   if (dashboard.inProgressQuizzes.isNotEmpty) ...[
                     const SizedBox(height: 26),
@@ -153,7 +151,6 @@ class _StatsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final delta = stats.weeklyDelta;
-    final isTablet = Responsive.isTablet(context);
 
     final card1 = _StatCard(
       icon: Icons.percent_rounded,
@@ -163,21 +160,10 @@ class _StatsGrid extends StatelessWidget {
       delta: delta.abs() >= 1 ? delta : null,
     );
 
+    // Accuracy and the day streak used to sit here as two more tiles. They
+    // read better as the ring and the flame on the Overall Accuracy card
+    // below, and the same number twice on one screen is just noise.
     final card2 = _StatCard(
-      icon: Icons.my_location_rounded,
-      label: 'Accuracy',
-      value: Fmt.percent(stats.accuracyPercent),
-      color: AppColors.emerald,
-    );
-
-    final card3 = _StatCard(
-      icon: Icons.local_fire_department_rounded,
-      label: 'Day streak',
-      value: '${stats.streakDays}',
-      color: AppColors.amber,
-    );
-
-    final card4 = _StatCard(
       icon: Icons.assignment_turned_in_rounded,
       label: 'Attempts',
       value: '${stats.totalAttempts}',
@@ -190,35 +176,13 @@ class _StatsGrid extends StatelessWidget {
       ),
       child: Column(
         children: [
-          if (isTablet)
-            Row(
-              children: [
-                Expanded(child: card1),
-                const SizedBox(width: 10),
-                Expanded(child: card2),
-                const SizedBox(width: 10),
-                Expanded(child: card3),
-                const SizedBox(width: 10),
-                Expanded(child: card4),
-              ],
-            )
-          else ...[
-            Row(
-              children: [
-                Expanded(child: card1),
-                const SizedBox(width: 10),
-                Expanded(child: card2),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: card3),
-                const SizedBox(width: 10),
-                Expanded(child: card4),
-              ],
-            ),
-          ],
+          Row(
+            children: [
+              Expanded(child: card1),
+              const SizedBox(width: 10),
+              Expanded(child: card2),
+            ],
+          ),
           const SizedBox(height: 10),
           GlassCard(
             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -228,13 +192,6 @@ class _StatsGrid extends StatelessWidget {
                   child: _MiniStat(
                     label: 'Study hours',
                     value: stats.studyHours.toStringAsFixed(1),
-                  ),
-                ),
-                _VDivider(),
-                Expanded(
-                  child: _MiniStat(
-                    label: 'Passed',
-                    value: '${stats.passedCount}',
                   ),
                 ),
                 _VDivider(),
@@ -258,6 +215,315 @@ class _StatsGrid extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The web dashboard's Overall Accuracy card, brought across: the accuracy
+/// ring, the pass rate, the study streak, and the subjects the student is
+/// strongest at.
+///
+/// Accuracy is correct-out-of-attempted, which is a different question from the
+/// average score in the tiles above — the ring is here so the two are not read
+/// as the same number.
+class _OverallAccuracyCard extends StatelessWidget {
+  const _OverallAccuracyCard({required this.stats, required this.subjects});
+
+  final DashboardStats stats;
+  final List<SubjectPerformance> subjects;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final passRate = stats.totalAttempts > 0
+        ? (stats.passedCount / stats.totalAttempts) * 100
+        : 0.0;
+    final strongest = [...subjects]
+      ..sort((a, b) => b.averagePercent.compareTo(a.averagePercent));
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.horizontalPadding(context),
+      ),
+      child: GlassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Overall accuracy',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                _AccuracyRing(value: stats.accuracyPercent),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CardStat(
+                        label: 'Pass rate',
+                        value: Fmt.percent(passRate),
+                        suffix: '(${stats.passedCount}/${stats.totalAttempts})',
+                        color: AppColors.emerald,
+                      ),
+                      const SizedBox(height: 14),
+                      _CardStat(
+                        label: 'Study streak',
+                        value: Fmt.count(stats.streakDays, 'day'),
+                        icon: Icons.local_fire_department_rounded,
+                        color: AppColors.amber,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (strongest.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Divider(color: palette.border, height: 1),
+              const SizedBox(height: 14),
+              Text(
+                'STRONGEST SUBJECTS',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: palette.textMuted,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
+                      fontSize: 10.5,
+                    ),
+              ),
+              for (final subject in strongest.take(4)) ...[
+                const SizedBox(height: 10),
+                _SubjectBar(subject: subject),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CardStat extends StatelessWidget {
+  const _CardStat({
+    required this.label,
+    required this.value,
+    required this.color,
+    this.suffix,
+    this.icon,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final String? suffix;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: palette.textMuted,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+                fontSize: 10.5,
+              ),
+        ),
+        const SizedBox(height: 3),
+        // Wrap, not Row: at the largest text size this app allows, the value
+        // and its bracketed detail no longer fit side by side on a phone.
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 5,
+          children: [
+            if (icon != null) Icon(icon, size: 17, color: color),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                  ),
+            ),
+            if (suffix != null)
+              Text(
+                suffix!,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: palette.textMuted,
+                    ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SubjectBar extends StatelessWidget {
+  const _SubjectBar({required this.subject});
+
+  final SubjectPerformance subject;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final percent = subject.averagePercent;
+    final tone = percent >= 75
+        ? AppColors.emerald
+        : percent >= 40
+            ? AppColors.amber
+            : AppColors.rose;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                subject.category,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              Fmt.percent(percent, decimals: percent % 1 == 0 ? 0 : 1),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: tone,
+                  ),
+            ),
+            const SizedBox(width: 3),
+            Text(
+              '(${subject.attempts})',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: palette.textMuted,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            // A sliver of colour even at 0%, so an empty bar still reads as a
+            // bar rather than as a missing one.
+            value: (percent / 100).clamp(0.02, 1.0),
+            minHeight: 6,
+            backgroundColor: palette.elevated,
+            valueColor: const AlwaysStoppedAnimation(AppColors.cyan),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Circular gauge for overall accuracy — reads faster than another number in a
+/// column of numbers. Mirrors the ring on the website.
+class _AccuracyRing extends StatelessWidget {
+  const _AccuracyRing({required this.value});
+
+  final double value;
+
+  static const double _size = 108;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+
+    return SizedBox(
+      width: _size,
+      height: _size,
+      child: CustomPaint(
+        painter: _AccuracyRingPainter(
+          value: value,
+          track: palette.elevated,
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                Fmt.percent(value),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      height: 1.1,
+                    ),
+              ),
+              Text(
+                'ACCURACY',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: palette.textMuted,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                      fontSize: 9.5,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccuracyRingPainter extends CustomPainter {
+  const _AccuracyRingPainter({required this.value, required this.track});
+
+  final double value;
+  final Color track;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const stroke = 9.0;
+    final rect = Offset.zero & size;
+    final arcRect = rect.deflate(stroke / 2);
+    final clamped = (value / 100).clamp(0.0, 1.0);
+
+    canvas.drawArc(
+      arcRect,
+      0,
+      2 * math.pi,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = track,
+    );
+
+    if (clamped <= 0) return;
+
+    canvas.drawArc(
+      arcRect,
+      // Twelve o'clock, clockwise, the way the website's ring runs.
+      -math.pi / 2,
+      2 * math.pi * clamped,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..shader = const LinearGradient(
+          colors: [AppColors.cyan, AppColors.blue],
+        ).createShader(arcRect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_AccuracyRingPainter old) =>
+      old.value != value || old.track != track;
 }
 
 class _VDivider extends StatelessWidget {
@@ -511,144 +777,197 @@ class _TrendChart extends StatelessWidget {
   }
 }
 
-class _Subjects extends StatelessWidget {
-  const _Subjects({required this.subjects});
-
-  final List<SubjectPerformance> subjects;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-    final ranked = [...subjects]
-      ..sort((a, b) => b.averagePercent.compareTo(a.averagePercent));
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GlassCard(
-        child: Column(
-          children: [
-            for (var i = 0; i < ranked.length; i++) ...[
-              if (i > 0) const SizedBox(height: 15),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          ranked[i].category,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      Text(
-                        '${Fmt.percent(ranked[i].averagePercent)} · ${Fmt.count(ranked[i].attempts, 'attempt')}',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: palette.textMuted,
-                            ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 7),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: (ranked[i].averagePercent / 100).clamp(0.0, 1.0),
-                      minHeight: 6,
-                      backgroundColor: palette.elevated,
-                      valueColor: AlwaysStoppedAnimation(
-                        ranked[i].averagePercent >= 60
-                            ? AppColors.emerald
-                            : ranked[i].averagePercent >= 40
-                                ? AppColors.amber
-                                : AppColors.rose,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _BookProgressCard extends StatelessWidget {
   const _BookProgressCard({required this.book});
 
   final BookProgress book;
 
+  /// Portrait, because these are books. The 3:4 hero cover is the artwork the
+  /// admin uploads for exactly this purpose; the 16:9 catalog banner that used
+  /// to be shown here is a landscape thumbnail and read as a video, not a book.
+  static const double _coverWidth = 56;
+
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
+    final accent = book.isCompleted ? AppColors.emerald : AppColors.cyan;
+    final progress = (book.progressPercent / 100).clamp(0.0, 1.0);
+
     return GlassCard(
-      onTap: () =>
-          context.push(AppRoutes.bookReader(book.bookId, resume: true)),
+      // A finished book has no position worth resuming; it reopens from the
+      // top, the way "Read again" does elsewhere.
+      onTap: () => context.push(
+        AppRoutes.bookReader(book.bookId, resume: !book.isCompleted),
+      ),
+      borderColor:
+          book.isCompleted ? AppColors.emerald.withValues(alpha: 0.35) : null,
       padding: const EdgeInsets.all(12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          BookCover(
-            url: book.coverUrl.isNotEmpty ? book.coverUrl : (book.heroCoverUrl ?? ''),
-            width: 48,
-            aspectRatio: 9 / 16,
-          ),
+          _Cover(book: book, width: _coverWidth, accent: accent),
           const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  book.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        book.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              height: 1.25,
+                            ),
                       ),
+                    ),
+                    const SizedBox(width: 8),
+                    // The affordance the row was missing: something to say a
+                    // tap carries on reading rather than opening a detail page.
+                    Icon(
+                      book.isCompleted
+                          ? Icons.replay_rounded
+                          : Icons.play_circle_fill_rounded,
+                      size: 22,
+                      color: accent,
+                    ),
+                  ],
                 ),
-                Text(
-                  book.resumeLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: context.palette.textMuted,
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      book.isCompleted
+                          ? Icons.check_circle_rounded
+                          : Icons.bookmark_rounded,
+                      size: 12,
+                      color: book.isCompleted ? AppColors.emerald : palette.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        book.isCompleted
+                            ? 'Finished — read it again'
+                            : book.resumeLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: book.isCompleted
+                                  ? AppColors.emerald
+                                  : palette.textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(3),
+                        borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(
-                          value: book.progressPercent / 100,
-                          minHeight: 5,
-                          backgroundColor: context.palette.elevated,
-                          valueColor: AlwaysStoppedAnimation(
-                            book.isCompleted
-                                ? AppColors.emerald
-                                : AppColors.cyan,
-                          ),
+                          value: progress,
+                          minHeight: 7,
+                          backgroundColor: palette.elevated,
+                          valueColor: AlwaysStoppedAnimation(accent),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 9),
+                    const SizedBox(width: 10),
                     Text(
                       '${book.progressPercent}%',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: book.isCompleted
-                                ? AppColors.emerald
-                                : AppColors.cyan,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: accent,
                           ),
                     ),
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The book's portrait cover, with the read-so-far painted down its spine.
+///
+/// A percentage is already printed beside the bar; this is the same fact where
+/// the eye lands first, so a glance down the list shows how far along each book
+/// is without reading a single number.
+class _Cover extends StatelessWidget {
+  const _Cover({required this.book, required this.width, required this.accent});
+
+  final BookProgress book;
+  final double width;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final height = width * 4 / 3;
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.10),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              // In the foreground, because the artwork fills the box — a
+              // background border would be painted over by the image itself.
+              foregroundDecoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                border: Border.all(color: palette.border),
+              ),
+              child: AppImage(
+                url: book.effectiveHeroCoverUrl,
+                width: width,
+                height: height,
+                radius: AppTheme.radiusMd,
+                fallbackIcon: Icons.menu_book_rounded,
+                // A landscape banner standing in for a missing hero cover keeps
+                // its top half, which is where the title is printed.
+                alignment: Alignment.topCenter,
+              ),
+            ),
+          ),
+          // The spine fill, drawn up from the bottom edge.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: ClipRRect(
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(AppTheme.radiusMd),
+              ),
+              child: Container(
+                height: 5,
+                color: Colors.black.withValues(alpha: 0.35),
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: (book.progressPercent / 100).clamp(0.0, 1.0),
+                  child: Container(color: accent),
+                ),
+              ),
             ),
           ),
         ],

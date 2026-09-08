@@ -18,7 +18,10 @@ class QuizCategoryCard extends StatelessWidget {
   });
 
   final QuizCategoryType type;
-  final int count;
+
+  /// Null while the catalog total is still being counted — the badge shows a
+  /// placeholder rather than claiming there are zero quizzes.
+  final int? count;
   final VoidCallback onTap;
 
   bool get _isPremium => type == QuizCategoryType.premium;
@@ -33,14 +36,15 @@ class QuizCategoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final accent = _isPremium ? AppColors.amber : AppColors.emerald;
-    final countLabel = Fmt.count(count, 'Quiz', 'Quizzes');
+    final countLabel =
+        count == null ? '…' : Fmt.count(count!, 'Quiz', 'Quizzes');
 
     return Semantics(
       button: true,
       // One label for the whole card. Without it a screen reader reads the
       // title, the count and the blurb as three unrelated fragments and never
       // says the card can be opened.
-      label: '$_title, $countLabel',
+      label: count == null ? _title : '$_title, $countLabel',
       // Excluding the children collapses the card to a single node, which also
       // hides the InkWell's own tap action — so the action has to be restated
       // here or the card can be read but not activated.

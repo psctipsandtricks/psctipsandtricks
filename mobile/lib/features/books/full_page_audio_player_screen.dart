@@ -562,6 +562,18 @@ class _FullPageAudioPlayerScreenState
 
   Widget _buildTransportControls(
       BuildContext context, ReaderAudioController audio) {
+    // Rebuilt whenever the player is pointed at a different clip. Whether there
+    // is a topic either side is a question about the book's position, and a
+    // clip playing out moves that position without anything on this screen
+    // being touched — so read once, these buttons went on describing the topic
+    // the student had already left.
+    return ValueListenableBuilder<String?>(
+      valueListenable: audio.source,
+      builder: (context, _, __) => _transportRow(context, audio),
+    );
+  }
+
+  Widget _transportRow(BuildContext context, ReaderAudioController audio) {
     final hasPrev = widget.hasPrevious?.call() ?? (widget.onPrevious != null);
     final hasNext = widget.hasNext?.call() ?? (widget.onNext != null);
 

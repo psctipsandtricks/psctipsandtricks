@@ -268,6 +268,23 @@ class BookProgress {
   String get resumeLabel =>
       lastTopicTitle ?? lastChapterTitle ?? 'Start from the beginning';
 
+  /// The 3:4 hero cover — the portrait artwork that actually looks like a
+  /// book. Mirrors `Book.effectiveHeroCoverUrl`: the 16:9 catalog banner is
+  /// the fallback, for titles that have no hero cover uploaded yet.
+  String get effectiveHeroCoverUrl {
+    final hero = heroCoverUrl?.trim();
+    if (hero != null && hero.isNotEmpty) return hero;
+    return coverUrl.trim();
+  }
+
+  /// The 16:9 catalog cover, falling back to the hero cover. Mirrors
+  /// `Book.effectiveCatalogCoverUrl`.
+  String get effectiveCatalogCoverUrl {
+    final cover = coverUrl.trim();
+    if (cover.isNotEmpty) return cover;
+    return heroCoverUrl?.trim() ?? '';
+  }
+
   factory BookProgress.fromJson(Map<String, dynamic> json) => BookProgress(
         bookId: J.str(json['bookId']),
         title: J.str(json['title']),

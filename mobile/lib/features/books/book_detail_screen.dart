@@ -24,7 +24,6 @@ import 'widgets/reader_audio_player.dart';
 import '../offline/widgets/download_button.dart';
 import 'books_providers.dart';
 import '../home/home_providers.dart';
-import '../shell/shell_scaffold.dart';
 
 class BookDetailScreen extends ConsumerStatefulWidget {
   const BookDetailScreen({super.key, required this.bookId});
@@ -152,10 +151,9 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
                       Responsive.horizontalPadding(context),
                       18,
                       Responsive.horizontalPadding(context),
-                      // Clear of the floating tab dock: the page ends in body
-                      // copy, and without this the last lines of it sit under
-                      // the glass with no way to read them.
-                      28 + ShellScaffold.dockExtent,
+                      // The page opens above the tab bar, so there is no
+                      // dock to clear — just room to end on.
+                      36,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -513,11 +511,28 @@ class _PrimaryAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (book.isUnlocked) {
-      return GradientButton(
-        label: 'Start reading',
-        icon: Icons.auto_stories_rounded,
-        gradient: AppColors.brandGradient,
-        onPressed: onRead,
+      final held = book.subscription;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Owning a dated book without being told the date is how a student
+          // gets caught out: they plan around access they no longer have.
+          if (held != null && !held.isExpired) ...[
+            _AccessNotice(
+              icon: Icons.event_available_rounded,
+              color: held.isExpiringSoon ? AppColors.amber : AppColors.emerald,
+              label: 'Valid until ${Fmt.date(held.validTill)}',
+              detail: _daysLeftLabel(held.expiresInDays),
+            ),
+            const SizedBox(height: 10),
+          ],
+          GradientButton(
+            label: 'Start reading',
+            icon: Icons.auto_stories_rounded,
+            gradient: AppColors.brandGradient,
+            onPressed: onRead,
+          ),
+        ],
       );
     }
 
@@ -568,29 +583,7 @@ class _PrimaryAction extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.amber.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.verified_outlined,
-                        size: 13, color: AppColors.amber),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Lifetime access',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: AppColors.amber,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
+              _TermBadge(book: book),
             ],
           ),
           const SizedBox(height: 14),
@@ -600,6 +593,152 @@ class _PrimaryAction extends StatelessWidget {
             gradient: AppColors.goldGradient,
             onPressed: onBuy,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// How long access lasts, on the card a student reads before buying.
+///
+/// The app used to say "Lifetime access" on every paid book, including the ones
+/// sold as a one-year subscription — which is the opposite of the truth, and
+/// the sort of thing a student only finds out when the book stops opening.
+///
+/// Three things it can say, in order of what the student most needs to know:
+/// their own lapsed subscription, this book's term, or lifetime.
+class _TermBadge extends StatelessWidget {
+  const _TermBadge({required this.book});
+
+  final Book book;
+
+  @override
+  Widget build(BuildContext context) {
+    final held = book.subscription;
+
+    // Bought before, and it ran out. Naming the date is what makes the
+    // "Unlock full access" button below read as a renewal rather than a
+    // mistake — they did pay, and this says when that ended.
+    if (held != null && held.isExpired) {
+      return _Pill(
+        icon: Icons.event_busy_rounded,
+        color: AppColors.rose,
+        label: 'Expired ${Fmt.date(held.validTill)}',
+      );
+    }
+
+    final term = book.subscriptionTermLabel;
+    if (term != null) {
+      return _Pill(
+        icon: Icons.schedule_rounded,
+        color: AppColors.amber,
+        label: '$term access',
+      );
+    }
+
+    // Sold as a subscription, but with a term this build does not recognise —
+    // still not lifetime, so say the honest, vaguer thing.
+    if (book.isSubscriptionBook) {
+      return const _Pill(
+        icon: Icons.schedule_rounded,
+        color: AppColors.amber,
+        label: 'Limited access',
+      );
+    }
+
+    return const _Pill(
+      icon: Icons.verified_outlined,
+      color: AppColors.amber,
+      label: 'Lifetime access',
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  const _Pill({required this.icon, required this.color, required this.label});
+
+  final IconData icon;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// `12 days left`, or null when the end is far enough off not to be news.
+String? _daysLeftLabel(int? days) {
+  if (days == null || days > 30) return null;
+  if (days <= 0) return 'Ends today';
+  return days == 1 ? '1 day left' : '$days days left';
+}
+
+/// The strip above "Start reading" telling a student how long their access runs.
+class _AccessNotice extends StatelessWidget {
+  const _AccessNotice({
+    required this.icon,
+    required this.color,
+    required this.label,
+    this.detail,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ),
+          if (detail != null)
+            Text(
+              detail!,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
         ],
       ),
     );

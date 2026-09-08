@@ -383,6 +383,7 @@ export default function AdminChapterVideosPage() {
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         title={editingVideo ? 'Edit Video & Attached PDF' : 'Add Video'}
+        isLoading={formik.isSubmitting || uploadPercent !== null}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

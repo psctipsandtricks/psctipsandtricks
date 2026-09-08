@@ -15,20 +15,29 @@ class NotificationsRepository {
         .toList();
   }
 
+  /// Marks one notification read for this student, everywhere.
+  ///
+  /// Broadcasts included: the server keeps a read receipt per student rather
+  /// than a flag on the shared row, so a notice read here comes back read on
+  /// the website too, and one read there comes back read here.
+  Future<void> markRead(String id) async {
+    await _api.patch<dynamic>('/notifications/$id/read');
+  }
+
+  /// Marks several notifications read in one request.
+  ///
+  /// Used for handing this device's pre-existing read state to the server, so
+  /// synchronisation does not start from an empty slate.
+  Future<void> markManyRead(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await _api.post<dynamic>('/notifications/read', body: {'ids': ids});
+  }
+
   /// Tells the API which device this installation is, so notifications aimed
   /// at one student can reach their phone.
   ///
   /// Called without a session too: the row is created unbound, re-pointed at
   /// the student when they sign in, and unbound again when they sign out.
-  /// Marks one notification read.
-  ///
-  /// Only persists server-side for a notification addressed to this student —
-  /// a broadcast row is shared by everyone, so the API leaves it alone and the
-  /// app keeps its own record instead.
-  Future<void> markRead(String id) async {
-    await _api.patch<dynamic>('/notifications/$id/read');
-  }
-
   Future<void> registerDevice({
     required String token,
     required String platform,

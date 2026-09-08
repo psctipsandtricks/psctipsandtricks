@@ -108,6 +108,75 @@ export function QuizHubSkeleton() {
 }
 
 /**
+ * Quiz Folder Grid Skeleton:
+ * Stands in for the folder cards while the hub is still asking the API which
+ * folders exist. Mirrors FolderCard: accent bar, icon tile, count pill, title
+ * and footer row.
+ */
+export function QuizFolderGridSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 animate-in fade-in duration-300">
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          className="relative p-6 rounded-3xl border border-slate-200/90 dark:border-[#1e2e56] bg-white/90 dark:bg-[#0c152e]/90 shadow-lg shadow-slate-200/40 dark:shadow-2xl dark:shadow-black/40 overflow-hidden space-y-4"
+        >
+          <Skeleton className="h-1.5 w-full absolute top-0 left-0 rounded-none" />
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="w-12 h-12 rounded-2xl" />
+            <Skeleton className="h-6 w-24 rounded-full" />
+          </div>
+          <div className="space-y-2 pt-1">
+            <Skeleton className="h-5 w-2/3 rounded-lg" />
+            <Skeleton className="h-3.5 w-full rounded-md" />
+          </div>
+          <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/80 flex items-center justify-between">
+            <Skeleton className="h-4 w-28 rounded-md" />
+            <Skeleton className="w-5 h-5 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Quiz Card Grid Skeleton:
+ * Shown inside a folder while that folder's quizzes are loading. Mirrors
+ * QuizCardItem: 16:9 cover, badge row, title, meta chips and the action button.
+ */
+export function QuizCardGridSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
+      {Array.from({ length: count }).map((_, i) => (
+        <Card
+          key={i}
+          className="flex flex-col justify-between space-y-4 bg-white dark:bg-[#0c152e] border border-slate-200/90 dark:border-[#1e2e56] p-5 rounded-2xl"
+        >
+          <div className="space-y-3">
+            <Skeleton className="aspect-video w-full rounded-xl" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-full rounded-lg" />
+              <Skeleton className="h-5 w-3/5 rounded-lg" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Skeleton className="h-6 w-24 rounded-lg" />
+              <Skeleton className="h-6 w-20 rounded-lg" />
+              <Skeleton className="h-6 w-16 rounded-lg" />
+            </div>
+          </div>
+          <Skeleton className="h-10 w-full rounded-xl" />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Quiz Taking Skeleton:
  * Matches the countdown timer, question card, option selectors, and navigation footer.
  */

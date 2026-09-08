@@ -998,6 +998,109 @@ Future<bool> showGlassConfirm(
   return result ?? false;
 }
 
+/// A modal glass alert dialog that communicates status/notices with a single
+/// dismissal action.
+Future<void> showGlassAlert(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String buttonLabel = 'Back to Order History',
+  IconData icon = Icons.inventory_2_outlined,
+  Color accentColor = AppColors.amber,
+}) async {
+  await showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: const Color(0xFF0B1220).withValues(alpha: 0.34),
+    transitionDuration: const Duration(milliseconds: 220),
+    transitionBuilder: (context, anim, _, child) {
+      final t = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic).value;
+      return FadeTransition(
+        opacity: anim,
+        child: Transform.scale(scale: 0.92 + 0.08 * t, child: child),
+      );
+    },
+    pageBuilder: (context, anim, __) {
+      final palette = context.palette;
+      final theme = Theme.of(context);
+      final frosts = AppGlass.blursIn(context);
+      return Stack(
+        children: [
+          if (frosts)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: BackdropFilter(
+                  filter: AppGlass.blurOnly(6),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: LiquidGlass(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                  blurSigma: AppGlass.blurSheet,
+                  intensity: 0.92,
+                  elevation: 2.6,
+                  isCardScale: false,
+                  borderColor: accentColor.withValues(alpha: 0.35),
+                  padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LiquidGlass(
+                        borderRadius: BorderRadius.circular(999),
+                        blurSigma: AppGlass.blurRaised,
+                        intensity: 0.85,
+                        elevation: 0,
+                        isCardScale: false,
+                        accent: accentColor,
+                        borderColor: accentColor.withValues(alpha: 0.35),
+                        padding: const EdgeInsets.all(11),
+                        child: Icon(icon, color: accentColor, size: 24),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        message,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: palette.textSecondary,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _ConfirmActionButton(
+                          label: buttonLabel,
+                          destructive: false,
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 /// The solid, forward action in [showGlassConfirm]: a gradient pill with a
 /// coloured lift and a top sheen, so it reads as the committed choice and still
 /// belongs to the same glassy material as the pane behind it.

@@ -96,7 +96,10 @@ function SignupFormContent() {
     setOtpSubmitting(true);
     try {
       await verifyRegisterOtp(registeredEmail, otpCode.trim());
-      window.location.href = redirectTarget;
+      setSuccessMsg('OTP verified successfully.');
+      setTimeout(() => {
+        window.location.href = redirectTarget;
+      }, 500);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Invalid or expired verification code. Please check your email.');
       setOtpSubmitting(false);

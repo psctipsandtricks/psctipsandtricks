@@ -525,7 +525,7 @@ class _DownloadRow extends ConsumerWidget {
     final status = progress.status == OfflineStatus.none
         ? book.status
         : progress.status;
-    final readable = status == OfflineStatus.ready;
+    final readable = status == OfflineStatus.ready && !book.lease.isExpired;
 
     return GlassCard(
       padding: const EdgeInsets.all(12),
@@ -534,9 +534,16 @@ class _DownloadRow extends ConsumerWidget {
       // at all. Anything else goes to the detail screen, where the reason and
       // the way out are explained, unless there is no connection to load it
       // with; then the row says so instead of dead-ending on a retry button.
-      onTap: () => readable
-          ? context.push(AppRoutes.bookReader(book.bookId))
-          : _openDetail(context),
+      onTap: () {
+        if (book.lease.isExpired) {
+          manager.remove(book.bookId);
+          _openDetail(context);
+        } else if (readable) {
+          context.push(AppRoutes.bookReader(book.bookId));
+        } else {
+          _openDetail(context);
+        }
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -612,7 +619,12 @@ class _DownloadRow extends ConsumerWidget {
                             context.push(AppRoutes.bookReader(book.bookId)),
                       )
                     : OutlinedButton.icon(
-                        onPressed: () => _openDetail(context),
+                        onPressed: () {
+                          if (book.lease.isExpired) {
+                            manager.remove(book.bookId);
+                          }
+                          _openDetail(context);
+                        },
                         icon: const Icon(Icons.info_outline_rounded, size: 16),
                         label: Text(_actionLabel(status)),
                       ),

@@ -272,15 +272,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: AppRoutes.books,
                 builder: (context, state) => const BooksScreen(),
                 routes: [
-                  // Declared ahead of ':id' so the literal segment wins.
+                  // Stays inside the branch, and is why the root-level
+                  // '/books/:id' below is declared after the shell.
                   GoRoute(
                     path: 'downloads',
                     builder: (context, state) => const DownloadsScreen(),
-                  ),
-                  GoRoute(
-                    path: ':id',
-                    builder: (context, state) =>
-                        BookDetailScreen(bookId: state.pathParameters['id']!),
                   ),
                 ],
               ),
@@ -338,6 +334,22 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+
+      // Book detail belongs on the root navigator, not inside the Books
+      // branch. A branch route pushed from a page that is itself outside the
+      // shell — My orders, Downloads — is silently scoped out and nothing
+      // appears, which is why tapping a book order opened a blank screen.
+      //
+      // Declared after the shell deliberately: '/books/downloads' has to match
+      // the branch route above before ':id' can swallow it. Moving this entry
+      // higher would send the downloads screen to a book page named
+      // "downloads".
+      GoRoute(
+        path: '/books/:id',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) =>
+            BookDetailScreen(bookId: state.pathParameters['id']!),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

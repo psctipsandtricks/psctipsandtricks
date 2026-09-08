@@ -426,13 +426,32 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   }, [groups, selectedGroupId, initialGroupId]);
 
   /* ── Cache Warmup ── */
+  // Warming other groups is a nicety; the open conversation is what the student
+  // is waiting on. Firing these the moment the group list resolved put five
+  // extra history requests in flight alongside it, so the one page that had to
+  // paint queued behind them. Hold them until the browser is idle, and drop the
+  // warmup entirely if the student picks a group in the meantime.
   useEffect(() => {
     if (groups.length === 0) return;
+
     const priority = [...groups]
       .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.unreadCount - a.unreadCount)
-      .slice(0, 5);
-    priority.forEach((g) => prefetchMessages(g.id));
-  }, [groups, prefetchMessages]);
+      .filter((g) => g.id !== selectedGroupId)
+      .slice(0, 3);
+    if (priority.length === 0) return;
+
+    const warm = () => priority.forEach((g) => prefetchMessages(g.id));
+    const idle = (window as any).requestIdleCallback as
+      | ((cb: () => void, opts?: { timeout: number }) => number)
+      | undefined;
+    const cancelIdle = (window as any).cancelIdleCallback as ((h: number) => void) | undefined;
+
+    const handle = idle ? idle(warm, { timeout: 3000 }) : window.setTimeout(warm, 1200);
+    return () => {
+      if (idle && cancelIdle) cancelIdle(handle);
+      else window.clearTimeout(handle);
+    };
+  }, [groups, selectedGroupId, prefetchMessages]);
 
   // `useMutation`'s result OBJECT gets a new identity on every render (its
   // `.mutate` function does not) — this is the piece that has to go in a

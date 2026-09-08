@@ -1041,6 +1041,7 @@ export default function AdminVideoFoldersPage() {
         isOpen={isFolderDialogOpen}
         onClose={() => setIsFolderDialogOpen(false)}
         title={editingFolder ? 'Edit Video Folder' : parentForNewFolder ? `Add Subfolder inside "${parentForNewFolder.name}"` : 'Create Video Folder'}
+        isLoading={folderFormik.isSubmitting}
       >
         <form onSubmit={folderFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">
@@ -1126,6 +1127,7 @@ export default function AdminVideoFoldersPage() {
         isOpen={isVideoDialogOpen}
         onClose={() => setIsVideoDialogOpen(false)}
         title={editingVideo ? 'Edit Video' : `Add Video to "${targetFolderForVideo?.name || 'Folder'}"`}
+        isLoading={videoFormik.isSubmitting || pdfUploadPercent !== null}
       >
         <form onSubmit={videoFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">

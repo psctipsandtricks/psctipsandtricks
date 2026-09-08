@@ -913,6 +913,7 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
         isOpen={isFolderDialogOpen}
         onClose={() => setIsFolderDialogOpen(false)}
         title={editingFolder ? 'Edit Subfolder' : parentForNewFolder ? `Add Subfolder inside "${parentForNewFolder.name}"` : `Create Subfolder inside "${folder.name}"`}
+        isLoading={subFolderFormik.isSubmitting}
       >
         <form onSubmit={subFolderFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">
@@ -976,7 +977,8 @@ export default function AdminPdfFolderDetailPage({ params }: { params: { folderI
       <Dialog
         isOpen={isDocDialogOpen}
         onClose={() => setIsDocDialogOpen(false)}
-        title={editingDoc ? 'Edit Document' : `Add PDF Document to "${targetFolderForDoc?.name || folder.name}"`}
+        title={editingDoc ? 'Edit PDF Document' : `Add PDF Document to "${targetFolderForDoc?.name || folder.name}"`}
+        isLoading={docFormik.isSubmitting || pdfUploadPercent !== null}
       >
         <form onSubmit={docFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">

@@ -21,14 +21,45 @@ const MAX_REMEMBERED = 300;
 /**
  * Notifications this student has opened in this browser.
  *
- * The server can only remember `isRead` for a notification addressed to one
- * student. A broadcast is a single row shared by everyone, so marking it read
- * there would mark it read for the whole school — those are remembered here
- * instead, keyed by student so a shared computer does not leak one reader's
- * state into another's list.
+ * The server is the shared record — it keeps a read receipt per student, so a
+ * notice read on the phone comes back read here. This local copy is what makes
+ * the change visible the instant it is tapped, and what carries the list when
+ * the request fails or the browser is offline. It is keyed by student so a
+ * shared computer does not leak one reader's state into another's list.
  */
 export function readStorageKey(userId?: string | null) {
   return `psc_read_notifications_${userId || 'guest'}`;
+}
+
+/**
+ * Whether this browser has already handed its old read state to the server.
+ *
+ * Read state for broadcasts used to live only here, so the backlog a student
+ * accumulated before the server could remember it would otherwise stay
+ * invisible to their other devices. It is uploaded once, and this flag is what
+ * stops it being uploaded on every page load afterwards.
+ */
+export function readSyncedKey(userId?: string | null) {
+  return `psc_read_notifications_synced_${userId || 'guest'}`;
+}
+
+export function hasSyncedLocalReads(userId?: string | null) {
+  try {
+    return window.localStorage.getItem(readSyncedKey(userId)) === '1';
+  } catch {
+    // Storage is unreadable, so the flag can never be written either — treat it
+    // as done rather than re-uploading on every load.
+    return true;
+  }
+}
+
+export function markLocalReadsSynced(userId?: string | null) {
+  try {
+    window.localStorage.setItem(readSyncedKey(userId), '1');
+  } catch {
+    // Nothing to do: the upload already happened, and a browser that cannot
+    // store the flag will simply repeat a harmless idempotent request.
+  }
 }
 
 /**
@@ -62,7 +93,9 @@ export function persistLocallyRead(userId: string | null | undefined, existing: 
 
 /**
  * Unread means neither the server nor this browser has it marked read — the
- * same test the list uses to decide what to highlight.
+ * same test the list uses to decide what to highlight. The server's answer
+ * covers every device; the local set covers the marks it has not acknowledged
+ * yet.
  */
 export function isUnread(n: AppNotification, locallyRead: Set<string>) {
   return !n.isRead && !locallyRead.has(n.id);

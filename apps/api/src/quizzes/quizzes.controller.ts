@@ -87,6 +87,7 @@ export class QuizzesController {
     @Query('folder') folder?: string,
     @Query('access') access?: string,
     @Query('status') status?: string,
+    @Query('sort') sort?: string,
   ) {
     const isPublishedOnly = publishedOnly === 'true' || publishedOnly === '1';
     return this.quizzesService.findAll(
@@ -98,6 +99,7 @@ export class QuizzesController {
         folder,
         access,
         status,
+        sort,
       },
       req.user,
     );
@@ -235,12 +237,33 @@ export class QuizzesController {
     return this.quizzesService.getAdminHistory(quizId, userId);
   }
 
-  @ApiOperation({ summary: 'Start or resume a quiz attempt' })
+  /**
+   * Where the student stands on every quiz they have opened, so the hub can
+   * label each card Start / Resume / Retake and show a completed count.
+   *
+   * Two segments deep, so `@Get(':id')` above cannot claim it.
+   */
+  @ApiOperation({ summary: "This student's completed and in-progress attempts, per quiz" })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('attempts/summary')
+  async getAttemptSummary(@Request() req: any) {
+    return this.quizzesService.getAttemptSummary(req.user.id);
+  }
+
+  @ApiOperation({
+    summary:
+      'Start or resume a quiz attempt. `restart=true` abandons an unfinished attempt and begins again from the first question.',
+  })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post(':id/attempts/start')
-  async startAttempt(@Request() req: any, @Param('id') id: string) {
-    return this.quizzesService.startAttempt(req.user, id);
+  async startAttempt(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query('restart') restart?: string,
+  ) {
+    return this.quizzesService.startAttempt(req.user, id, restart === 'true' || restart === '1');
   }
 
   @ApiOperation({ summary: 'Get active IN_PROGRESS quiz attempt' })

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
@@ -47,10 +49,12 @@ final booksProvider = FutureProvider.autoDispose<List<Book>>((ref) async {
   ref.keepAlive();
   _viewerId(ref);
   final query = ref.watch(bookQueryProvider);
-  return ref.watch(booksRepositoryProvider).fetchBooks(
+  final books = await ref.watch(booksRepositoryProvider).fetchBooks(
         search: query.search,
         category: query.category,
       );
+  unawaited(ref.read(downloadManagerProvider.notifier).syncWithBooks(books));
+  return books;
 });
 
 String _canonicalCategory(String input) {
@@ -83,7 +87,9 @@ final bookDetailProvider =
     FutureProvider.autoDispose.family<Book, String>((ref, id) async {
   ref.keepAlive();
   _viewerId(ref);
-  return ref.watch(booksRepositoryProvider).fetchBook(id);
+  final book = await ref.watch(booksRepositoryProvider).fetchBook(id);
+  unawaited(ref.read(downloadManagerProvider.notifier).syncWithBook(book));
+  return book;
 });
 
 /// What the reader is reading from, and the local copy behind it if there is one.
@@ -111,11 +117,15 @@ final readerSourceProvider =
   _viewerId(ref);
 
   final offline = ref.watch(offlineBookProvider(bookId));
-  if (offline != null && offline.isReadable) {
-    return ReaderSource(
-      content: BookReaderContent.fromJson(offline.readerJson),
-      offline: offline,
-    );
+  if (offline != null) {
+    if (offline.isReadable && !offline.lease.isExpired) {
+      return ReaderSource(
+        content: BookReaderContent.fromJson(offline.readerJson),
+        offline: offline,
+      );
+    } else {
+      unawaited(ref.read(downloadManagerProvider.notifier).remove(bookId));
+    }
   }
 
   final content =

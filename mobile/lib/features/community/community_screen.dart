@@ -21,7 +21,17 @@ class CommunityScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final groupsAsync = ref.watch(chatGroupsProvider);
+    final live = ref.watch(chatGroupsProvider);
+
+    // Stand in with the last known list until the live one has a value, so
+    // returning to Community paints the student's groups immediately instead of
+    // a skeleton. This also covers a failed fetch: offline, the groups they had
+    // a moment ago are far more use than an error page, and pull-to-refresh is
+    // still there to retry.
+    final cached = ref.watch(cachedChatGroupsProvider).valueOrNull;
+    final groupsAsync = !live.hasValue && cached != null && cached.isNotEmpty
+        ? AsyncValue<List<ChatGroup>>.data(cached)
+        : live;
 
     return Scaffold(
       appBar: const GlassAppBar(title: Text('Community')),

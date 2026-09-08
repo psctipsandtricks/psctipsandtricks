@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessActor } from './quiz-access.service';
+import { subscriptionExpiryFrom } from './order-access-status';
 
 /** The subset of a book needed to decide whether it is behind a paywall. */
 export interface PaywallableBook {
@@ -49,25 +50,7 @@ export class BookAccessService {
   }
 
   calculateSubscriptionExpiry(duration?: string | null, fromDate: Date = new Date()): Date {
-    const validTill = new Date(fromDate);
-    switch (duration) {
-      case '1_MONTH':
-        validTill.setMonth(validTill.getMonth() + 1);
-        break;
-      case '3_MONTHS':
-        validTill.setMonth(validTill.getMonth() + 3);
-        break;
-      case '6_MONTHS':
-        validTill.setMonth(validTill.getMonth() + 6);
-        break;
-      case '1_YEAR':
-        validTill.setFullYear(validTill.getFullYear() + 1);
-        break;
-      default:
-        validTill.setMonth(validTill.getMonth() + 1);
-        break;
-    }
-    return validTill;
+    return subscriptionExpiryFrom(duration, fromDate);
   }
 
   /** Turns a user's latest per-book order into subscription expiry info, or null when it is not a dated subscription. */

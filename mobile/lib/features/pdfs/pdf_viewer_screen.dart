@@ -12,6 +12,7 @@ import '../books/reader_audio_controller.dart';
 import '../books/widgets/reader_audio_player.dart';
 import '../../core/utils/orientation.dart';
 import 'widgets/pdf_document_view.dart';
+import 'widgets/pdf_transition_cover.dart';
 
 class PdfViewerArgs {
   const PdfViewerArgs({
@@ -91,7 +92,7 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     final minimal = widget.args.minimal;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.palette.background,
       appBar: GlassAppBar(
         title: Text(
           widget.args.title,
@@ -151,13 +152,26 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
         ],
       ),
       body: SafeArea(
-        child: PdfDocumentView(
-          key: _documentKey,
-          url: widget.args.url,
-          localPath: widget.args.localPath,
-          initialPage: widget.args.initialPage,
-          syncCues: widget.args.syncCues,
-          onStateChanged: (state) => setState(() => _state = state),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            PdfDocumentView(
+              key: _documentKey,
+              url: widget.args.url,
+              localPath: widget.args.localPath,
+              initialPage: widget.args.initialPage,
+              syncCues: widget.args.syncCues,
+              onStateChanged: (state) {
+                if (!mounted) return;
+                setState(() => _state = state);
+              },
+            ),
+            // The document is a native platform view: it does not travel with
+            // the Flutter layer, so opening this screen and leaving it again
+            // used to tear and ghost the page. Covered for the length of both
+            // animations, which costs a plain page and nothing else.
+            PdfTransitionCover.of(context),
+          ],
         ),
       ),
       // The reader's own transport is two screens back once the notes are

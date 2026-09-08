@@ -27,6 +27,17 @@ export class CreateManualOrderDto {
    * Defaults to now when omitted. Used as the order's created/paid timestamp.
    */
   @IsOptional()
-  @IsDateString()
+  @IsString()
   purchaseDate?: string;
+
+  /** Alias for purchaseDate */
+  @IsOptional()
+  @IsString()
+  orderDate?: string;
+
+  /** Alias for purchaseDate */
+  @IsOptional()
+  @IsString()
+  createdAt?: string;
 }
+

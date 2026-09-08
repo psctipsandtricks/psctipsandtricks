@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/community/community_providers.dart';
 import '../../features/offline/offline_providers.dart';
 import 'app_providers.dart';
 
@@ -46,5 +47,17 @@ Future<void> clearAccountScopedState(Ref ref) async {
   //    the previous account's catalog, orders, progress or access verdicts.
   for (final repository in _accountScopedRepositories) {
     ref.invalidate(repository);
+  }
+
+  // 3. Community chat written to disk: group membership, unread counts and the
+  //    conversations themselves all belong to the account signing out, and
+  //    unlike the in-memory caches above they would survive a restart.
+  try {
+    await ref.read(chatCacheProvider).clear();
+    ref.invalidate(cachedChatGroupsProvider);
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Could not clear community chat cache on account switch: $e');
+    }
   }
 }

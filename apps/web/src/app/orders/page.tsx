@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, Button, Badge, Input, Pagination, Skeleton } from '@psc/ui';
+import { Card, Button, Badge, Input, Pagination, Skeleton, Dialog } from '@psc/ui';
 import {
   Receipt,
   ChevronLeft,
@@ -17,6 +17,7 @@ import {
   Clock,
   XCircle,
   RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
@@ -63,6 +64,7 @@ export default function MyOrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
+  const [unavailableOrder, setUnavailableOrder] = useState<OrderWithItems | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -87,7 +89,10 @@ export default function MyOrdersPage() {
     loadOrders();
   }, [user]);
 
-  const itemTitle = (order: OrderWithItems) => order.book?.title || order.quiz?.title || 'Purchase';
+  const itemTitle = (order: OrderWithItems) =>
+    order.book?.title ||
+    order.quiz?.title ||
+    (order.bookId ? 'E-Book (Unavailable)' : order.quizId ? 'Quiz (Unavailable)' : 'Purchased Item (Unavailable)');
   const itemKind = (order: OrderWithItems): 'BOOK' | 'MOCK' | 'QUIZ' =>
     order.book ? 'BOOK' : order.quiz?.isLiveMock ? 'MOCK' : 'QUIZ';
 
@@ -230,47 +235,83 @@ export default function MyOrdersPage() {
                 })
               : null;
 
+            const isDetached = !order.book && !order.quiz && !order.bookId && !order.quizId;
+            const productUrl =
+              kind === 'BOOK' && (order.book?.id || order.bookId)
+                ? `/books/${order.book?.id || order.bookId}`
+                : (kind === 'QUIZ' || kind === 'MOCK') && (order.quiz?.id || order.quizId)
+                ? `/quizzes/${order.quiz?.id || order.quizId}`
+                : null;
+
+            const handleOpenOrder = (e?: React.MouseEvent) => {
+              if (e) e.stopPropagation();
+              if (isDetached || !productUrl) {
+                setUnavailableOrder(order);
+              } else {
+                router.push(productUrl);
+              }
+            };
+
             return (
-              <Card key={order.id} className="p-4 sm:p-5 glass-card space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 dark:border-[#1e2e56] pb-3">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                      <KindIcon className={`w-4 h-4 shrink-0 ${kindMeta.color}`} />
-                      <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-white truncate">
-                        {itemTitle(order)}
-                      </span>
-                      <Badge variant="outline" className="text-[10px] font-bold shrink-0">
-                        {kindMeta.label}
-                      </Badge>
-                      {statusBadge(order.status)}
-                      {order.status === 'SUCCESS' && kind === 'BOOK' && (
-                        isSubscriptionOrder ? (
-                          isExpired ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-                              Expired on {validTillFormatted}
-                            </span>
+              <Card
+                key={order.id}
+                onClick={() => handleOpenOrder()}
+                className="p-4 sm:p-5 glass-card space-y-3 cursor-pointer transition-all duration-200 hover:border-cyan-500/40 hover:shadow-lg hover:shadow-cyan-500/5 group"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 dark:border-[#1e2e56] pb-3">
+                  <div className="flex items-start sm:items-center space-x-3 min-w-0 flex-1">
+                    {kind === 'BOOK' && order.book?.coverUrl ? (
+                      <img
+                        src={order.book.coverUrl}
+                        alt={order.book.title || 'Book cover'}
+                        className="w-10 h-13 object-cover rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm shrink-0 group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shrink-0 group-hover:border-cyan-500/40 transition-colors">
+                        <KindIcon className={`w-5 h-5 ${kindMeta.color}`} />
+                      </div>
+                    )}
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <span
+                          onClick={handleOpenOrder}
+                          className="font-bold text-sm sm:text-base text-slate-900 dark:text-white truncate group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors"
+                        >
+                          {itemTitle(order)}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] font-bold shrink-0">
+                          {kindMeta.label}
+                        </Badge>
+                        {statusBadge(order.status)}
+                        {order.status === 'SUCCESS' && kind === 'BOOK' && (
+                          isSubscriptionOrder ? (
+                            isExpired ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                                Expired on {validTillFormatted}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                Valid till {validTillFormatted}
+                              </span>
+                            )
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                              Valid till {validTillFormatted}
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                              Full-Time
                             </span>
                           )
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                            Full-Time
-                          </span>
-                        )
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-3 text-xs text-slate-500 dark:text-slate-400">
-                      <span className="flex items-center space-x-1">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{dateFormatted}</span>
-                      </span>
-                      {order.razorpayPaymentId && (
-                        <span className="font-mono text-[11px] text-slate-400 truncate">
-                          {order.razorpayPaymentId}
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-3 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="flex items-center space-x-1">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{dateFormatted}</span>
                         </span>
-                      )}
+                        {order.razorpayPaymentId && (
+                          <span className="font-mono text-[11px] text-slate-400 truncate">
+                            {order.razorpayPaymentId}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -283,27 +324,20 @@ export default function MyOrdersPage() {
                       </span>
                     </div>
 
-                    {order.status === 'SUCCESS' && kind === 'BOOK' && order.book && (
-                      <Link href={`/books/${order.book.id}`}>
-                        <Button variant={isExpired ? "danger" : "gold"} size="sm" className="font-bold">
-                          {isExpired ? 'Renew Book' : 'View Book'}
-                        </Button>
-                      </Link>
-                    )}
-                    {order.status === 'SUCCESS' && kind === 'QUIZ' && order.quiz && (
-                      <Link href={`/quizzes/${order.quiz.id}`}>
-                        <Button variant="gold" size="sm" className="font-bold">
-                          Start Quiz
-                        </Button>
-                      </Link>
-                    )}
-                    {order.status === 'SUCCESS' && kind === 'MOCK' && (
-                      <Link href="/quizzes">
-                        <Button variant="gold" size="sm" className="font-bold">
-                          View Mock Test
-                        </Button>
-                      </Link>
-                    )}
+                    <Button
+                      variant={isExpired ? "danger" : "gold"}
+                      size="sm"
+                      className="font-bold"
+                      onClick={handleOpenOrder}
+                    >
+                      {isDetached
+                        ? 'Unavailable'
+                        : kind === 'BOOK'
+                        ? (isExpired ? 'Renew Book' : 'View Book')
+                        : kind === 'MOCK'
+                        ? 'View Mock Test'
+                        : 'Start Quiz'}
+                    </Button>
                   </div>
                 </div>
               </Card>
@@ -323,6 +357,54 @@ export default function MyOrdersPage() {
           />
         </div>
       )}
+
+      {/* Unavailable Product Information Dialog */}
+      <Dialog
+        isOpen={Boolean(unavailableOrder)}
+        onClose={() => setUnavailableOrder(null)}
+        title="Product Notice"
+      >
+        <div className="space-y-4 text-center py-2">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white">
+              This product is no longer available.
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+              This product was removed by the administrator and is no longer accessible. Your payment receipt and transaction ID remain safely recorded in your order history.
+            </p>
+          </div>
+
+          {unavailableOrder && (
+            <div className="bg-slate-100 dark:bg-slate-800/80 rounded-xl p-3.5 text-left border border-slate-200 dark:border-slate-700/60 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Item:</span>
+                <span className="font-bold text-slate-700 dark:text-slate-300 truncate max-w-[200px]">{itemTitle(unavailableOrder)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-medium">Amount:</span>
+                <span className="font-bold font-mono text-amber-600 dark:text-amber-400">₹{unavailableOrder.amount}</span>
+              </div>
+              {unavailableOrder.razorpayPaymentId && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-medium">Payment ID:</span>
+                  <span className="font-mono text-slate-600 dark:text-slate-400 text-[11px]">{unavailableOrder.razorpayPaymentId}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <Button
+            variant="gold"
+            className="w-full font-bold mt-2"
+            onClick={() => setUnavailableOrder(null)}
+          >
+            Back to Order History
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

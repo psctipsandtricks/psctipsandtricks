@@ -431,6 +431,7 @@ export default function AdminFolderQuizzesPage() {
   // ── Drag-to-reorder ──────────────────────────────────────────────────
   const [moveTargetQuiz, setMoveTargetQuiz] = useState<QuizItem | null>(null);
   const [movePositionInput, setMovePositionInput] = useState('');
+  const [isMovingQuiz, setIsMovingQuiz] = useState(false);
   const dragStartOrderRef = useRef<QuizItem[] | null>(null);
 
   // Image Upload State
@@ -668,12 +669,20 @@ export default function AdminFolderQuizzesPage() {
   );
 
   const handleConfirmMove = async () => {
-    if (!moveTargetQuiz) return;
+    if (!moveTargetQuiz || isMovingQuiz) return;
     const requested = Number(movePositionInput);
     const target = moveTargetQuiz;
-    setMoveTargetQuiz(null);
-    if (!Number.isFinite(requested)) return;
-    await moveQuizTo(target, Math.trunc(requested) - 1);
+    if (!Number.isFinite(requested)) {
+      setMoveTargetQuiz(null);
+      return;
+    }
+    try {
+      setIsMovingQuiz(true);
+      await moveQuizTo(target, Math.trunc(requested) - 1);
+    } finally {
+      setIsMovingQuiz(false);
+      setMoveTargetQuiz(null);
+    }
   };
 
   const handleOpenCreateSubFolder = (parentFolder?: QuizFolder) => {
@@ -1876,6 +1885,7 @@ export default function AdminFolderQuizzesPage() {
         onClose={() => setMoveTargetQuiz(null)}
         title="Move Quiz to Position"
         className="max-w-sm"
+        isLoading={isMovingQuiz}
       >
         <div className="space-y-4 pt-1">
           <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -1921,6 +1931,7 @@ export default function AdminFolderQuizzesPage() {
         }}
         title={editingQuizId ? `Edit Quiz: ${formik.values.title}` : `Create New Quiz in "${formik.values.selectedFolder || currentFolder}"`}
         className="max-w-2xl"
+        isLoading={formik.isSubmitting || isUploadingImage || isValidatingQuizImage}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           {formSubmitError && (
@@ -2415,6 +2426,7 @@ export default function AdminFolderQuizzesPage() {
         isOpen={isSubFolderDialogOpen}
         onClose={() => setIsSubFolderDialogOpen(false)}
         title={editingSubFolder ? `Edit Sub-folder in "${currentFolder}"` : `Create Sub-folder in "${currentFolder}"`}
+        isLoading={subFolderSaving}
       >
         <form onSubmit={handleSaveSubFolder} className="space-y-4 pt-2">
           {subFolderError && (

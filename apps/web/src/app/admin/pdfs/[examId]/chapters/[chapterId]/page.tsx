@@ -328,10 +328,12 @@ export default function AdminChapterPdfsPage() {
         )}
       </Card>
 
+      {/* Add / Edit PDF Document Dialog */}
       <Dialog
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
-        title={editingDocument ? 'Edit PDF' : 'Add PDF'}
+        title={editingDocument ? 'Edit PDF Document' : 'Add PDF Document'}
+        isLoading={formik.isSubmitting || uploadPercent !== null}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

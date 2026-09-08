@@ -779,8 +779,9 @@ export default function AdminCommunityPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsGroupModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                disabled={groupFormik.isSubmitting}
+                onClick={() => !groupFormik.isSubmitting && setIsGroupModalOpen(false)}
+                className={`w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center transition-all shrink-0 ${groupFormik.isSubmitting ? 'opacity-40 cursor-not-allowed pointer-events-none' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer'}`}
                 aria-label="Close dialog"
               >
                 <X className="w-4 h-4" />
@@ -788,6 +789,7 @@ export default function AdminCommunityPage() {
             </div>
 
             <form onSubmit={groupFormik.handleSubmit} className="space-y-4 text-xs" noValidate>
+              <fieldset disabled={groupFormik.isSubmitting} className="contents disabled:pointer-events-none">
               {groupFormError && (
                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center">
                   {groupFormError}
@@ -917,6 +919,7 @@ export default function AdminCommunityPage() {
                     : 'Create Group'}
                 </Button>
               </div>
+              </fieldset>
             </form>
           </div>
         </div>
@@ -931,12 +934,13 @@ export default function AdminCommunityPage() {
                 <Megaphone className="w-5 h-5 text-cyan-500" />
                 <span>Post Admin Announcement & Content</span>
               </h3>
-              <button type="button" onClick={() => setIsPostModalOpen(false)} className="text-slate-400">
+              <button type="button" disabled={postFormik.isSubmitting} onClick={() => !postFormik.isSubmitting && setIsPostModalOpen(false)} className={`text-slate-400 ${postFormik.isSubmitting ? 'opacity-40 cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}>
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={postFormik.handleSubmit} className="space-y-4 text-xs" noValidate>
+              <fieldset disabled={postFormik.isSubmitting} className="contents disabled:pointer-events-none">
               {announcementFormError && (
                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center">
                   {announcementFormError}
@@ -1121,13 +1125,14 @@ export default function AdminCommunityPage() {
               </div>
 
               <div className="pt-2 flex items-center justify-end space-x-3">
-                <Button type="button" variant="outline" onClick={() => setIsPostModalOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setIsPostModalOpen(false)} disabled={postFormik.isSubmitting}>
                   Cancel
                 </Button>
-                <Button type="submit" variant="gold" className="font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none">
+                <Button type="submit" variant="gold" className="font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none" isLoading={postFormik.isSubmitting}>
                   Publish Content
                 </Button>
               </div>
+              </fieldset>
             </form>
           </div>
         </div>

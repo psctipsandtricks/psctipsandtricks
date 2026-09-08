@@ -474,23 +474,41 @@ class _OrderCard extends StatelessWidget {
     }
   }
 
+  void _openProduct(BuildContext context) {
+    if (order.bookId != null && order.bookId!.trim().isNotEmpty) {
+      context.push(AppRoutes.bookDetail(order.bookId!.trim()));
+    } else if (order.quizId != null && order.quizId!.trim().isNotEmpty) {
+      context.push(AppRoutes.quizAttempt(order.quizId!.trim()));
+    } else {
+      showGlassAlert(
+        context,
+        title: 'This product is no longer available.',
+        message:
+            'This product was removed by the administrator and is no longer available in the application. Your purchase remains recorded in your order history.',
+        buttonLabel: 'Back to Order History',
+        icon: Icons.inventory_2_outlined,
+        accentColor: AppColors.amber,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
     final status = _status;
-    final unlocked = order.status == OrderStatus.success;
+    final isBookOrder = order.isBook || (order.bookArtworkUrl ?? '').isNotEmpty;
+    final isDetached = (order.bookId == null || order.bookId!.trim().isEmpty) &&
+        (order.quizId == null || order.quizId!.trim().isEmpty);
 
     return GlassCard(
-      onTap: unlocked && order.isBook
-          ? () => context.push(AppRoutes.bookDetail(order.bookId!))
-          : null,
+      onTap: () => _openProduct(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (order.isBook)
+              if (isBookOrder)
                 BookCover(
                   url: order.bookArtworkUrl,
                   width: 46,
@@ -503,9 +521,16 @@ class _OrderCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: AppColors.amber.withValues(alpha: 0.13),
                     borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                    border: Border.all(
+                      color: AppColors.amber.withValues(alpha: 0.25),
+                      width: 0.8,
+                    ),
                   ),
-                  child: const Icon(Icons.workspace_premium_rounded,
-                      color: AppColors.amber, size: 21),
+                  child: const Icon(
+                    Icons.workspace_premium_rounded,
+                    color: AppColors.amber,
+                    size: 21,
+                  ),
                 ),
               const SizedBox(width: 13),
               Expanded(
@@ -532,11 +557,38 @@ class _OrderCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Text(
-                Fmt.amount(order.amount),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    Fmt.amount(order.amount),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isDetached ? 'Unavailable' : 'View',
+                        style: TextStyle(
+                          color: isDetached ? AppColors.amber : AppColors.cyan,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        isDetached
+                            ? Icons.info_outline_rounded
+                            : Icons.chevron_right_rounded,
+                        size: 14,
+                        color: isDetached ? AppColors.amber : AppColors.cyan,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
           ),

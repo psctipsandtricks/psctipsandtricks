@@ -9,6 +9,7 @@ export interface DialogProps {
   description?: string;
   children: React.ReactNode;
   className?: string;
+  isLoading?: boolean;
 }
 
 export const Dialog: React.FC<DialogProps> = ({
@@ -18,8 +19,14 @@ export const Dialog: React.FC<DialogProps> = ({
   description,
   children,
   className,
+  isLoading = false,
 }) => {
   if (!isOpen) return null;
+
+  const handleClose = () => {
+    if (isLoading) return;
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 dark:bg-slate-950/80 backdrop-blur-sm p-2.5 sm:p-4 animate-in fade-in duration-200 !mt-0">
@@ -33,9 +40,15 @@ export const Dialog: React.FC<DialogProps> = ({
         {title || description ? (
           <div className="shrink-0 pl-4 sm:pl-6 pr-14 sm:pr-16 pt-4 sm:pt-6 pb-2 sm:pb-3 relative border-b border-slate-100 dark:border-slate-800/40">
             <button
-              onClick={onClose}
+              onClick={handleClose}
+              disabled={isLoading}
               type="button"
-              className="absolute top-3 right-3 sm:top-4 sm:right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer z-10 shrink-0 hover:scale-105 active:scale-95 border border-slate-200/80 dark:border-slate-700/60"
+              className={cn(
+                'absolute top-3 right-3 sm:top-4 sm:right-4 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 shrink-0 border border-slate-200/80 dark:border-slate-700/60',
+                isLoading
+                  ? 'opacity-40 cursor-not-allowed pointer-events-none'
+                  : 'hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white cursor-pointer hover:scale-105 active:scale-95'
+              )}
               aria-label="Close dialog"
             >
               <X className="w-4 h-4" />
@@ -45,9 +58,15 @@ export const Dialog: React.FC<DialogProps> = ({
           </div>
         ) : (
           <button
-            onClick={onClose}
+            onClick={handleClose}
+            disabled={isLoading}
             type="button"
-            className="absolute top-3 right-3 sm:top-4 sm:right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer z-10 shrink-0 hover:scale-105 active:scale-95 border border-slate-200/80 dark:border-slate-700/60"
+            className={cn(
+              'absolute top-3 right-3 sm:top-4 sm:right-4 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-all z-10 shrink-0 border border-slate-200/80 dark:border-slate-700/60',
+              isLoading
+                ? 'opacity-40 cursor-not-allowed pointer-events-none'
+                : 'hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white cursor-pointer hover:scale-105 active:scale-95'
+            )}
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
@@ -55,8 +74,15 @@ export const Dialog: React.FC<DialogProps> = ({
         )}
 
         {/* Scrollable Body - moves scrollbar right to the edge with content padded inside */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-4 sm:pb-6 pt-3 flex flex-col min-h-0 relative custom-scrollbar">
-          {children}
+        <div
+          className={cn(
+            'flex-1 overflow-y-auto px-4 sm:px-6 pb-4 sm:pb-6 pt-3 flex flex-col min-h-0 relative custom-scrollbar',
+            isLoading && 'pointer-events-none opacity-80 cursor-wait select-none'
+          )}
+        >
+          <fieldset disabled={isLoading} className="contents disabled:pointer-events-none">
+            {children}
+          </fieldset>
         </div>
       </div>
     </div>

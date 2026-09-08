@@ -15,12 +15,13 @@ class ChatRepository {
         .toList();
   }
 
-  /// One page of history, newest last. `before` pages backwards from a message
-  /// id for infinite scroll.
+  /// One page of history, newest last. `before` pages backwards through the
+  /// conversation — it takes the `createdAt` of the oldest message already
+  /// held, so each call returns strictly the page before it.
   Future<List<ChatMessage>> fetchMessages(
     String groupId, {
     String? before,
-    int limit = 40,
+    int limit = 30,
   }) async {
     final res = await _api.get<dynamic>(
       '/chat/groups/$groupId/messages',

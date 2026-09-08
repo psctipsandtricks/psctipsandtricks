@@ -157,6 +157,8 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
           child: ErrorView(error: error, compact: true),
         ),
         data: (quizzes) {
+          final attempts =
+              ref.watch(quizAttemptSummaryProvider).valueOrNull ?? const {};
           if (quizzes.isEmpty) {
             return Center(
               child: Text(
@@ -201,6 +203,7 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
                   return QuizCard(
                     quiz: quiz,
                     width: 240,
+                    attempt: attempts[quiz.id],
                     onTap: () => _openQuiz(quiz),
                   );
                 },

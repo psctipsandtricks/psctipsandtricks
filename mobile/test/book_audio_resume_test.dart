@@ -434,11 +434,12 @@ void main() {
       expect(audio.loadedUrl, 'https://cdn.test/sree-narayana-guru.mp3');
     });
 
-    testWidgets('narration heard from the page alone is not offered back',
+    testWidgets('narration played from the strip alone is offered back too',
         (tester) async {
-      // Playing a topic's clip from the reader's own strip is reading, not a
-      // listening session — only the audio player earns a point to come back
-      // to, which is what keeps the card off a book nobody listened to.
+      // Listening is listening, whichever transport started it. This used to
+      // require the full-page player — a student who played the clip from the
+      // reader's own strip or the mini transport got no "Continue with audio"
+      // card at all, which is the case this now pins down.
       final (audio, prefs) = await pumpReader(tester, resumeAudio: false);
 
       await tester.tap(find.byTooltip('Chapters and topics'));
@@ -448,7 +449,37 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump(const Duration(milliseconds: 400));
 
-      // The clip is loaded and running, just never opened full screen.
+      expect(audio.loadedUrl, 'https://cdn.test/sree-narayana-guru.mp3');
+
+      // Played from the page's own docked transport: this route taps the topic
+      // row, not the contents' speaker, so the full-page player never opens.
+      audio.playing.value = true;
+      await tester.pump(const Duration(milliseconds: 100));
+
+      audio.duration.value = const Duration(minutes: 40);
+      audio.position.value = const Duration(minutes: 20);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final stored = readAudioResume(prefs, bookId);
+      expect(stored, isNotNull);
+      expect(stored!.unitId, 't2');
+      expect(stored.position, const Duration(minutes: 20));
+    });
+
+    testWidgets('a book opened but never listened to offers nothing back',
+        (tester) async {
+      // The other half of the rule: loading a clip is not listening to it, so
+      // simply paging onto a narrated topic must not put a card on the book.
+      final (audio, prefs) = await pumpReader(tester, resumeAudio: false);
+
+      await tester.tap(find.byTooltip('Chapters and topics'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Sree Narayana Guru').last);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
       expect(audio.loadedUrl, 'https://cdn.test/sree-narayana-guru.mp3');
       audio.duration.value = const Duration(minutes: 40);
       audio.position.value = const Duration(minutes: 20);

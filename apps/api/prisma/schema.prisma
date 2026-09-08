@@ -86,6 +86,7 @@ model User {
   submissions        QuizSubmission[]
   messages           ChatMessage[]
   notifications      Notification[]
+  notificationReads  NotificationRead[]
   readingProgress    ReadingProgress[]
   bookmarks          Bookmark[]
   staffPermission    StaffPermission?      @relation("OwnPermission")
@@ -627,9 +628,34 @@ model Notification {
   /// in the device notification tray and in the in-app notification list.
   imageUrl     String?
   createdAt    DateTime  @default(now())
+  /// Per-student read receipts. A broadcast's own `isRead` cannot answer
+  /// "has *this* student read it", so these do.
+  reads        NotificationRead[]
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status, scheduledFor])
+}
+
+/// One student's "I have read this" receipt for one notification.
+///
+/// A broadcast is a single Notification row shared by every student, so setting
+/// `isRead` on it would mark the notice read for the whole school — which is
+/// why read state for broadcasts used to live only in the browser's local
+/// storage and the phone's preferences, and why reading a notice on one never
+/// showed up on the other. A receipt is per student, so the phone and the
+/// website read the same answer.
+model NotificationRead {
+  id             String       @id @default(uuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  /// One receipt per student per notification: marking read twice is a no-op
+  /// rather than a second row, which is what makes the write an upsert.
+  @@unique([notificationId, userId])
+  @@index([userId])
 }
 
 /// A device registered to receive push notifications.

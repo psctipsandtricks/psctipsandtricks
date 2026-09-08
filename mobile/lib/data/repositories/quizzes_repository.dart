@@ -26,6 +26,7 @@ class QuizzesRepository {
     bool publishedOnly = true,
     int page = 1,
     int limit = 30,
+    String? sort,
   }) async {
     final res = await _api.get<dynamic>(
       '/quizzes',
@@ -37,12 +38,32 @@ class QuizzesRepository {
         // The API keys this off Quiz.folderName, not the folder's id.
         if (folderName != null && folderName.isNotEmpty) 'folder': folderName,
         if (accessType != null) 'access': accessType,
+        // 'newest' orders by creation date instead of the admin's hand-set
+        // order — what a "latest" carousel wants.
+        if (sort != null) 'sort': sort,
       },
     );
     return J.rows(res)
         .whereType<Map>()
         .map((e) => Quiz.fromJson(Map<String, dynamic>.from(e)))
         .toList();
+  }
+
+  /// How many published quizzes exist in one access tier, without downloading
+  /// them. The paginated envelope carries the total, so a single-row page
+  /// answers the hub's headline counts for the price of one quiz.
+  Future<int> fetchQuizCount({required String accessType}) async {
+    final res = await _api.get<dynamic>(
+      '/quizzes',
+      query: {
+        'publishedOnly': true,
+        'access': accessType,
+        'page': 1,
+        'limit': 1,
+      },
+    );
+    if (res is Map) return J.intVal(res['total']);
+    return J.rows(res).length;
   }
 
   /// A single quiz. The server withholds `questions` on a premium quiz the
@@ -53,10 +74,28 @@ class QuizzesRepository {
   }
 
   /// Starts a new attempt, or returns the one already in progress.
-  Future<QuizAttempt?> startAttempt(String quizId) async {
-    final res = await _api.post<dynamic>('/quizzes/$quizId/attempts/start');
+  /// Opens the attempt: resumes an unfinished one, or begins a new one when
+  /// there is nothing to resume.
+  ///
+  /// [restart] is the "Start from beginning" path — the server retires the
+  /// unfinished attempt and issues a fresh one starting at question one.
+  Future<QuizAttempt?> startAttempt(String quizId, {bool restart = false}) async {
+    final res = await _api.post<dynamic>(
+      '/quizzes/$quizId/attempts/start',
+      query: restart ? {'restart': 'true'} : null,
+    );
     final map = J.mapOrNull(res);
     return map == null ? null : QuizAttempt.fromJson(map);
+  }
+
+  /// Completed and in-progress attempts per quiz, for the signed-in student.
+  /// One request for the whole hub rather than one per card.
+  Future<List<QuizAttemptSummary>> fetchAttemptSummary() async {
+    final res = await _api.get<dynamic>('/quizzes/attempts/summary');
+    return J.rows(res)
+        .whereType<Map>()
+        .map((e) => QuizAttemptSummary.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
   }
 
   Future<QuizAttempt?> fetchActiveAttempt(String quizId) async {

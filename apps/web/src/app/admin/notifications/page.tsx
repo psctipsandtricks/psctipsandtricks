@@ -786,15 +786,17 @@ export default function AdminNotificationsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsCreateModalOpen(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1e2e56] transition-colors cursor-pointer"
+                disabled={formik.isSubmitting || isUploadingImage}
+                onClick={() => !formik.isSubmitting && !isUploadingImage && setIsCreateModalOpen(false)}
+                className={`p-2 rounded-xl transition-colors ${formik.isSubmitting || isUploadingImage ? 'opacity-40 cursor-not-allowed pointer-events-none' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#1e2e56] cursor-pointer'}`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body (Scrollable) */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+            <div className={`p-6 overflow-y-auto space-y-6 flex-1 ${formik.isSubmitting || isUploadingImage ? 'pointer-events-none opacity-80 cursor-wait select-none' : ''}`}>
+              <fieldset disabled={formik.isSubmitting || isUploadingImage} className="contents disabled:pointer-events-none">
               {errorMessage && (
                 <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs sm:text-sm font-semibold text-rose-800 dark:text-rose-300">
                   {errorMessage}
@@ -1093,6 +1095,7 @@ export default function AdminNotificationsPage() {
                   />
                 </div>
               </div>
+              </fieldset>
             </div>
 
             {/* Modal Footer */}
@@ -1100,6 +1103,7 @@ export default function AdminNotificationsPage() {
               <Button
                 type="button"
                 variant="outline"
+                disabled={formik.isSubmitting || isUploadingImage}
                 onClick={() => setIsCreateModalOpen(false)}
                 className="font-bold cursor-pointer"
               >

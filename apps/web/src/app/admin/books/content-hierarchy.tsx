@@ -519,6 +519,7 @@ export function ContentHierarchyPage({
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         title={editingItem ? `Edit ${nounSingular}` : `Add ${nounSingular}${editingItem ? '' : ` to "${pageTitle}"`}`}
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

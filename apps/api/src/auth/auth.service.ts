@@ -26,6 +26,87 @@ export class AuthService {
       expiresAt: number;
     }
   >();
+  private otpCooldowns = new Map<string, number>();
+
+  private checkOtpRateLimit(email: string, cooldownSeconds = 30): void {
+    const lastSent = this.otpCooldowns.get(email);
+    if (lastSent) {
+      const remaining = Math.ceil((lastSent + cooldownSeconds * 1000 - Date.now()) / 1000);
+      if (remaining > 0) {
+        throw new BadRequestException(
+          `Please wait ${remaining} second${remaining > 1 ? 's' : ''} before requesting another verification code.`,
+        );
+      }
+    }
+  }
+
+  private recordOtpSent(email: string): void {
+    this.otpCooldowns.set(email, Date.now());
+  }
+
+  private static readonly COMMON_EMAIL_DOMAIN_TYPOS: Record<string, string> = {
+    'gmial.com': 'gmail.com',
+    'gamil.com': 'gmail.com',
+    'gmaill.com': 'gmail.com',
+    'gmai.com': 'gmail.com',
+    'gmal.com': 'gmail.com',
+    'gmaik.com': 'gmail.com',
+    'gmail.con': 'gmail.com',
+    'gmail.co': 'gmail.com',
+    'gmail.cmo': 'gmail.com',
+    'gmail.cm': 'gmail.com',
+    'gmaul.com': 'gmail.com',
+    'gnail.com': 'gmail.com',
+    'gmali.com': 'gmail.com',
+    'gmaild.com': 'gmail.com',
+    'gmeil.com': 'gmail.com',
+    'gmiel.com': 'gmail.com',
+    'gmil.com': 'gmail.com',
+    'gmla.com': 'gmail.com',
+    'mgail.com': 'gmail.com',
+    'yaho.com': 'yahoo.com',
+    'yahooo.com': 'yahoo.com',
+    'yaboo.com': 'yahoo.com',
+    'yahoomail.com': 'yahoo.com',
+    'yhaoo.com': 'yahoo.com',
+    'yahoo.con': 'yahoo.com',
+    'yahoo.co': 'yahoo.com',
+    'yaho.co.in': 'yahoo.co.in',
+    'yahooo.co.in': 'yahoo.co.in',
+    'hotmial.com': 'hotmail.com',
+    'hotmai.com': 'hotmail.com',
+    'hotmaill.com': 'hotmail.com',
+    'hotmal.com': 'hotmail.com',
+    'hotmail.con': 'hotmail.com',
+    'hotmail.co': 'hotmail.com',
+    'outlok.com': 'outlook.com',
+    'outloo.com': 'outlook.com',
+    'outlook.con': 'outlook.com',
+    'outlook.co': 'outlook.com',
+    'outlock.com': 'outlook.com',
+    'iclud.com': 'icloud.com',
+    'icoud.com': 'icloud.com',
+    'icloud.con': 'icloud.com',
+    'icloud.co': 'icloud.com',
+    'redifmail.com': 'rediffmail.com',
+    'rediff.com': 'rediffmail.com',
+    'rediffmail.con': 'rediffmail.com',
+  };
+
+  private static readonly DISPOSABLE_EMAIL_DOMAINS = new Set([
+    'tempmail.com',
+    'mailinator.com',
+    '10minutemail.com',
+    'guerrillamail.com',
+    'sharklasers.com',
+    'throwawaymail.com',
+    'yopmail.com',
+    'trashmail.com',
+    'temp-mail.org',
+    'fakeinbox.com',
+    'dispostable.com',
+    'nada.ltd',
+  ]);
 
   constructor(
     private prisma: PrismaService,
@@ -35,25 +116,58 @@ export class AuthService {
   ) {}
 
   private async validateEmailAddress(email: string): Promise<void> {
-    const normEmail = email.trim().toLowerCase();
+    const normEmail = (email || '').trim().toLowerCase();
+    if (!normEmail) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
 
     // 1. Strict regex format check
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-    if (!emailRegex.test(normEmail)) {
-      throw new BadRequestException('Please enter a valid email address format.');
+    const emailRegex =
+      /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(normEmail) || normEmail.includes('..')) {
+      throw new BadRequestException('Enter a valid email address.');
     }
 
     const parts = normEmail.split('@');
     if (parts.length !== 2) {
-      throw new BadRequestException('Invalid email address structure.');
+      throw new BadRequestException('Enter a valid email address.');
     }
 
-    const domain = parts[1];
-    if (!domain || domain.length < 3 || !domain.includes('.')) {
-      throw new BadRequestException('The email domain is invalid.');
+    const [userPart, domain] = parts;
+    if (!userPart || userPart.startsWith('.') || userPart.endsWith('.')) {
+      throw new BadRequestException('Enter a valid email address.');
     }
 
-    // 2. DNS MX / A record check for real domain existence
+    if (!domain || domain.length < 3 || !domain.includes('.') || domain.startsWith('.') || domain.endsWith('.')) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    // Check top-level domain (TLD)
+    const domainParts = domain.split('.');
+    const tld = domainParts[domainParts.length - 1];
+    if (!tld || tld.length < 2 || !/^[a-z]+$/.test(tld)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    const invalidTlds = ['con', 'cmo', 'coom', 'cm', 'ocm', 'comm'];
+    if (invalidTlds.includes(tld)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    // 2. Check known typo domains (e.g. gmial.com, gamil.com, etc.)
+    const typoCorrection = AuthService.COMMON_EMAIL_DOMAIN_TYPOS[domain];
+    if (typoCorrection) {
+      throw new BadRequestException(
+        `Invalid email address. Did you mean "${userPart}@${typoCorrection}"? Please enter a valid email address.`,
+      );
+    }
+
+    // 3. Check disposable email domains
+    if (AuthService.DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    // 4. DNS MX record resolution to verify real mail-receiving capability
     const isLocalOrTest =
       domain === 'localhost' ||
       domain.endsWith('.local') ||
@@ -62,21 +176,28 @@ export class AuthService {
 
     if (!isLocalOrTest) {
       try {
-        const mxRecords = await dns.promises.resolveMx(domain).catch(() => []);
-        if (!mxRecords || mxRecords.length === 0) {
-          const aRecords = await dns.promises.resolve4(domain).catch(() => []);
-          if (!aRecords || aRecords.length === 0) {
-            throw new BadRequestException(
-              `The email domain (${domain}) does not exist or cannot receive emails. Please enter a valid and active email address.`,
-            );
+        const mxPromise = dns.promises.resolveMx(domain);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('DNS_TIMEOUT')), 3500),
+        );
+        const mxRecords = await Promise.race([mxPromise, timeoutPromise]).catch((err) => {
+          if (err?.message === 'DNS_TIMEOUT') return null;
+          return [];
+        });
+
+        if (Array.isArray(mxRecords)) {
+          // If no MX records exist or null MX record (RFC 7505 null MX has exchange "." or "")
+          const validMx = mxRecords.filter(
+            (mx) => mx.exchange && mx.exchange.trim() !== '.' && mx.exchange.trim().length > 0,
+          );
+          if (validMx.length === 0) {
+            throw new BadRequestException('Enter a valid email address.');
           }
         }
       } catch (err: any) {
         if (err instanceof BadRequestException) throw err;
-        if (err.code === 'ENOTFOUND' || err.code === 'ENODATA' || err.code === 'NXDOMAIN') {
-          throw new BadRequestException(
-            `The domain "${domain}" does not exist. Please check your email address for typos.`,
-          );
+        if (err.code === 'ENOTFOUND' || err.code === 'ENODATA' || err.code === 'NXDOMAIN' || err.code === 'SERVFAIL') {
+          throw new BadRequestException('Enter a valid email address.');
         }
       }
     }
@@ -85,10 +206,13 @@ export class AuthService {
   async sendRegisterOtp(dto: RegisterDto) {
     const normEmail = dto.email.trim().toLowerCase();
 
-    // 1. Validate email address format and domain validity
+    // 1. Check rate limit to prevent spam
+    this.checkOtpRateLimit(normEmail);
+
+    // 2. Validate email address format and domain validity
     await this.validateEmailAddress(normEmail);
 
-    // 2. Check if user already exists
+    // 3. Check if user already exists
     const existing = await this.prisma.user.findUnique({
       where: { email: normEmail },
     });
@@ -104,22 +228,23 @@ export class AuthService {
       throw new BadRequestException('Full name is required.');
     }
 
-    // 3. Hash password and generate 6-digit OTP
+    // 4. Hash password and generate 6-digit OTP
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
 
-    // 4. Send the verification code to the user's email
+    // 5. Send the verification code to the user's email
     try {
       await this.mailService.sendRegistrationOtp(normEmail, otp, dto.name.trim());
     } catch (err: any) {
       this.logger.error(`Registration email delivery failed for ${normEmail}:`, err);
-      throw new BadRequestException(
-        'Unable to deliver verification email to this address. Please ensure your email is correct and active.',
-      );
+      throw new BadRequestException('Enter a valid email address.');
     }
 
-    // 5. Store pending registration session
+    // 6. Record timestamp for cooldown
+    this.recordOtpSent(normEmail);
+
+    // 7. Store pending registration session
     this.registerOtps.set(normEmail, {
       otp,
       name: dto.name.trim(),
@@ -174,6 +299,8 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     const { password, ...result } = user;
     return {
+      success: true,
+      message: 'OTP verified successfully.',
       user: result,
       ...tokens,
     };
@@ -445,28 +572,56 @@ export class AuthService {
 
   async forgotPassword(dto: ForgotPasswordDto) {
     const normEmail = dto.email.toLowerCase().trim();
+
+    // 1. Check rate limit cooldown
+    this.checkOtpRateLimit(normEmail);
+
+    // 2. Validate email syntax and domain deliverability
+    await this.validateEmailAddress(normEmail);
+
     const user = await this.prisma.user.findUnique({
       where: { email: normEmail },
     });
+
+    if (!user) {
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new BadRequestException('Your account is currently suspended. Please contact support.');
+    }
 
     // Generate a secure 6-digit OTP code (e.g. 100000 - 999999)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
 
-    if (user) {
-      this.resetOtps.set(normEmail, { otp, expiresAt, verified: false });
-      // Send OTP to the user's real email address
+    this.resetOtps.set(normEmail, { otp, expiresAt, verified: false });
+    // Send OTP to the user's real email address
+    try {
       await this.mailService.sendPasswordResetOtp(normEmail, otp, user.name);
+    } catch (err: any) {
+      this.logger.error(`Password reset email delivery failed for ${normEmail}:`, err);
+      throw new BadRequestException('Enter a valid email address.');
     }
+
+    // Record timestamp for cooldown
+    this.recordOtpSent(normEmail);
 
     return {
       success: true,
-      message: 'If an account exists with this email, a 6-digit verification code has been sent to your email.',
+      message: 'A 6-digit verification code has been sent to your email address.',
     };
   }
 
   async adminForgotPassword(dto: ForgotPasswordDto) {
     const normEmail = dto.email.toLowerCase().trim();
+
+    // 1. Check rate limit cooldown
+    this.checkOtpRateLimit(normEmail);
+
+    // 2. Validate email syntax and domain deliverability
+    await this.validateEmailAddress(normEmail);
+
     let user = await this.prisma.user.findUnique({
       where: { email: normEmail },
       include: { staffPermission: true },
@@ -486,9 +641,7 @@ export class AuthService {
     }
 
     if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.STAFF)) {
-      throw new BadRequestException(
-        'Access Denied: This email is not registered as an active staff or administrator account in Staff Management.',
-      );
+      throw new BadRequestException('Enter a valid email address.');
     }
 
     if (user.status === UserStatus.SUSPENDED) {
@@ -502,7 +655,15 @@ export class AuthService {
     const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
 
     this.resetOtps.set(normEmail, { otp, expiresAt, verified: false });
-    await this.mailService.sendPasswordResetOtp(normEmail, otp, user.name || 'Staff Member');
+    try {
+      await this.mailService.sendPasswordResetOtp(normEmail, otp, user.name || 'Staff Member');
+    } catch (err: any) {
+      this.logger.error(`Staff reset email delivery failed for ${normEmail}:`, err);
+      throw new BadRequestException('Enter a valid email address.');
+    }
+
+    // Record timestamp for cooldown
+    this.recordOtpSent(normEmail);
 
     return {
       success: true,
@@ -527,7 +688,7 @@ export class AuthService {
 
     return {
       success: true,
-      message: 'OTP verified successfully. Please enter your new password.',
+      message: 'OTP verified successfully.',
     };
   }
 

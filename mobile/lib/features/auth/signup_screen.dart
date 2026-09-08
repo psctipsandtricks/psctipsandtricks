@@ -11,6 +11,7 @@ import '../../core/providers/app_providers.dart';
 import '../../core/providers/auth_controller.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/email_validator.dart';
 import '../../core/widgets/glass_card.dart';
 import 'auth_scaffold.dart';
 import 'oauth_webview_screen.dart';
@@ -127,6 +128,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             email: _email.text,
             otp: _otp.text,
           );
+      if (mounted) setState(() => _info = 'OTP verified successfully.');
       _goOnwards();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -294,14 +296,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                 hintText: 'you@example.com',
                 prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
               ),
-              validator: (value) {
-                final v = value?.trim() ?? '';
-                if (v.isEmpty) return 'Enter your email';
-                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
-                  return 'Enter a valid email address';
-                }
-                return null;
-              },
+              validator: (value) => EmailValidator.validate(value, emptyMessage: 'Enter your email'),
             ),
             const SizedBox(height: 14),
             TextFormField(

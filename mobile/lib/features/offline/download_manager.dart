@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,13 +44,73 @@ class DownloadManager extends StateNotifier<Map<String, DownloadProgress>> {
   final Set<String> _discarded = {};
 
   /// The offline library as last read from disk, newest first.
+  /// Automatically purges and filters out any expired copies from the device.
   List<OfflineBook> get library {
-    final books = _library.values.toList()
-      ..sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
-    return books;
+    final valid = <OfflineBook>[];
+    final expired = <String>[];
+    for (final book in _library.values) {
+      if (book.lease.isExpired) {
+        expired.add(book.bookId);
+      } else {
+        valid.add(book);
+      }
+    }
+    for (final bookId in expired) {
+      unawaited(remove(bookId));
+    }
+    valid.sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
+    return valid;
   }
 
-  OfflineBook? bookFor(String bookId) => _library[bookId];
+  OfflineBook? bookFor(String bookId) {
+    final book = _library[bookId];
+    if (book == null) return null;
+    if (book.lease.isExpired) {
+      unawaited(remove(bookId));
+      return null;
+    }
+    return book;
+  }
+
+  /// Syncs active downloads with server-supplied book access metadata.
+  /// If any downloaded book has expired or access has lapsed, it is immediately
+  /// removed from the local device and vault.
+  Future<void> syncWithBooks(List<Book> books) async {
+    for (final book in books) {
+      await syncWithBook(book);
+    }
+  }
+
+  /// Checks a single book's access state against any existing download on disk.
+  Future<void> syncWithBook(Book book) async {
+    final offline = _library[book.id];
+    if (offline == null) return;
+
+    final isExpired = !book.isUnlocked ||
+        (book.access != null &&
+            (!book.access!.hasAccess ||
+                book.access!.subscription?.isExpired == true ||
+                (book.access!.validTill != null &&
+                    DateTime.now().isAfter(book.access!.validTill!))));
+
+    if (isExpired) {
+      await remove(book.id);
+      return;
+    }
+
+    // If access is valid, update validTill on the manifest lease if changed
+    if (book.access?.validTill != null &&
+        book.access!.validTill != offline.lease.validTill) {
+      final updatedLease = offline.lease.copyWith(
+        validTill: book.access!.validTill,
+        lastVerifiedAt: DateTime.now(),
+        revoked: false,
+      );
+      final updatedBook = offline.copyWith(lease: updatedLease);
+      await _repo.save(updatedBook);
+      _library[book.id] = updatedBook;
+    }
+  }
 
   DownloadProgress progressFor(String bookId) =>
       state[bookId] ??

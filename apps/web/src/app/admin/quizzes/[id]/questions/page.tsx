@@ -331,6 +331,7 @@ export default function QuizQuestionsStudioPage() {
             : 'Questions saved successfully!',
       );
       setTimeout(() => setSuccessMsg(''), justPublished || justHidden ? 6000 : 4000);
+      return true;
     } catch (err: any) {
       console.error('Failed to save questions:', err);
       setPageError(err.message || 'Failed to save question to server.');
@@ -854,6 +855,7 @@ export default function QuizQuestionsStudioPage() {
         onClose={() => setIsModalOpen(false)}
         title={editingIndex !== null ? `Edit Question #${editingIndex + 1}` : 'Add New Question'}
         className="max-w-3xl sm:max-w-4xl lg:max-w-5xl w-full"
+        isLoading={saving}
       >
         <div ref={modalContainerRef} className="flex-1 min-h-0 flex flex-col space-y-4 pt-2">
           {modalError && (
@@ -1053,6 +1055,7 @@ export default function QuizQuestionsStudioPage() {
               type="button"
               variant="outline"
               className="w-1/3 font-semibold cursor-pointer"
+              disabled={saving}
               onClick={() => setIsModalOpen(false)}
             >
               Cancel
@@ -1062,6 +1065,7 @@ export default function QuizQuestionsStudioPage() {
               variant="gold"
               className="w-2/3 font-bold shadow-md shadow-cyan-500/20 flex items-center justify-center space-x-2 cursor-pointer"
               disabled={saving}
+              isLoading={saving}
               onClick={handleSaveQuestionModal}
             >
               <span>{saving ? 'Saving Question...' : editingIndex !== null ? 'Save Question Changes' : 'Add Question'}</span>
@@ -1216,6 +1220,7 @@ export default function QuizQuestionsStudioPage() {
             : undefined
         }
         className="max-w-md w-full"
+        isLoading={saving}
       >
         {moveTargetQuestionIndex !== null && (
           <div className="space-y-4 pt-2">
@@ -1264,6 +1269,7 @@ export default function QuizQuestionsStudioPage() {
                 type="button"
                 variant="outline"
                 className="w-1/3 font-semibold cursor-pointer"
+                disabled={saving}
                 onClick={() => setMoveTargetQuestionIndex(null)}
               >
                 Cancel
@@ -1272,6 +1278,8 @@ export default function QuizQuestionsStudioPage() {
                 type="button"
                 variant="gold"
                 className="w-2/3 font-bold shadow-md shadow-cyan-500/20 cursor-pointer"
+                disabled={saving}
+                isLoading={saving}
                 onClick={() => handleConfirmMoveToPosition()}
               >
                 Move Question

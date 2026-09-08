@@ -15,7 +15,37 @@ const MAX_PINS = 3;
 const DEFAULT_MEMBER_PAGE_SIZE = 20;
 const MAX_MEMBER_PAGE_SIZE = 100;
 
+/** History is always paged — a client never receives a whole group's backlog. */
+const DEFAULT_MESSAGE_PAGE_SIZE = 30;
+const MAX_MESSAGE_PAGE_SIZE = 100;
+
+/**
+ * Unread badges render as "99+" past this, so counting further is wasted work —
+ * a student returning to a busy group would otherwise make the API count every
+ * message posted since they last read.
+ */
+const MAX_UNREAD_COUNT = 100;
+
+/** How much of a message body the sidebar preview needs. */
+const LAST_MESSAGE_PREVIEW_CHARS = 280;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type MemberStatusFilter = 'ALL' | 'ACTIVE' | 'BLOCKED';
+
+/** The slice of a message the group list shows as its preview line. */
+export interface LastMessagePreview {
+  groupId: string;
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string | null;
+  content: string;
+  messageType: string;
+  mediaUrl: string | null;
+  metadata: Record<string, any> | null;
+  createdAt: Date;
+}
 
 @Injectable()
 export class ChatService {
@@ -190,49 +220,30 @@ export class ChatService {
         members: { where: { userId, isBlocked: false }, select: { id: true } },
         pins: { where: { userId }, select: { id: true } },
         reads: { where: { userId }, select: { lastReadAt: true, lastReadMessageId: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Unread counts for every joined group in a single query, rather than one
-    // COUNT per group (which made this endpoint scale linearly with group
-    // count). Restricted to groups the user has actually joined — a group
-    // with no `ChatGroupRead` row has no "read up to" position to count
-    // forward from, so including it here would report its *entire* message
-    // history as unread for every student merely browsing the group list.
-    //
-    // A VALUES-list join (rather than a single WHERE with one OR branch per
-    // group, each carrying a different `createdAt` threshold) lets Postgres
-    // resolve each group as its own indexed range scan against
-    // ChatMessage_groupId_createdAt_idx instead of one large scan it can't
-    // cleanly plan against a composite index.
+    // Restricted to groups the user has actually joined — a group with no
+    // `ChatGroupRead` row has no "read up to" position to count forward from,
+    // so including it here would report its *entire* message history as unread
+    // for every student merely browsing the group list.
     const joinedGroups = groups.filter((g) => g.members.length > 0);
-    const readAtByGroup = new Map<string, Date | undefined>(
-      joinedGroups.map((g) => [g.id, g.reads[0]?.lastReadAt]),
-    );
-    const unreadByGroup = new Map<string, number>();
-    if (joinedGroups.length) {
-      const rows = await this.prisma.$queryRaw<{ groupId: string; count: number }[]>(
-        Prisma.sql`
-          SELECT v."groupId", COUNT(m.id)::int AS count
-          FROM (VALUES ${Prisma.join(
-            joinedGroups.map(
-              (g) => Prisma.sql`(${g.id}::text, ${readAtByGroup.get(g.id) ?? null}::timestamp)`,
-            ),
-          )}) AS v("groupId", "lastReadAt")
-          JOIN "ChatMessage" m
-            ON m."groupId" = v."groupId"
-            AND (v."lastReadAt" IS NULL OR m."createdAt" > v."lastReadAt")
-          GROUP BY v."groupId"
-        `,
-      );
-      for (const r of rows) unreadByGroup.set(r.groupId, Number(r.count));
-    }
+
+    // Both of these used to be relation `include`s, which Prisma resolves with
+    // a window function partitioned over every message in every listed group —
+    // the single biggest cost in opening the Community page. Run as explicit
+    // per-group index seeks instead, and in parallel with each other.
+    const [lastMessageByGroup, unreadByGroup] = await Promise.all([
+      this.fetchLastMessages(groups.map((g) => g.id)),
+      this.countUnread(
+        joinedGroups.map((g) => ({ groupId: g.id, lastReadAt: g.reads[0]?.lastReadAt })),
+      ),
+    ]);
 
     return groups.map((g) => {
       const readRecord = g.reads[0];
-      const { members, pins, reads, messages, ...groupFields } = g;
+      const { members, pins, reads, ...groupFields } = g;
       const isJoined = members.length > 0;
       return {
         ...groupFields,
@@ -241,9 +252,97 @@ export class ChatService {
         isPinned: pins.length > 0,
         unreadCount: isJoined ? unreadByGroup.get(g.id) ?? 0 : 0,
         lastReadMessageId: readRecord?.lastReadMessageId || null,
-        lastMessage: messages[0] || null,
+        lastMessage: lastMessageByGroup.get(g.id) ?? null,
       };
     });
+  }
+
+  /**
+   * The newest message in each group, as one indexed seek per group via a
+   * LATERAL join, rather than a scan over the groups' combined history.
+   *
+   * The preview is deliberately not the whole message row: bodies are trimmed
+   * to what a one-line preview can show, and only a poll's question survives
+   * from `metadata` — a poll that has collected thousands of votes carries a
+   * `votedUserIds` array per option, and shipping those down for every group
+   * dwarfed the rest of this response.
+   */
+  private async fetchLastMessages(groupIds: string[]): Promise<Map<string, LastMessagePreview>> {
+    if (!groupIds.length) return new Map();
+
+    const rows = await this.prisma.$queryRaw<LastMessagePreview[]>(
+      Prisma.sql`
+        SELECT m.*
+        FROM (VALUES ${Prisma.join(groupIds.map((id) => Prisma.sql`(${id}::text)`))})
+          AS g("groupId")
+        CROSS JOIN LATERAL (
+          SELECT
+            c."groupId",
+            c."id",
+            c."userId",
+            c."userName",
+            c."userAvatar",
+            LEFT(c."content", ${LAST_MESSAGE_PREVIEW_CHARS}::int) AS "content",
+            c."messageType"::text AS "messageType",
+            c."mediaUrl",
+            CASE
+              WHEN c."metadata" -> 'poll' ->> 'question' IS NOT NULL
+                THEN jsonb_build_object(
+                  'poll',
+                  jsonb_build_object('question', c."metadata" -> 'poll' ->> 'question')
+                )
+              ELSE NULL
+            END AS "metadata",
+            c."createdAt"
+          FROM "ChatMessage" c
+          WHERE c."groupId" = g."groupId"
+          ORDER BY c."createdAt" DESC
+          LIMIT 1
+        ) m
+      `,
+    );
+
+    return new Map(rows.map((r) => [r.groupId, r]));
+  }
+
+  /**
+   * Unread counts for every joined group in a single query, rather than one
+   * COUNT per group (which made this endpoint scale linearly with group count).
+   *
+   * A VALUES-list join (rather than a single WHERE with one OR branch per
+   * group, each carrying a different `createdAt` threshold) lets Postgres
+   * resolve each group as its own indexed range scan against
+   * ChatMessage_groupId_createdAt_idx instead of one large scan it can't
+   * cleanly plan against a composite index. The inner LIMIT stops each of those
+   * scans once the badge is already going to read "99+".
+   */
+  private async countUnread(
+    groups: { groupId: string; lastReadAt?: Date }[],
+  ): Promise<Map<string, number>> {
+    if (!groups.length) return new Map();
+
+    const rows = await this.prisma.$queryRaw<{ groupId: string; count: number }[]>(
+      Prisma.sql`
+        SELECT v."groupId", capped.count::int AS count
+        FROM (VALUES ${Prisma.join(
+          groups.map(
+            (g) => Prisma.sql`(${g.groupId}::text, ${g.lastReadAt ?? null}::timestamp)`,
+          ),
+        )}) AS v("groupId", "lastReadAt")
+        CROSS JOIN LATERAL (
+          SELECT COUNT(*) AS count
+          FROM (
+            SELECT 1
+            FROM "ChatMessage" m
+            WHERE m."groupId" = v."groupId"
+              AND (v."lastReadAt" IS NULL OR m."createdAt" > v."lastReadAt")
+            LIMIT ${MAX_UNREAD_COUNT}::int
+          ) AS bounded
+        ) AS capped
+      `,
+    );
+
+    return new Map(rows.map((r) => [r.groupId, Number(r.count)]));
   }
 
   /**
@@ -307,26 +406,82 @@ export class ChatService {
     return { groupId, unpinned: true };
   }
 
-  async getGroupMessages(groupId: string, before?: string, limit = 50, userId?: string) {
-    const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
+  /**
+   * One page of history, newest last. `before` pages backwards from the oldest
+   * message a client already holds — it accepts either that message's id or its
+   * `createdAt` timestamp, because the web and mobile clients page with
+   * different cursors.
+   */
+  async getGroupMessages(
+    groupId: string,
+    before?: string,
+    limit = DEFAULT_MESSAGE_PAGE_SIZE,
+    userId?: string,
+  ) {
+    const take = Math.min(
+      MAX_MESSAGE_PAGE_SIZE,
+      Math.max(1, Math.floor(limit || DEFAULT_MESSAGE_PAGE_SIZE)),
+    );
+
+    // The group lookup and the block check don't depend on each other, so pay
+    // for one round trip rather than two before any message is even read.
+    const [group, membership] = await Promise.all([
+      this.prisma.chatGroup.findUnique({ where: { id: groupId }, select: { id: true } }),
+      userId
+        ? this.prisma.chatGroupMember.findUnique({
+            where: { groupId_userId: { groupId, userId } },
+            select: { isBlocked: true },
+          })
+        : Promise.resolve(null),
+    ]);
     if (!group) throw new NotFoundException('Chat group not found');
     // Stops a blocked student from reading the thread by opening the group URL
     // directly, now that the group no longer appears in their list.
-    if (userId) await this.assertNotBlocked(groupId, userId);
+    if (membership?.isBlocked) {
+      throw new ForbiddenException('You have been blocked from this group by an admin');
+    }
+
+    const cursor = await this.resolveMessageCursor(before);
 
     const messages = await this.prisma.chatMessage.findMany({
       where: {
         groupId,
-        ...(before ? { createdAt: { lt: new Date(before) } } : {}),
+        ...(cursor ? { createdAt: { lt: cursor } } : {}),
       },
       include: { user: { select: { role: true } } },
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take,
     });
     return messages.reverse().map((m) => {
       const { user, ...rest } = m;
       return { ...rest, senderRole: user.role };
     });
+  }
+
+  /**
+   * Turns a `before` cursor into the timestamp to page back from. A message id
+   * costs one extra lookup; a timestamp is used as-is. An unparseable cursor is
+   * rejected rather than silently ignored — quietly returning the newest page
+   * instead would make "load older" loop over the same messages forever.
+   */
+  private async resolveMessageCursor(before?: string): Promise<Date | undefined> {
+    const cursor = before?.trim();
+    if (!cursor) return undefined;
+
+    if (UUID_RE.test(cursor)) {
+      const message = await this.prisma.chatMessage.findUnique({
+        where: { id: cursor },
+        select: { createdAt: true },
+      });
+      if (!message) throw new NotFoundException('Cursor message not found');
+      return message.createdAt;
+    }
+
+    const parsed = new Date(cursor);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('`before` must be a message id or an ISO timestamp');
+    }
+    return parsed;
   }
 
   async updateMessageMetadata(messageId: string, userId: string, metadata: Record<string, any>) {

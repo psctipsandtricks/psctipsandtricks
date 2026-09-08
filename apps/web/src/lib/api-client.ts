@@ -9,6 +9,7 @@ import {
   PdfSyncMap,
   ReadingProgress,
   Quiz,
+  QuizAttemptSummary,
   QuizSubmissionPayload,
   QuizResult,
   QuizAttempt,
@@ -696,6 +697,41 @@ export const ApiClient = {
     return fetcher<any>(`/quizzes${qs}`);
   },
   getPublishedQuizzes: () => fetcher<Quiz[]>('/quizzes?publishedOnly=true'),
+  /**
+   * The published catalog, narrowed server-side.
+   *
+   * The Quiz Hub asks for one folder at a time rather than the whole catalog:
+   * folders carry their own counts, so nothing needs every quiz in memory just
+   * to decide what to draw. `folder: 'Root'` means the quizzes filed nowhere.
+   */
+  getPublishedQuizzesWhere: (params: {
+    folder?: string;
+    search?: string;
+    access?: 'FREE' | 'PAID';
+    sort?: 'newest';
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams({ publishedOnly: 'true' });
+    if (params.folder) q.set('folder', params.folder);
+    if (params.search?.trim()) q.set('search', params.search.trim());
+    if (params.access) q.set('access', params.access);
+    if (params.sort) q.set('sort', params.sort);
+    if (params.limit) q.set('limit', String(params.limit));
+    return fetcher<Quiz[] | { data: Quiz[] }>(`/quizzes?${q.toString()}`).then((res) =>
+      // `limit` switches the API to its paginated envelope; without it the
+      // response is a bare array.
+      Array.isArray(res) ? res : res.data ?? [],
+    );
+  },
+  /**
+   * How many published quizzes exist in one access tier, without downloading
+   * them. The paginated envelope carries `total`, so a single-row page answers
+   * the hub's headline counts for the price of one quiz.
+   */
+  getPublishedQuizCount: (access: 'FREE' | 'PAID') =>
+    fetcher<{ total?: number }>(
+      `/quizzes?publishedOnly=true&access=${access}&page=1&limit=1`,
+    ).then((res) => res?.total ?? 0),
   getQuizById: (id: string) => fetcher<Quiz>(`/quizzes/${id}`),
   createQuiz: (payload: any) =>
     fetcher<any>('/quizzes', { method: 'POST', body: JSON.stringify(payload) }),
@@ -708,7 +744,22 @@ export const ApiClient = {
   removeQuizImage: (id: string) => fetcher<Quiz>(`/quizzes/${id}/image`, { method: 'DELETE' }),
   submitQuiz: (id: string, payload: QuizSubmissionPayload) =>
     fetcher<QuizResult>(`/quizzes/${id}/submit`, { method: 'POST', body: JSON.stringify(payload) }),
-  startQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/start`, { method: 'POST' }),
+  /**
+   * Opens the attempt: resumes an unfinished one, or begins a new one when
+   * there is nothing to resume. `restart` is "Start from beginning" — it
+   * retires the unfinished attempt and starts again at question one.
+   */
+  startQuizAttempt: (quizId: string, options?: { restart?: boolean }) =>
+    fetcher<any>(
+      `/quizzes/${quizId}/attempts/start${options?.restart ? '?restart=true' : ''}`,
+      { method: 'POST' },
+    ),
+  /**
+   * Completed and in-progress attempts per quiz, for this student. Drives the
+   * Start / Resume / Retake button and the attempt count on every quiz card.
+   */
+  getQuizAttemptSummary: () =>
+    fetcher<QuizAttemptSummary[]>('/quizzes/attempts/summary'),
   getActiveQuizAttempt: (quizId: string) => fetcher<any>(`/quizzes/${quizId}/attempts/active`),
   pauseQuizAttempt: (
     quizId: string,
@@ -829,8 +880,16 @@ export const ApiClient = {
       createdAt?: string;
     },
   ) => fetcher<Order>(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  createManualOrder: (payload: { userId: string; bookId?: string; quizId?: string; amount?: number; note?: string; purchaseDate?: string }) =>
-    fetcher<Order>(`/orders/manual`, { method: 'POST', body: JSON.stringify(payload) }),
+  createManualOrder: (payload: {
+    userId: string;
+    bookId?: string;
+    quizId?: string;
+    amount?: number;
+    note?: string;
+    purchaseDate?: string;
+    orderDate?: string;
+    createdAt?: string;
+  }) => fetcher<Order>(`/orders/manual`, { method: 'POST', body: JSON.stringify(payload) }),
   /**
    * Checks a coupon before checkout. The server is still the authority — it
    * re-applies the discount when the order is created — so this only exists to
@@ -1025,14 +1084,22 @@ export const ApiClient = {
    */
   getMyNotifications: () => fetcher<AppNotification[]>('/notifications'),
   /**
-   * Persists read state for a notification addressed to this student. A
-   * broadcast is one row shared by everyone, so the server refuses to mark it
-   * and answers `perUser: false` — that case is remembered on the device
-   * instead, by the read store.
+   * Persists read state for one notification, for this student on every device.
+   * Broadcasts included: the server keeps a per-student receipt rather than a
+   * flag on the shared row, so a notice read here is read in the phone app too.
    */
   markNotificationRead: (id: string) =>
     fetcher<{ id: string; isRead: boolean; perUser: boolean }>(`/notifications/${id}/read`, {
       method: 'PATCH',
+    }),
+  /**
+   * Marks many at once — one request for "mark all as read" instead of one per
+   * notice. Omitting `ids` marks everything the student can currently see.
+   */
+  markNotificationsRead: (ids?: string[]) =>
+    fetcher<{ count: number; ids: string[] }>('/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify(ids && ids.length > 0 ? { ids } : {}),
     }),
 
   // --- Push Notifications (Admin / Staff with manage_notifications) ---

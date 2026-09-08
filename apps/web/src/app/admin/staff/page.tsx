@@ -739,6 +739,7 @@ export default function StaffManagementPage() {
           setEditingStaff(null);
         }}
         title={editingStaff ? `Edit Staff: ${editingStaff.name}` : 'Add New Staff Member'}
+        isLoading={formik.isSubmitting}
       >
         <form onSubmit={formik.handleSubmit} className="space-y-4">
           <Input
@@ -888,6 +889,7 @@ export default function StaffManagementPage() {
           setPermStaff(null);
         }}
         title={`Permission Matrix: ${permStaff?.name}`}
+        isLoading={actionLoading}
       >
         <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
           {permStaff?.role === 'ADMIN' && (

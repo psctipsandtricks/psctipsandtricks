@@ -86,6 +86,7 @@ function AdminLoginFormContent() {
 
           {/* ── Password Form ─────────────────────────────────────── */}
           <form onSubmit={formik.handleSubmit} className="space-y-4 pt-2" noValidate>
+            <fieldset disabled={formik.isSubmitting} className="contents disabled:opacity-80 disabled:pointer-events-none disabled:cursor-wait">
             <Input
               label="Email Address"
               name="email"
@@ -132,6 +133,7 @@ function AdminLoginFormContent() {
             >
               Log In to Admin Panel 👑
             </Button>
+            </fieldset>
           </form>
 
           <p className="text-[11px] text-center text-slate-500 dark:text-slate-400 font-medium pt-1">

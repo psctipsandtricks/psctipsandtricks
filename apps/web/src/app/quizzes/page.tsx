@@ -6,9 +6,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardTitle, CardDescription, Button, Badge, Input, Pagination } from '@psc/ui';
 import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
-import { QuizFolder } from '@psc/shared-types';
+import { QuizFolder, QuizAttemptSummary } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
-import { QuizHubSkeleton } from '../skeletons/page-skeletons';
+import { QuizHubSkeleton, QuizFolderGridSkeleton, QuizCardGridSkeleton } from '../skeletons/page-skeletons';
 
 interface StudentQuiz {
   id: string;
@@ -89,15 +89,46 @@ function QuizzesPageContent() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
-  const [quizzes, setQuizzes] = useState<StudentQuiz[]>([]);
+  /**
+   * The quizzes for whatever the reader is currently looking at — one folder,
+   * or one search — never the whole catalog. Held raw so the purchase set can
+   * be folded in later without refetching.
+   */
+  const [rawQuizzes, setRawQuizzes] = useState<any[]>([]);
   const [dbFolders, setDbFolders] = useState<QuizFolder[]>([]);
   const [mockTests, setMockTests] = useState<any[]>([]);
   const [myMockAttempts, setMyMockAttempts] = useState<Record<string, any>>({});
-  const [attemptedQuizIds, setAttemptedQuizIds] = useState<Set<string>>(new Set());
+  /**
+   * Where this student stands on each quiz, keyed by quiz id. An attempt only
+   * lands here as "completed" once it was submitted, so a quiz opened and
+   * walked away from reads as in progress rather than as attempted.
+   */
+  const [attemptsByQuiz, setAttemptsByQuiz] = useState<Map<string, QuizAttemptSummary>>(
+    new Map(),
+  );
+  /** The folder tree and the orders that decide what is unlocked. */
   const [loading, setLoading] = useState(true);
+  /**
+   * Quizzes are fetched for one folder at a time, so their arrival is a second,
+   * later event than the page being ready — tracked apart so opening a folder
+   * skeletons the grid instead of blanking the whole hub.
+   */
+  const [quizzesLoading, setQuizzesLoading] = useState(false);
+  const [purchasedQuizIds, setPurchasedQuizIds] = useState<Set<string>>(new Set());
+  /** Catalog-wide totals for the two course-type cards, counted by the server. */
+  const [accessCounts, setAccessCounts] = useState<{ FREE: number; PAID: number }>({
+    FREE: 0,
+    PAID: 0,
+  });
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
+  /** Searching hits the API, so the query trails the keystrokes by a beat. */
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
   const [accessFilter, setAccessFilter] = useState<'ALL' | 'FREE' | 'PAID'>('ALL');
   const [activeFolderTab, setActiveFolderTab] = useState<string>('ALL');
 
@@ -136,66 +167,126 @@ function QuizzesPageContent() {
     }
   };
 
+  /**
+   * Shapes one quiz row off the wire. Shared by the folder fetch and the
+   * search fetch so a quiz looks the same however it was found.
+   */
+  const toStudentQuiz = useCallback(
+    (q: any, purchased: Set<string>): StudentQuiz => {
+      const isPaid = q.accessType === 'PAID' || (q.price && q.price > 0);
+      const hasAccess = q.access?.hasAccess ?? (q.accessType === 'FREE' || purchased.has(q.id));
+      const isPurchased = q.access?.reason === 'PURCHASED' || purchased.has(q.id);
+      // The admin's discounted "Final Student Price" overrides the base price —
+      // prefer the server's already-resolved access.price, then finalPrice, and
+      // only fall back to the raw price if neither is set.
+      const effectivePrice =
+        q.access?.price ?? (q.finalPrice && q.finalPrice > 0 ? q.finalPrice : q.price);
+
+      return {
+        id: q.id,
+        title: q.title,
+        folderName:
+          !q.folderName || q.folderName === 'Root / No Folder' || q.folderName === 'Root'
+            ? 'Root'
+            : q.folderName,
+        questions: q.totalQuestions || (q.questions?.length ?? 0),
+        duration: q.durationMinutes,
+        isLive: q.isLiveMock,
+        totalMarks: q.totalMarks,
+        accessType: isPaid ? 'PAID' : 'FREE',
+        price: effectivePrice > 0 ? effectivePrice : undefined,
+        imageUrl: q.imageUrl || null,
+        createdAt: q.createdAt,
+        hasAccess,
+        isPurchased,
+      };
+    },
+    [],
+  );
+
+  /**
+   * Entering the hub loads the folder tree and nothing else.
+   *
+   * Folders arrive from the API with their own quiz counts — including counts
+   * rolled up from every folder beneath them — so the whole browse tree can be
+   * drawn without a single quiz in memory. The catalog is only read once the
+   * reader picks a folder to look inside.
+   */
   useEffect(() => {
-    async function fetchPublishedQuizzes() {
+    async function fetchFolders() {
       try {
         setLoading(true);
-        const [data, foldersData, myOrders] = await Promise.all([
-          ApiClient.getPublishedQuizzes(),
+        const [foldersData, freeTotal, paidTotal, myOrders] = await Promise.all([
           ApiClient.getQuizFolders(),
+          ApiClient.getPublishedQuizCount('FREE').catch(() => 0),
+          ApiClient.getPublishedQuizCount('PAID').catch(() => 0),
           user ? ApiClient.getMyOrders().catch(() => []) : Promise.resolve([]),
         ]);
         setDbFolders(foldersData || []);
-
-        const purchasedQuizIds = new Set(
-          (myOrders || [])
-            .filter((o: any) => o.status === 'SUCCESS' && o.quizId)
-            .map((o: any) => o.quizId as string)
+        setAccessCounts({ FREE: freeTotal, PAID: paidTotal });
+        setPurchasedQuizIds(
+          new Set(
+            (myOrders || [])
+              .filter((o: any) => o.status === 'SUCCESS' && o.quizId)
+              .map((o: any) => o.quizId as string),
+          ),
         );
-
-        const activePublished = (data as any[]).filter((q) => {
-          // Strictly exclude any quiz whose release date/time is in the future
-          if (q.releaseDate && new Date(q.releaseDate).getTime() > Date.now()) {
-            return false;
-          }
-          return true;
-        });
-
-        const mapped: StudentQuiz[] = activePublished.map((q) => {
-          const isPaid = q.accessType === 'PAID' || (q.price && q.price > 0);
-          const hasAccess = q.access?.hasAccess ?? (q.accessType === 'FREE' || purchasedQuizIds.has(q.id));
-          const isPurchased = q.access?.reason === 'PURCHASED' || purchasedQuizIds.has(q.id);
-          // The admin's discounted "Final Student Price" overrides the base
-          // price — prefer the server's already-resolved access.price, then
-          // finalPrice, and only fall back to the raw price if neither is set.
-          const effectivePrice =
-            q.access?.price ?? (q.finalPrice && q.finalPrice > 0 ? q.finalPrice : q.price);
-
-          return {
-            id: q.id,
-            title: q.title,
-            folderName: (!q.folderName || q.folderName === 'Root / No Folder' || q.folderName === 'Root') ? 'Root' : q.folderName,
-            questions: q.totalQuestions || (q.questions?.length ?? 0),
-            duration: q.durationMinutes,
-            isLive: q.isLiveMock,
-            totalMarks: q.totalMarks,
-            accessType: isPaid ? 'PAID' : 'FREE',
-            price: effectivePrice > 0 ? effectivePrice : undefined,
-            imageUrl: q.imageUrl || null,
-            createdAt: q.createdAt,
-            hasAccess,
-            isPurchased,
-          };
-        });
-        setQuizzes(mapped);
       } catch (err) {
-        console.error('Failed to fetch quizzes:', err);
+        console.error('Failed to fetch quiz folders:', err);
       } finally {
         setLoading(false);
       }
     }
-    fetchPublishedQuizzes();
+    fetchFolders();
   }, [user]);
+
+  /**
+   * Loads the quizzes for the open folder, and only those.
+   *
+   * At the hub's landing level there is no course type chosen yet and nothing
+   * is fetched at all. Choosing Free/Premium lists that tier's root quizzes,
+   * opening a folder lists that folder's, and typing a search widens the query
+   * back out across the tier. Each change replaces the previous set rather than
+   * accumulating, so memory tracks what is on screen.
+   */
+  useEffect(() => {
+    if (accessFilter === 'ALL') {
+      setRawQuizzes([]);
+      setQuizzesLoading(false);
+      return;
+    }
+
+    const search = debouncedSearch.trim();
+    let cancelled = false;
+    setQuizzesLoading(true);
+
+    ApiClient.getPublishedQuizzesWhere({
+      // A search spans the whole tier; browsing is pinned to one folder, with
+      // 'Root' standing for the quizzes filed at the top level.
+      folder: search ? undefined : activeFolderTab === 'ALL' ? 'Root' : activeFolderTab,
+      search: search || undefined,
+      access: accessFilter,
+    })
+      .then((rows) => {
+        if (!cancelled) setRawQuizzes(rows || []);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch quizzes:', err);
+        if (!cancelled) setRawQuizzes([]);
+      })
+      .finally(() => {
+        if (!cancelled) setQuizzesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessFilter, activeFolderTab, debouncedSearch]);
+
+  const quizzes = React.useMemo(
+    () => rawQuizzes.map((q) => toStudentQuiz(q, purchasedQuizIds)),
+    [rawQuizzes, purchasedQuizIds, toStudentQuiz],
+  );
 
   useEffect(() => {
     async function fetchMockTests() {
@@ -213,21 +304,21 @@ function QuizzesPageContent() {
   useEffect(() => {
     if (!user) {
       setMyMockAttempts({});
-      setAttemptedQuizIds(new Set());
+      setAttemptsByQuiz(new Map());
       return;
     }
     async function fetchMyProgress() {
       try {
-        const [mockAttempts, quizHistory] = await Promise.all([
+        const [mockAttempts, attemptSummary] = await Promise.all([
           ApiClient.getMyMockTestAttempts(),
-          ApiClient.getStudentAttemptHistory(),
+          ApiClient.getQuizAttemptSummary().catch(() => []),
         ]);
         const attemptMap: Record<string, any> = {};
         (mockAttempts || []).forEach((a: any) => {
           attemptMap[a.mockTestId] = a;
         });
         setMyMockAttempts(attemptMap);
-        setAttemptedQuizIds(new Set((quizHistory || []).map((h: any) => h.quizId)));
+        setAttemptsByQuiz(new Map((attemptSummary || []).map((a) => [a.quizId, a])));
       } catch (err) {
         console.error('Failed to fetch student progress:', err);
       }
@@ -321,69 +412,48 @@ function QuizzesPageContent() {
     setTimeout(() => setIsMockAutoScrollPaused(false), 6000);
   };
 
-  const freeCount = quizzes.filter((q) => q.accessType === 'FREE').length;
-  const premiumCount = quizzes.filter((q) => q.accessType === 'PAID').length;
+  const freeCount = accessCounts.FREE;
+  const premiumCount = accessCounts.PAID;
   const completedMockTestCount = mockTests.filter((mt) => mt.status === 'COMPLETED').length;
-
-  // Helper to compute active published quizzes in a folder + its descendants
-  const getFolderQuizCount = useCallback(
-    (folderName: string, scopedQuizzes: StudentQuiz[], allDbFolders: QuizFolder[]): number => {
-      const directCount = scopedQuizzes.filter(
-        (q) => q.folderName.toLowerCase() === folderName.toLowerCase(),
-      ).length;
-
-      const record = allDbFolders.find(
-        (f) => f.name.toLowerCase() === folderName.toLowerCase(),
-      );
-
-      if (!record) return directCount;
-
-      const childFolders = allDbFolders.filter(
-        (f) => f.parentId === record.id && f.isActive !== false && f.name.toLowerCase() !== 'root',
-      );
-
-      const descendantCount = childFolders.reduce(
-        (sum, child) => sum + getFolderQuizCount(child.name, scopedQuizzes, allDbFolders),
-        0,
-      );
-
-      return directCount + descendantCount;
-    },
-    [],
-  );
 
   // Browsing is a drill-down: course type → folder → quizzes. `accessFilter`
   // holds level 1 and `activeFolderTab` level 2, both 'ALL' until chosen.
   const browseLevel: 'ACCESS' | 'FOLDER' | 'QUIZ' =
     accessFilter === 'ALL' ? 'ACCESS' : activeFolderTab === 'ALL' ? 'FOLDER' : 'QUIZ';
 
-  // Folders are scoped to the chosen course type, so opening "Free" never lists
-  // a folder that holds only premium quizzes.
-  const accessScopedQuizzes =
-    accessFilter === 'ALL' ? quizzes : quizzes.filter((q) => q.accessType === accessFilter);
-
   const accessLabel = accessFilter === 'PAID' ? 'Premium Quizzes' : accessFilter === 'FREE' ? 'Free Quizzes' : 'All Quizzes';
 
-  // Top-level folders (those without a parentId, active, and containing at least 1 active quiz in this scope)
-  const topDbFolders = dbFolders.filter(
-    (f) => !f.parentId && f.isActive !== false && f.name.toLowerCase() !== 'root',
+  /**
+   * How many quizzes of the chosen course type a folder holds, counting every
+   * folder beneath it. The API rolls this up when it lists folders, which is
+   * what lets the hub draw the whole tree before any quiz has been loaded.
+   */
+  const folderQuizCount = useCallback(
+    (folder: QuizFolder): number =>
+      accessFilter === 'PAID'
+        ? folder.paidQuizCount ?? 0
+        : accessFilter === 'FREE'
+        ? folder.freeQuizCount ?? 0
+        : (folder.freeQuizCount ?? 0) + (folder.paidQuizCount ?? 0),
+    [accessFilter],
   );
 
-  const topFoldersWithQuizzes = topDbFolders.filter(
-    (f) => getFolderQuizCount(f.name, accessScopedQuizzes, dbFolders) > 0,
+  // The size of the tier being browsed — a server count, not the length of
+  // what happens to be loaded.
+  const accessScopedTotal =
+    accessFilter === 'PAID' ? premiumCount : accessFilter === 'FREE' ? freeCount : freeCount + premiumCount;
+
+  // Folders are scoped to the chosen course type, so opening "Free" never lists
+  // a folder that holds only premium quizzes.
+  const topFolders = dbFolders.filter(
+    (f) =>
+      !f.parentId &&
+      f.isActive !== false &&
+      f.name.toLowerCase() !== 'root' &&
+      folderQuizCount(f) > 0,
   );
 
-  const quizFoldersSet = new Set(accessScopedQuizzes.map((q) => q.folderName));
-  const folders: string[] = Array.from(
-    new Set([
-      ...topFoldersWithQuizzes.map((f) => f.name),
-      ...Array.from(quizFoldersSet).filter((fn) => {
-        const found = dbFolders.find((df) => df.name.toLowerCase() === fn.toLowerCase());
-        if (!found) return Boolean(fn && fn.toLowerCase() !== 'root');
-        return !found.parentId && found.isActive !== false && getFolderQuizCount(found.name, accessScopedQuizzes, dbFolders) > 0;
-      }),
-    ]),
-  ).filter((f): f is string => Boolean(f && f.toLowerCase() !== 'root'));
+  const folders: string[] = topFolders.map((f) => f.name);
 
   // Currently active folder object and its child sub-folders (only those with active quizzes)
   const currentFolderRecord = dbFolders.find(
@@ -395,8 +465,14 @@ function QuizzesPageContent() {
       f.parentId === currentFolderRecord.id &&
       f.isActive !== false &&
       f.name.toLowerCase() !== 'root' &&
-      getFolderQuizCount(f.name, accessScopedQuizzes, dbFolders) > 0,
+      folderQuizCount(f) > 0,
   );
+
+  const folderCountByName = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const f of dbFolders) map.set(f.name.toLowerCase(), folderQuizCount(f));
+    return map;
+  }, [dbFolders, folderQuizCount]);
 
   const searchParams = useSearchParams();
   const typeParam = searchParams.get('type');
@@ -472,17 +548,19 @@ function QuizzesPageContent() {
   };
 
   const isSearching = searchTerm.trim().length > 0;
-  const searchMatchedQuizzes = accessScopedQuizzes.filter((quiz) =>
-    quiz.title.toLowerCase().includes(searchTerm.toLowerCase()),
-  );
 
-  const directRootQuizzes = accessScopedQuizzes.filter(
-    (q) => !q.folderName || q.folderName.toLowerCase() === 'root' || q.folderName === 'Root / No Folder',
-  );
+  /**
+   * The grid is busy either while a request is in flight or while a freshly
+   * typed query is still waiting out its debounce — both are moments where the
+   * loaded quizzes no longer answer the question on screen, so both skeleton.
+   */
+  const quizzesBusy = quizzesLoading || searchTerm.trim() !== debouncedSearch.trim();
 
-  const currentFolderQuizzes = accessScopedQuizzes.filter(
-    (q) => q.folderName.toLowerCase() === activeFolderTab.toLowerCase(),
-  );
+  // Filtering happens on the server now: whatever is loaded already belongs to
+  // the open folder, or to the search, and never to both.
+  const searchMatchedQuizzes = isSearching ? quizzes : [];
+  const directRootQuizzes = !isSearching && activeFolderTab === 'ALL' ? quizzes : [];
+  const currentFolderQuizzes = !isSearching && activeFolderTab !== 'ALL' ? quizzes : [];
 
   const activeQuizList = isSearching
     ? searchMatchedQuizzes
@@ -497,7 +575,10 @@ function QuizzesPageContent() {
     currentPage * pageSize,
   );
 
-  if (loading || authLoading) {
+  // The landing level has nothing to show until the folder tree lands, so it
+  // blanks to the full-page skeleton. Deeper levels keep their header and
+  // breadcrumbs and skeleton only the grid that is still loading.
+  if (authLoading || (loading && browseLevel === 'ACCESS')) {
     return <QuizHubSkeleton />;
   }
 
@@ -663,7 +744,7 @@ function QuizzesPageContent() {
                       <span>{accessLabel}</span>
                     </span>
                     <span className="text-xs text-slate-400 dark:text-slate-500 font-mono font-bold">
-                      {accessScopedQuizzes.length} {accessScopedQuizzes.length === 1 ? 'Quiz' : 'Quizzes'}
+                      {accessScopedTotal} {accessScopedTotal === 1 ? 'Quiz' : 'Quizzes'}
                     </span>
                   </div>
                   <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white mt-1">
@@ -756,7 +837,7 @@ function QuizzesPageContent() {
               <div className="flex items-center justify-between">
                 <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                   <Search className="w-4 h-4 text-cyan-500" />
-                  <span>Search Results ({searchMatchedQuizzes.length})</span>
+                  <span>Search Results{quizzesBusy ? '' : ` (${searchMatchedQuizzes.length})`}</span>
                 </h2>
                 <button
                   type="button"
@@ -767,7 +848,9 @@ function QuizzesPageContent() {
                 </button>
               </div>
 
-              {searchMatchedQuizzes.length === 0 ? (
+              {quizzesBusy ? (
+                <QuizCardGridSkeleton count={6} />
+              ) : searchMatchedQuizzes.length === 0 ? (
                 <div className="py-16 text-center">
                   <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
                     <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-inner">
@@ -796,7 +879,7 @@ function QuizzesPageContent() {
                       <QuizCardItem
                         key={quiz.id}
                         quiz={quiz}
-                        isAttempted={attemptedQuizIds.has(quiz.id)}
+                        attempt={attemptsByQuiz.get(quiz.id)}
                         onStart={() => handleStartQuiz(quiz)}
                       />
                     ))}
@@ -823,7 +906,17 @@ function QuizzesPageContent() {
           ) : activeFolderTab === 'ALL' ? (
             /* Level 1 of Category: Show Top-Level Folders */
             <div className="space-y-8">
-              {folders.length > 0 && (
+              {loading ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <Folder className="w-4 h-4 text-cyan-500" />
+                      <span>Folders</span>
+                    </h2>
+                  </div>
+                  <QuizFolderGridSkeleton count={6} />
+                </div>
+              ) : folders.length > 0 ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
@@ -836,17 +929,32 @@ function QuizzesPageContent() {
                       <FolderCard
                         key={folder}
                         name={folder}
-                        count={getFolderQuizCount(folder, accessScopedQuizzes, dbFolders)}
+                        count={folderCountByName.get(folder.toLowerCase()) ?? 0}
                         accent={accessFilter === 'PAID' ? 'premium' : 'free'}
                         onClick={() => handleFolderSelect(folder)}
                       />
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {/* Direct quizzes at root if any exist */}
-              {directRootQuizzes.length > 0 && (
+              {/* Direct quizzes at root — loaded only for this level. The
+                  skeleton only stands in when there are no folders to look at
+                  in the meantime, since most catalogs file everything and this
+                  section ends up empty. */}
+              {quizzesBusy && folders.length === 0 && !loading ? (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <FileQuestion className="w-4 h-4 text-cyan-500" />
+                      <span>Direct Quizzes</span>
+                    </h2>
+                  </div>
+                  <QuizCardGridSkeleton count={3} />
+                </div>
+              ) : null}
+
+              {!quizzesBusy && directRootQuizzes.length > 0 && (
                 <div className="space-y-4 pt-2">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
@@ -859,7 +967,7 @@ function QuizzesPageContent() {
                       <QuizCardItem
                         key={quiz.id}
                         quiz={quiz}
-                        isAttempted={attemptedQuizIds.has(quiz.id)}
+                        attempt={attemptsByQuiz.get(quiz.id)}
                         onStart={() => handleStartQuiz(quiz)}
                       />
                     ))}
@@ -883,7 +991,7 @@ function QuizzesPageContent() {
                 </div>
               )}
 
-              {folders.length === 0 && directRootQuizzes.length === 0 && (
+              {!loading && !quizzesBusy && folders.length === 0 && directRootQuizzes.length === 0 && (
                 <EmptyBrowseState
                   title={`No ${accessLabel} Found`}
                   message={`There are no ${accessLabel.toLowerCase()} available at this time.`}
@@ -894,7 +1002,17 @@ function QuizzesPageContent() {
             /* Level 2+: Inside a Specific Folder */
             <div className="space-y-8">
               {/* Sub-folders in active folder (if any) */}
-              {currentSubFolders.length > 0 && (
+              {loading ? (
+                <div className="space-y-4">
+                  <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                    <FolderOpen className="w-4 h-4 text-cyan-500" />
+                    <span>Sub-folders in &ldquo;{activeFolderTab}&rdquo;</span>
+                  </h2>
+                  <QuizFolderGridSkeleton count={3} />
+                </div>
+              ) : null}
+
+              {!loading && currentSubFolders.length > 0 && (
                 <div className="space-y-4">
                   <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                     <FolderOpen className="w-4 h-4 text-cyan-500" />
@@ -905,7 +1023,7 @@ function QuizzesPageContent() {
                       <FolderCard
                         key={subFolder.id}
                         name={subFolder.name}
-                        count={getFolderQuizCount(subFolder.name, accessScopedQuizzes, dbFolders)}
+                        count={folderQuizCount(subFolder)}
                         accent={accessFilter === 'PAID' ? 'premium' : 'free'}
                         onClick={() => handleFolderSelect(subFolder.name)}
                       />
@@ -914,8 +1032,20 @@ function QuizzesPageContent() {
                 </div>
               )}
 
-              {/* Direct Quizzes inside active folder */}
-              {currentFolderQuizzes.length > 0 && (
+              {/* Direct Quizzes inside active folder — fetched when it opened */}
+              {quizzesBusy ? (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                      <FileQuestion className="w-4 h-4 text-cyan-500" />
+                      <span>Quizzes in &ldquo;{activeFolderTab}&rdquo;</span>
+                    </h2>
+                  </div>
+                  <QuizCardGridSkeleton count={6} />
+                </div>
+              ) : null}
+
+              {!quizzesBusy && currentFolderQuizzes.length > 0 && (
                 <div className="space-y-4 pt-2">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
@@ -928,7 +1058,7 @@ function QuizzesPageContent() {
                       <QuizCardItem
                         key={quiz.id}
                         quiz={quiz}
-                        isAttempted={attemptedQuizIds.has(quiz.id)}
+                        attempt={attemptsByQuiz.get(quiz.id)}
                         onStart={() => handleStartQuiz(quiz)}
                       />
                     ))}
@@ -952,7 +1082,7 @@ function QuizzesPageContent() {
                 </div>
               )}
 
-              {currentSubFolders.length === 0 && currentFolderQuizzes.length === 0 && (
+              {!loading && !quizzesBusy && currentSubFolders.length === 0 && currentFolderQuizzes.length === 0 && (
                 <EmptyBrowseState
                   title="No Quizzes In This Folder"
                   message={`There are no quizzes uploaded in "${activeFolderTab}" yet.`}
@@ -968,14 +1098,19 @@ function QuizzesPageContent() {
 
 function QuizCardItem({
   quiz,
-  isAttempted,
+  attempt,
   onStart,
 }: {
   quiz: StudentQuiz;
-  isAttempted: boolean;
+  /** Absent when this student has never opened the quiz. */
+  attempt?: QuizAttemptSummary;
   onStart: () => void;
 }) {
   const isPaid = quiz.accessType === 'PAID';
+  // An unfinished attempt outranks a finished one: the thing to offer someone
+  // who walked away mid-quiz is the way back in, not another fresh run.
+  const inProgress = !!attempt?.inProgressAttemptId;
+  const completedCount = attempt?.completedCount ?? 0;
   const isNew = isRecentlyUploaded(quiz.createdAt);
   const defaultCover = isPaid ? '/default-quiz-cover.svg' : '/default-free-quiz-cover.svg';
   const coverImage = quiz.imageUrl || defaultCover;
@@ -1090,10 +1225,17 @@ function QuizCardItem({
       </div>
 
       <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-        {isAttempted ? (
+        {inProgress ? (
+          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <History className="w-3.5 h-3.5" />
+            <span>In progress</span>
+          </span>
+        ) : completedCount > 0 ? (
           <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Attempted</span>
+            <span>
+              {completedCount} {completedCount === 1 ? 'attempt' : 'attempts'}
+            </span>
           </span>
         ) : (
           <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
@@ -1115,7 +1257,9 @@ function QuizCardItem({
             className="font-bold cursor-pointer"
             onClick={onStart}
           >
-            <span>{isAttempted ? 'Retake Quiz' : 'Start Quiz'}</span>
+            <span>
+              {inProgress ? 'Resume Quiz' : completedCount > 0 ? 'Retake Quiz' : 'Start Quiz'}
+            </span>
             <ChevronRight className="w-3.5 h-3.5 ml-1" />
           </Button>
         )}

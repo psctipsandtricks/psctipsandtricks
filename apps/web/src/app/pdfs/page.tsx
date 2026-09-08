@@ -456,7 +456,7 @@ function PdfsContent() {
       {/* PDF Document Reader Modal */}
       {selectedDoc?.fileUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-2 sm:p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-2 sm:p-6 !mt-0"
           role="dialog"
           aria-modal="true"
           aria-label={`PDF Viewer: ${selectedDoc.title}`}

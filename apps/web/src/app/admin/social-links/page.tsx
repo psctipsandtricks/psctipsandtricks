@@ -219,6 +219,7 @@ export default function AdminSocialLinksPage() {
       )}
 
       <form onSubmit={formik.handleSubmit} noValidate>
+        <fieldset disabled={formik.isSubmitting} className="contents disabled:opacity-80 disabled:pointer-events-none disabled:cursor-wait">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column: Social Channels */}
           <div className="lg:col-span-7 space-y-5">
@@ -386,7 +387,7 @@ export default function AdminSocialLinksPage() {
             variant="gold"
             className="font-bold shadow-md shadow-amber-500/20"
             isLoading={formik.isSubmitting}
-            disabled={!formik.dirty}
+            disabled={!formik.dirty || formik.isSubmitting}
           >
             <Save className="w-4 h-4 mr-1.5" />
             Save Changes
@@ -398,6 +399,7 @@ export default function AdminSocialLinksPage() {
             </span>
           )}
         </div>
+        </fieldset>
       </form>
     </div>
   );

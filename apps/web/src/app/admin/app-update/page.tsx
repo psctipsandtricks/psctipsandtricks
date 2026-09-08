@@ -184,6 +184,7 @@ export default function AdminAppUpdatePage() {
         </div>
 
         <form onSubmit={formik.handleSubmit} className="space-y-5" noValidate>
+          <fieldset disabled={formik.isSubmitting} className="space-y-5 disabled:opacity-80 disabled:pointer-events-none disabled:cursor-wait">
           <ToggleSwitch
             checked={v.enabled}
             onChange={(checked) => formik.setFieldValue('enabled', checked)}
@@ -280,7 +281,7 @@ export default function AdminAppUpdatePage() {
               variant="gold"
               className="font-bold shadow-md shadow-amber-500/20"
               isLoading={formik.isSubmitting}
-              disabled={!formik.dirty || !formik.isValid}
+              disabled={!formik.dirty || !formik.isValid || formik.isSubmitting}
             >
               <Save className="w-4 h-4 mr-1.5" />
               Save Settings
@@ -292,6 +293,7 @@ export default function AdminAppUpdatePage() {
               </span>
             )}
           </div>
+          </fieldset>
         </form>
       </Card>
 

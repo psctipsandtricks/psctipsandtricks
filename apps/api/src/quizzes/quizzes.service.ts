@@ -118,6 +118,14 @@ export class QuizzesService {
           folder?: string;
           access?: string;
           status?: string;
+          /**
+           * `newest` orders by creation date, descending. The default
+           * ordering is the admin's hand-set `orderIndex`, which is what a
+           * catalog wants but the wrong end of the list for a "latest"
+           * carousel — without this a caller has to pull every quiz just to
+           * sort ten of them itself.
+           */
+          sort?: string;
         },
     actor?: AccessActor | null,
   ) {
@@ -148,7 +156,21 @@ export class QuizzesService {
     }
 
     if (query?.folder && query.folder !== 'ALL') {
-      andClauses.push({ folderName: query.folder });
+      // "Root" is not a folder anyone filed a quiz into — it is the absence of
+      // one, and that absence is spelled three different ways in the data. A
+      // caller asking for the root listing means all of them.
+      andClauses.push(
+        query.folder.toLowerCase() === 'root'
+          ? {
+              OR: [
+                { folderName: null },
+                { folderName: '' },
+                { folderName: { equals: 'Root', mode: 'insensitive' } },
+                { folderName: 'Root / No Folder' },
+              ],
+            }
+          : { folderName: query.folder },
+      );
     }
 
     if (query?.access && query.access !== 'ALL') {
@@ -170,6 +192,9 @@ export class QuizzesService {
 
     const where: Prisma.QuizWhereInput = andClauses.length > 0 ? { AND: andClauses } : {};
 
+    const orderBy: Prisma.QuizOrderByWithRelationInput[] =
+      query?.sort === 'newest' ? [{ createdAt: 'desc' }] : QUIZ_ORDER;
+
     if (query?.page || query?.limit) {
       const page = Math.max(1, Number(query.page) || 1);
       const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
@@ -185,7 +210,7 @@ export class QuizzesService {
           },
           skip,
           take: limit,
-          orderBy: QUIZ_ORDER,
+          orderBy,
         }),
       ]);
 
@@ -205,7 +230,7 @@ export class QuizzesService {
         questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         _count: { select: { questions: true, submissions: true } },
       },
-      orderBy: QUIZ_ORDER,
+      orderBy,
       // Callers that omit page/limit get every quiz as a bare array (the
       // browse page's current contract) — this cap is a safety net against
       // the catalog growing unbounded, not real pagination.
@@ -404,7 +429,15 @@ export class QuizzesService {
     return this.prisma.quiz.delete({ where: { id } });
   }
 
-  async startAttempt(actor: AccessActor, quizId: string) {
+  /**
+   * Opens the attempt the student is about to sit.
+   *
+   * An unfinished attempt is handed straight back so "Resume" carries on where
+   * they stopped. `restart` is the "Start from beginning" path: the unfinished
+   * attempt is marked ABANDONED and a fresh one takes its place, which is also
+   * what "Retake" does once there is nothing left in progress.
+   */
+  async startAttempt(actor: AccessActor, quizId: string, restart = false) {
     const userId = actor.id;
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
@@ -424,20 +457,26 @@ export class QuizzesService {
       orderBy: { startedAt: 'desc' },
     });
 
-    if (activeAttempt) {
+    if (activeAttempt && !restart) {
       return activeAttempt;
     }
 
-    // Count previous attempts to compute attempt number
-    const count = await this.prisma.quizSubmission.count({
-      where: { userId, quizId },
-    });
+    if (activeAttempt) {
+      // Starting over: the half-finished attempt is retired rather than
+      // deleted, so the record of it having been opened survives — but it is
+      // no longer resumable and, never having been submitted, it was never an
+      // attempt in the sense the student is shown.
+      await this.prisma.quizSubmission.updateMany({
+        where: { userId, quizId, attemptStatus: 'IN_PROGRESS' },
+        data: { attemptStatus: 'ABANDONED' },
+      });
+    }
 
     const newAttempt = await this.prisma.quizSubmission.create({
       data: {
         quizId,
         userId,
-        attemptNumber: count + 1,
+        attemptNumber: (await this.countCompletedAttempts(userId, quizId)) + 1,
         attemptStatus: 'IN_PROGRESS',
         totalMarks: quiz.totalMarks,
         totalQuestions: quiz.totalQuestions || quiz.questions.length,
@@ -454,6 +493,82 @@ export class QuizzesService {
     });
 
     return newAttempt;
+  }
+
+  /**
+   * How many times this student has finished and submitted this quiz.
+   *
+   * An attempt only counts once it is submitted: opening a quiz and walking
+   * away leaves an IN_PROGRESS row, and abandoning one to start over leaves an
+   * ABANDONED row. Neither is an attempt the student made, so neither is
+   * numbered or counted — which is why the next attempt number is this plus
+   * one rather than "however many rows exist".
+   */
+  private countCompletedAttempts(userId: string, quizId: string) {
+    return this.prisma.quizSubmission.count({
+      where: { userId, quizId, attemptStatus: 'COMPLETED' },
+    });
+  }
+
+  /**
+   * Where this student stands on every quiz they have opened: how many
+   * attempts they have completed, and whether one is still unfinished.
+   *
+   * This is what decides the button on a quiz card — Start, Resume or Retake —
+   * so both the website and the app read it once for the whole hub instead of
+   * asking per quiz.
+   */
+  async getAttemptSummary(userId: string) {
+    const [completed, inProgress] = await Promise.all([
+      this.prisma.quizSubmission.groupBy({
+        by: ['quizId'],
+        where: { userId, attemptStatus: 'COMPLETED' },
+        _count: { _all: true },
+        _max: { submittedAt: true },
+      }),
+      this.prisma.quizSubmission.findMany({
+        where: { userId, attemptStatus: 'IN_PROGRESS' },
+        select: { id: true, quizId: true, startedAt: true },
+        orderBy: { startedAt: 'desc' },
+      }),
+    ]);
+
+    const byQuiz = new Map<
+      string,
+      {
+        quizId: string;
+        completedCount: number;
+        lastSubmittedAt: Date | null;
+        inProgressAttemptId: string | null;
+      }
+    >();
+
+    for (const row of completed) {
+      byQuiz.set(row.quizId, {
+        quizId: row.quizId,
+        completedCount: row._count._all,
+        lastSubmittedAt: row._max.submittedAt,
+        inProgressAttemptId: null,
+      });
+    }
+
+    for (const attempt of inProgress) {
+      const existing = byQuiz.get(attempt.quizId);
+      if (existing) {
+        // Ordered newest first, so the first one seen for a quiz is the one to
+        // resume; a student with two open rows on one quiz resumes the latest.
+        existing.inProgressAttemptId ??= attempt.id;
+      } else {
+        byQuiz.set(attempt.quizId, {
+          quizId: attempt.quizId,
+          completedCount: 0,
+          lastSubmittedAt: null,
+          inProgressAttemptId: attempt.id,
+        });
+      }
+    }
+
+    return [...byQuiz.values()];
   }
 
   async getActiveAttempt(userId: string, quizId: string) {
@@ -551,12 +666,11 @@ export class QuizzesService {
     }
 
     if (!submission) {
-      const count = await this.prisma.quizSubmission.count({ where: { userId, quizId } });
       submission = await this.prisma.quizSubmission.create({
         data: {
           quizId,
           userId,
-          attemptNumber: count + 1,
+          attemptNumber: (await this.countCompletedAttempts(userId, quizId)) + 1,
           attemptStatus: 'COMPLETED',
           score: finalScore,
           totalMarks,
@@ -777,7 +891,11 @@ export class QuizzesService {
     }
 
     return this.prisma.quizSubmission.findMany({
-      where: { userId },
+      // Abandoned rows are excluded: starting a quiz over is not an attempt
+      // the student made, and listing it as one would contradict the count
+      // shown on the quiz's own card. Unfinished attempts stay, since the
+      // history screen offers them as something to resume.
+      where: { userId, attemptStatus: { in: ['COMPLETED', 'IN_PROGRESS'] } },
       include,
       orderBy: { startedAt: 'desc' },
       // The quiz-history page fetches every attempt as a bare array and

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TtlCache } from '../common/ttl-cache';
+import { computeStreakDays } from './study-streak';
 
 const USAGE_STATS_TTL_MS = 30_000;
 const SUBJECT_PERFORMANCE_TTL_MS = 30_000;
@@ -300,20 +301,12 @@ export class AnalyticsService {
     const bestRank = ranked.length ? Math.min(...ranked.map((a) => a.rank)) : null;
     const previousBestRank = ranked.length > 1 ? Math.min(...ranked.slice(1).map((a) => a.rank)) : null;
 
-    // Consecutive days with at least one submission, counting back from today.
-    // A gap of one day is tolerated at the head so the streak does not read as
-    // broken until the student has actually missed a full day.
-    const dayKeys = new Set(attempts.map((a) => a.submittedAt.toISOString().slice(0, 10)));
-    const dayKeyOf = (offset: number) =>
-      new Date(now - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    let streakDays = 0;
-    if (dayKeys.has(dayKeyOf(0)) || dayKeys.has(dayKeyOf(1))) {
-      let offset = dayKeys.has(dayKeyOf(0)) ? 0 : 1;
-      while (dayKeys.has(dayKeyOf(offset))) {
-        streakDays++;
-        offset++;
-      }
-    }
+    // Consecutive days with at least one submission, counted in the students'
+    // own timezone rather than the server's UTC — see `computeStreakDays`.
+    const streakDays = computeStreakDays(
+      attempts.map((a) => a.submittedAt),
+      new Date(now),
+    );
 
     const byCategory = new Map<string, { attempts: number; total: number; correct: number; answered: number }>();
     attempts.forEach((a) => {

@@ -542,6 +542,20 @@ export interface QuizAttempt {
         email: string;
     };
 }
+/**
+ * Where one student stands on one quiz — what the hub's Start / Resume /
+ * Retake button and its attempt count are drawn from.
+ *
+ * `completedCount` only ever counts submitted attempts. An attempt that was
+ * opened and walked away from is `inProgressAttemptId`, not a count.
+ */
+export interface QuizAttemptSummary {
+    quizId: string;
+    completedCount: number;
+    lastSubmittedAt?: string | null;
+    /** The unfinished attempt to resume, or null when there is nothing to resume. */
+    inProgressAttemptId?: string | null;
+}
 export type MockTestStatus = 'UPCOMING' | 'LIVE' | 'COMPLETED';
 export interface MockTest {
     id: string;

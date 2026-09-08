@@ -94,11 +94,15 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
 
     final quizzesAsync = ref.watch(quizzesProvider);
     final foldersAsync = ref.watch(quizFoldersProvider);
-    final allQuizzes = ref.watch(publishedQuizzesProvider).valueOrNull ?? [];
-    final allFolders = ref.watch(allQuizFoldersProvider).valueOrNull ?? [];
+    // Absent while it loads, and for a signed-out visitor — both read the same
+    // way on a card: Start.
+    final attempts = ref.watch(quizAttemptSummaryProvider).valueOrNull ?? const {};
 
-    final freeCount = allQuizzes.where((q) => !q.isPaid).length;
-    final premiumCount = allQuizzes.where((q) => q.isPaid).length;
+    // Headline totals are counted by the server; nothing here holds the
+    // catalog in memory just to call `.length` on it.
+    final tierCounts = ref.watch(quizTierCountsProvider).valueOrNull;
+    final freeCount = tierCounts?[QuizAccessTier.free];
+    final premiumCount = tierCounts?[QuizAccessTier.premium];
 
     final folders = foldersAsync.valueOrNull ?? [];
     final quizzes = quizzesAsync.valueOrNull ?? [];
@@ -176,8 +180,9 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
         ),
         body: RefreshIndicator(
           onRefresh: () async {
-            ref.invalidate(publishedQuizzesProvider);
             ref.invalidate(allQuizFoldersProvider);
+            ref.invalidate(quizTierCountsProvider);
+            ref.invalidate(quizAttemptSummaryProvider);
             ref.invalidate(premiumCarouselQuizzesProvider);
             ref.invalidate(quizFoldersProvider);
             await ref.read(quizzesProvider.future);
@@ -217,6 +222,7 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                       return QuizCard(
                         quiz: quiz,
                         width: double.infinity,
+                        attempt: attempts[quiz.id],
                         onTap: () => _openQuiz(quiz),
                       );
                     },
@@ -324,12 +330,21 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                 );
               }
 
-              // Drill-down level (Tier selected: folders & quizzes)
-              if (foldersAsync.isLoading && folders.isEmpty && quizzes.isEmpty) {
+              // Drill-down level (Tier selected: folders & quizzes).
+              // Folders and quizzes load independently — the folder tree came
+              // with the hub, the quizzes are fetched per folder — so each
+              // section skeletons on its own instead of blanking the screen.
+              final foldersLoading = foldersAsync.isLoading;
+              final quizzesLoading = quizzesAsync.isLoading;
+
+              if (foldersLoading && quizzesLoading) {
                 return const ListSkeleton(count: 6, height: 118);
               }
 
-              if (folders.isEmpty && quizzes.isEmpty) {
+              if (!foldersLoading &&
+                  !quizzesLoading &&
+                  folders.isEmpty &&
+                  quizzes.isEmpty) {
                 return ListView(
                   children: [
                     const SizedBox(height: 60),
@@ -358,7 +373,21 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                     24 + ShellScaffold.dockExtent,
                   ),
                 children: [
-                  if (folders.isNotEmpty) ...[
+                  if (foldersLoading) ...[
+                    SectionHeader(
+                      title: path.isRoot
+                          ? 'Folders'
+                          : 'Sub-folders in "${path.current?.name}"',
+                      icon: Icons.folder_open_rounded,
+                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 10),
+                    ),
+                    const ListSkeleton(
+                      count: 3,
+                      height: 92,
+                      padding: EdgeInsets.zero,
+                    ),
+                    const SizedBox(height: 14),
+                  ] else if (folders.isNotEmpty) ...[
                     SectionHeader(
                       title: path.isRoot
                           ? 'Folders'
@@ -372,12 +401,7 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                         child: QuizFolderCard(
                           folder: folder,
                           accentColor: tierAccent,
-                          quizCount: computeFolderQuizCount(
-                            folderName: folder.name,
-                            quizzes: allQuizzes,
-                            allFolders: allFolders,
-                            tier: tier,
-                          ),
+                          quizCount: folderQuizCountFor(folder, tier),
                           onTap: () => ref
                               .read(folderPathProvider.notifier)
                               .update((p) => p.push(folder)),
@@ -385,7 +409,20 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                       ),
                     const SizedBox(height: 14),
                   ],
-                  if (quizzes.isNotEmpty) ...[
+                  if (quizzesLoading) ...[
+                    SectionHeader(
+                      title: path.isRoot
+                          ? 'General Quizzes'
+                          : 'Quizzes in "${path.current?.name}"',
+                      icon: Icons.playlist_add_check_rounded,
+                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 10),
+                    ),
+                    const ListSkeleton(
+                      count: 4,
+                      height: 118,
+                      padding: EdgeInsets.zero,
+                    ),
+                  ] else if (quizzes.isNotEmpty) ...[
                     SectionHeader(
                       title: path.isRoot
                           ? 'General Quizzes'
@@ -399,6 +436,7 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                         child: QuizCard(
                           quiz: quiz,
                           width: double.infinity,
+                          attempt: attempts[quiz.id],
                           onTap: () => _openQuiz(quiz),
                         ),
                       ),

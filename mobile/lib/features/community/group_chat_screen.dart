@@ -15,6 +15,7 @@ import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/chat.dart';
 import '../pdfs/pdf_viewer_screen.dart';
+import 'chat_cache.dart';
 import 'chat_socket.dart';
 import 'community_providers.dart';
 
@@ -30,6 +31,11 @@ class GroupChatScreen extends ConsumerStatefulWidget {
 }
 
 class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
+  /// One screenful plus a little, matching the web client and the API's own
+  /// default. History is never fetched whole — the student opens on the newest
+  /// page and walks backwards from there.
+  static const _pageSize = 30;
+
   final _scrollController = ScrollController();
   final _composer = TextEditingController();
 
@@ -42,10 +48,15 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   bool _joining = false;
   Object? _error;
 
+  /// Held rather than read on demand, so the cache is still reachable from
+  /// `dispose`, after the widget can no longer touch its `ref`.
+  ChatCache? _cache;
+  Timer? _persistTimer;
+
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
+    _cache = ref.read(chatCacheProvider);
     unawaited(_bootstrap());
   }
 
@@ -54,36 +65,97 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }
+    // Leaving must not throw away messages the debounce was still holding.
+    if (_persistTimer?.isActive ?? false) _flushPersist();
+    _persistTimer?.cancel();
     _scrollController.dispose();
     _composer.dispose();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
+    final cache = _cache;
+
+    // Show the conversation as it was last left, then let the fetch below
+    // correct it. Reading a file beats a round trip by enough that the chat is
+    // usually already on screen and scrollable before the network answers.
+    final cached = await cache?.readMessages(widget.groupId);
+    if (!mounted) return;
+    if (cached != null && cached.isNotEmpty && _messages.isEmpty) {
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(cached);
+        _loading = false;
+      });
+    }
+
     try {
       final history = await ref
           .read(chatRepositoryProvider)
-          .fetchMessages(widget.groupId);
+          .fetchMessages(widget.groupId, limit: _pageSize);
       if (!mounted) return;
 
       setState(() {
         _messages
           ..clear()
-          ..addAll(history.reversed);
+          ..addAll(_mergeWithCached(history.reversed.toList()));
         _loading = false;
-        _reachedStart = history.length < 40;
+        _error = null;
+        // A short page means there is nothing before it — the group's whole
+        // history fits in one page, so there is nothing older to offer.
+        _reachedStart = history.length < _pageSize;
       });
 
+      _persist();
       _connectSocket();
       unawaited(_markRead());
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e;
-          _loading = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        // Only surface the failure if there is nothing to read. With a cached
+        // conversation already on screen, replacing it with an error page would
+        // take away the one thing that still works offline.
+        if (_messages.isEmpty) _error = e;
+      });
     }
+  }
+
+  /// Keeps any cached history that reaches further back than [fresh] does.
+  ///
+  /// Without this, a student who had scrolled back through several pages last
+  /// visit would watch that history disappear the moment the newest page
+  /// arrived, and have to load it all again.
+  List<ChatMessage> _mergeWithCached(List<ChatMessage> fresh) {
+    if (fresh.isEmpty) return List.of(_messages);
+
+    final oldestFresh = fresh.last.createdAt;
+    final freshIds = fresh.map((m) => m.id).toSet();
+    final tail = _messages.where(
+      (m) => m.createdAt.isBefore(oldestFresh) && !freshIds.contains(m.id),
+    );
+    return [...fresh, ...tail];
+  }
+
+  /// Stores the newest slice of the conversation for the next visit.
+  ///
+  /// Debounced, because a lively group delivers messages faster than it is
+  /// worth rewriting the file — every one of them would otherwise cost a full
+  /// re-serialise and a disk write, and only the last one matters.
+  void _persist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(seconds: 1), _flushPersist);
+  }
+
+  /// Writes now, whatever the debounce was still waiting for. The list is
+  /// copied because it keeps mutating while the write is in flight.
+  void _flushPersist() {
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    final cache = _cache;
+    if (cache == null) return;
+    unawaited(cache.writeMessages(widget.groupId, List.of(_messages)));
   }
 
   void _connectSocket() {
@@ -109,11 +181,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             m.content == message.content);
         if (optimisticIdx != -1) {
           setState(() => _messages[optimisticIdx] = message);
+          _persist();
           unawaited(_markRead());
           return;
         }
 
         setState(() => _messages.insert(0, message));
+        _persist();
         unawaited(_markRead());
       }),
     );
@@ -122,6 +196,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       socket.onDelete.listen((messageId) {
         if (!mounted) return;
         setState(() => _messages.removeWhere((m) => m.id == messageId));
+        _persist();
       }),
     );
 
@@ -146,6 +221,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             createdAt: existing.createdAt,
           );
         });
+        _persist();
       }),
     );
   }
@@ -162,30 +238,31 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
   }
 
-  void _onScroll() {
-    if (_loadingMore || _reachedStart) return;
-    if (!_scrollController.hasClients) return;
-    final position = _scrollController.position;
-    if (position.pixels >= position.maxScrollExtent - 400) {
-      unawaited(_loadOlder());
-    }
-  }
-
+  /// Fetches the page before the oldest message on screen, on demand.
+  ///
+  /// `_messages` runs newest-first, so its last entry is the oldest one loaded
+  /// and its timestamp is exactly where the previous page ends.
   Future<void> _loadOlder() async {
     if (_messages.isEmpty || _loadingMore || _reachedStart) return;
     setState(() => _loadingMore = true);
     try {
       final older = await ref.read(chatRepositoryProvider).fetchMessages(
             widget.groupId,
-            before: _messages.last.id,
+            before: _messages.last.createdAt.toUtc().toIso8601String(),
+            limit: _pageSize,
           );
       if (!mounted) return;
+
+      final known = _messages.map((m) => m.id).toSet();
       setState(() {
-        _messages.addAll(older.reversed);
-        _reachedStart = older.isEmpty;
+        _messages.addAll(older.reversed.where((m) => !known.contains(m.id)));
+        // A short page is the end of the history; an empty one certainly is.
+        _reachedStart = older.length < _pageSize;
       });
     } catch (_) {
-      if (mounted) setState(() => _reachedStart = true);
+      // Leave `_reachedStart` alone: a failed request is not proof the history
+      // ran out, and clearing the flag here would hide the button that lets the
+      // student try again.
     } finally {
       if (mounted) setState(() => _loadingMore = false);
     }
@@ -583,24 +660,18 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       );
     }
 
+    // The list is reversed, so the extra trailing item sits at the *top* of the
+    // conversation — where a student looking for older messages will reach for
+    // it, and where the web client puts the same control.
+    final hasOlderControl = !_reachedStart;
+
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      itemCount: _messages.length + (_loadingMore ? 1 : 0),
+      itemCount: _messages.length + (hasOlderControl ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index >= _messages.length) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
+        if (index >= _messages.length) return _buildLoadOlderButton();
 
         final message = _messages[index];
         final older = index + 1 < _messages.length ? _messages[index + 1] : null;
@@ -620,6 +691,39 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           ],
         );
       },
+    );
+  }
+
+  /// Pulls in the previous page on demand. Loading history only when it is
+  /// asked for is what keeps opening a busy group to a single small request,
+  /// however far back the conversation goes.
+  Widget _buildLoadOlderButton() {
+    final palette = context.palette;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 14),
+      child: Center(
+        child: TextButton.icon(
+          onPressed: _loadingMore ? null : () => unawaited(_loadOlder()),
+          style: TextButton.styleFrom(
+            backgroundColor: palette.textMuted.withValues(alpha: 0.10),
+            foregroundColor: palette.textSecondary,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          ),
+          icon: _loadingMore
+              ? const SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.arrow_upward_rounded, size: 14),
+          label: Text(
+            _loadingMore ? 'Loading older messages…' : 'Load Older Messages',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ),
     );
   }
 

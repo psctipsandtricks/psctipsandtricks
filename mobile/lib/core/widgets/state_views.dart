@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../network/api_exception.dart';
+import '../router/app_router.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'glass_card.dart';
@@ -44,15 +46,23 @@ class SkeletonBox extends StatelessWidget {
 
 /// Placeholder for a vertical list of cards.
 class ListSkeleton extends StatelessWidget {
-  const ListSkeleton({super.key, this.count = 5, this.height = 92});
+  const ListSkeleton({
+    super.key,
+    this.count = 5,
+    this.height = 92,
+    this.padding = const EdgeInsets.all(16),
+  });
 
   final int count;
   final double height;
 
+  /// Zero it out when the skeleton sits inside a list that already pads.
+  final EdgeInsetsGeometry padding;
+
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: padding,
       itemCount: count,
       physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,
@@ -81,6 +91,23 @@ class ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNotFound = error is ApiException &&
+        ((error as ApiException).statusCode == 404 ||
+            (error as ApiException).message.toLowerCase().contains('not found') ||
+            (error as ApiException).message.toLowerCase().contains('no longer available'));
+
+    if (isNotFound) {
+      return ProductUnavailableView(
+        onBack: () {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          } else {
+            context.go(AppRoutes.orders);
+          }
+        },
+      );
+    }
+
     final palette = context.palette;
     final isNetwork =
         error is ApiException && (error as ApiException).isNetwork;
@@ -134,6 +161,95 @@ class ErrorView extends StatelessWidget {
                 label: const Text('Try again'),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Displayed when a user opens a product (book, quiz, mock test) that has been
+/// removed by an administrator from the database.
+class ProductUnavailableView extends StatelessWidget {
+  const ProductUnavailableView({
+    super.key,
+    this.title = 'This product is no longer available.',
+    this.message =
+        'This product was removed by the administrator and is no longer available in the application. Your purchase remains recorded in your order history.',
+    this.onBack,
+  });
+
+  final String title;
+  final String message;
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.amber.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.amber.withValues(alpha: 0.25),
+                  width: 1.2,
+                ),
+              ),
+              child: const Icon(
+                Icons.inventory_2_outlined,
+                color: AppColors.amber,
+                size: 36,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: palette.textSecondary,
+                    height: 1.5,
+                  ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.amber,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                ),
+              ),
+              onPressed: onBack ??
+                  () {
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    } else {
+                      context.go(AppRoutes.orders);
+                    }
+                  },
+              icon: const Icon(Icons.receipt_long_rounded, size: 18),
+              label: const Text(
+                'Back to Order History',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
           ],
         ),
       ),

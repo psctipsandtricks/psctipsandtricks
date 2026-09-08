@@ -26,7 +26,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
 }) => {
   return (
-    <Dialog isOpen={isOpen} onClose={onCancel} title={title} description={description} className="max-w-sm">
+    <Dialog isOpen={isOpen} onClose={onCancel} title={title} description={description} className="max-w-sm" isLoading={isLoading}>
       <div className="flex justify-end gap-2 pt-2">
         <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
           {cancelLabel}

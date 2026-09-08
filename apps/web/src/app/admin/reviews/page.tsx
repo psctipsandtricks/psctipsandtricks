@@ -440,6 +440,7 @@ export default function AdminReviewsPage() {
           setEditingReview(null);
         }}
         title={editingReview ? `Edit Review — ${editingReview.customerName}` : 'Add Customer Review'}
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

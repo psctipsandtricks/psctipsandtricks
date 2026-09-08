@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/network/api_exception.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
@@ -21,6 +22,7 @@ import '../offline/offline_providers.dart';
 import '../../core/utils/orientation.dart';
 import '../../core/utils/secure_screen.dart';
 import '../pdfs/widgets/pdf_document_view.dart';
+import '../pdfs/widgets/pdf_transition_cover.dart';
 import '../videos/video_player_screen.dart';
 import 'audio_resume_store.dart';
 import 'books_providers.dart';
@@ -30,12 +32,9 @@ import 'reader_types.dart';
 import 'widgets/reader_audio_player.dart';
 import 'widgets/reader_contents_drawer.dart';
 
-/// Identifies the plain cover drawn over the document while this route is
-/// transitioning. Exported so a test can hold the behaviour in place: the
-/// document is a native platform view, it cannot animate with the page, and
-/// covering it is the only thing standing between a reader and a torn,
-/// ghosting slide every time they open a book.
-const documentTransitionCoverKey = ValueKey('reader-document-transition-cover');
+// The cover moved to the PDF widgets, where the standalone viewer can share it;
+// re-exported so the reader's own tests keep reaching it from here.
+export '../pdfs/widgets/pdf_transition_cover.dart' show documentTransitionCoverKey;
 
 /// How hard the page pulls towards where the narration has reached, per 60fps
 /// frame. Roughly a 140ms time constant: attached to the audio, but loose
@@ -46,6 +45,25 @@ const double _followEasePerFrame = 0.12;
 const double _followSettlePx = 0.5;
 
 const double _frameMicros = 16667;
+
+/// Whether the reading page should offer a way on to the next topic.
+///
+/// Exported so the rule can be held in place by a test: on screen it depends on
+/// a native platform view reporting its page count, which no widget test has.
+///
+/// A student reading the notes on their own needs somewhere to go when they
+/// reach the end of them. A student who is listening does not — the clip walks
+/// them into the next topic when it plays out, and a button competing with that
+/// would let them arrive twice.
+bool readerOffersNextTopic({
+  required PdfViewState? document,
+  required bool hasNextTopic,
+  required bool audioPlaying,
+}) {
+  if (!hasNextTopic || audioPlaying) return false;
+  if (document == null || !document.isReady) return false;
+  return document.currentPage >= document.pageCount - 1;
+}
 
 /// The multimedia reader: one topic at a time, with its narration, class video
 /// and notes attached.
@@ -109,18 +127,35 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   /// async body that knows the book.
   String _bookTitle = '';
 
-  /// How far through the open document, for the app bar's page count.
+  /// How far through the open document, for the app bar's page count and for
+  /// deciding whether the student has reached the end of the topic.
   PdfViewState? _pdfState;
+
+  /// Set while one topic's document is being torn down and the next one's is
+  /// rendering. The document is a native view: swapping one for another shows
+  /// the old page, then a blank surface, then the new page — and the audio
+  /// strip re-points at a different clip somewhere in the middle of that.
+  /// Covering the swap turns the whole thing into one deliberate loading state.
+  bool _switchingTopic = false;
+
+  /// Ends the cover even if the incoming document never reports itself ready,
+  /// so a document that fails to load shows its own error rather than sitting
+  /// behind a spinner for ever.
+  Timer? _switchTimer;
 
   /// Where this book's narration was left last time, read once on the way in.
   /// Non-null only while [BookReaderScreen.resumeAudio] is being honoured — it
   /// is consumed by the first [_loadUnitAudio] that matches its clip.
   AudioResumePoint? _pendingAudioResume;
 
-  /// Whether the full-page audio player has been opened this session, which is
-  /// what makes a position worth writing down. Sticky once set: closing the
-  /// player to follow along on the page is still the same listening session.
-  bool _audioPlayerOpened = false;
+  /// Whether narration has actually played this session, which is what makes a
+  /// position worth writing down. Sticky once set: pausing, or folding the
+  /// transport away to read on, is still the same listening session.
+  ///
+  /// Deliberately not "did they open the full-page player": a student who
+  /// listens from the docked strip or the mini transport has listened, and
+  /// "Continue with audio" is the offer to pick that up again.
+  bool _listeningStarted = false;
 
   /// The narration url the shared player was last pointed at, so the reader
   /// does not reload the same clip on every rebuild.
@@ -221,6 +256,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
       ?..stop()
       ..dispose();
     _audioResumeTimer?.cancel();
+    _switchTimer?.cancel();
     _audio?.playing.removeListener(_onPlayingChanged);
     // Only ever ours to clear: the controller outlives this screen, and a
     // stale callback would walk a disposed reader through its chapters.
@@ -334,6 +370,10 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   void _onPlayingChanged() {
     if (!mounted) return;
     if (ref.read(readerAudioProvider).playing.value) {
+      // Whichever transport started it — the docked strip, the mini player, the
+      // full-page player or the lock screen — this book now has a listening
+      // session worth offering back.
+      _listeningStarted = true;
       _startScrollTicker();
     } else {
       // Stopped, not disposed: resuming picks the chase up from wherever the
@@ -364,8 +404,8 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     final prefs = _prefs;
     final audio = _audio;
     if (prefs == null || audio == null) return;
-    // Only a session that went through the audio player is offered back.
-    if (!_audioPlayerOpened) return;
+    // Nothing was ever played: there is no position to come back to.
+    if (!_listeningStarted) return;
     if (_activeIndex >= _units.length) return;
 
     final unit = _units[_activeIndex];
@@ -451,12 +491,20 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
 
   void _goTo(int index, {bool scrollToTop = true}) {
     if (index < 0 || index >= _units.length) return;
+    final isDifferentTopic = index != _activeIndex;
     setState(() {
       _activeIndex = index;
       if (index > _maxReached) _maxReached = index;
       _showResumeBanner = false;
       _autoPlayUnitId = null;
+      if (isDifferentTopic) {
+        // The page count belongs to the document being left behind; keeping it
+        // would offer "next topic" against the wrong document's last page.
+        _pdfState = null;
+        _switchingTopic = _units[index].hasPdf;
+      }
     });
+    if (isDifferentTopic) _armSwitchTimeout();
     _scrollTicker?.stop();
     unawaited(_resolveLocalAssets(_units[index]));
     if (scrollToTop && _scrollController.hasClients) {
@@ -467,6 +515,21 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
       );
     }
     _scheduleProgressSave();
+  }
+
+  /// Backstop for the topic-swap cover: the incoming document normally lifts it
+  /// by reporting itself ready, but one that fails to download never will.
+  void _armSwitchTimeout() {
+    _switchTimer?.cancel();
+    if (!_switchingTopic) return;
+    _switchTimer = Timer(const Duration(milliseconds: 1200), _endTopicSwitch);
+  }
+
+  void _endTopicSwitch() {
+    _switchTimer?.cancel();
+    _switchTimer = null;
+    if (!_switchingTopic || !mounted) return;
+    setState(() => _switchingTopic = false);
   }
 
   /// Reading is a burst of taps; coalesce them into one write.
@@ -521,11 +584,10 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   }
 
   void _openFullPageAudioPlayer(String bookTitle) {
-    // What makes this session worth remembering: "continue with audio" offers
-    // the way back into this screen, so it is only offered to someone who has
-    // been here. Narration heard from the reader's own strip, alongside the
-    // page, is reading — not a listening session to come back to.
-    _audioPlayerOpened = true;
+    // Opening the player is itself an intent to listen, so it counts even
+    // before the first frame of audio comes out — a student who opens it,
+    // scrubs, and leaves has still told us where they are in the clip.
+    _listeningStarted = true;
     Navigator.of(context, rootNavigator: true).push(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) {
@@ -778,7 +840,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
         _navigateBack();
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: context.palette.background,
         key: _scaffoldKey,
       // No drawer when the panel is already pinned open — two copies of the
       // contents, one hidden behind an edge swipe, would be worse than one.
@@ -800,10 +862,73 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
                 ),
               ),
             ),
-      body: AsyncView(
-        value: sourceAsync,
-        onRetry: () => ref.invalidate(readerSourceProvider(widget.bookId)),
-        loading: const _ReaderSkeleton(),
+      body: sourceAsync.when(
+        loading: () => const _ReaderSkeleton(),
+        error: (err, _) {
+          final isForbidden = (err is ApiException && (err.isForbidden || err.statusCode == 403)) ||
+              err.toString().toLowerCase().contains('forbidden') ||
+              err.toString().toLowerCase().contains('payment');
+          return Scaffold(
+            appBar: GlassAppBar(
+              title: const Text('Book Reader'),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: _navigateBack,
+              ),
+            ),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: (isForbidden ? AppColors.amber : AppColors.rose).withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: (isForbidden ? AppColors.amber : AppColors.rose).withValues(alpha: 0.28),
+                          width: 1.2,
+                        ),
+                      ),
+                      child: Icon(
+                        isForbidden ? Icons.lock_outline_rounded : Icons.error_outline_rounded,
+                        color: isForbidden ? AppColors.amber : AppColors.rose,
+                        size: 34,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      isForbidden ? 'Access Expired' : 'Unable to Open Reader',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isForbidden
+                          ? 'Your access to this book has ended. Renew your access to continue reading.'
+                          : (err is ApiException ? err.message : 'Something went wrong while opening this book.'),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: context.palette.textSecondary,
+                            height: 1.45,
+                          ),
+                    ),
+                    const SizedBox(height: 24),
+                    GradientButton(
+                      label: isForbidden ? 'View Book Details' : 'Back to Book Details',
+                      icon: isForbidden ? Icons.shopping_bag_outlined : Icons.arrow_back_rounded,
+                      compact: true,
+                      onPressed: () => context.go(AppRoutes.bookDetail(widget.bookId)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
         data: (source) {
           final content = source.content;
           _offline = source.offline;
@@ -858,6 +983,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
               bookId: widget.bookId,
               isOffline: source.isOffline,
               hasAudio: unit.hasAudio,
+              isSwitchingTopic: _switchingTopic,
               onExpandAudio: () => _openFullPageAudioPlayer(content.title),
               onBack: _navigateBack,
               onContents: isWide
@@ -868,6 +994,9 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
                 ref.read(autoScrollProvider.notifier).toggle();
                 _startScrollTicker();
               },
+              documentState: _pdfState,
+              hasNextTopic: _activeIndex < _units.length - 1,
+              onNextTopic: () => _goTo(_activeIndex + 1),
               contents: isWide
                   ? SizedBox(
                       width: 340,
@@ -884,6 +1013,9 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
                 syncCues: unit.syncCues,
                 onStateChanged: (state) {
                   if (!mounted) return;
+                  // The incoming document has rendered: the swap is over, and
+                  // whatever is on screen now is the new topic's.
+                  if (state.isReady && _switchingTopic) _endTopicSwitch();
                   if (_pdfState?.currentPage == state.currentPage &&
                       _pdfState?.pageCount == state.pageCount) {
                     return;
@@ -1121,6 +1253,10 @@ class _DocumentReader extends ConsumerStatefulWidget {
     this.contents,
     this.hasAudio = false,
     this.onExpandAudio,
+    this.isSwitchingTopic = false,
+    this.documentState,
+    this.hasNextTopic = false,
+    this.onNextTopic,
   });
 
   final String bookId;
@@ -1142,6 +1278,18 @@ class _DocumentReader extends ConsumerStatefulWidget {
 
   final bool hasAudio;
   final VoidCallback? onExpandAudio;
+
+  /// One topic's document is being swapped for the next one's.
+  final bool isSwitchingTopic;
+
+  /// How far through the open document the student is — what says whether they
+  /// have reached the end of the notes. See [readerOffersNextTopic].
+  final PdfViewState? documentState;
+
+  final bool hasNextTopic;
+
+  /// Moves on. Shown only when [readerOffersNextTopic] says so.
+  final VoidCallback? onNextTopic;
 
   @override
   ConsumerState<_DocumentReader> createState() => _DocumentReaderState();
@@ -1188,169 +1336,205 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
     final topInset = MediaQuery.paddingOf(context).top;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final isExpanded = !ref.watch(audioBarCollapsedProvider);
-    final showAudio = widget.hasAudio || audio.title.value != null;
+
     // Drives the cover below. flutter_pdfview draws through a native platform
     // view, and a native surface does not travel with the Flutter layer during
     // a page transition — sliding one in tears, ghosts, or shows the screen
     // underneath through it. Covering it for the length of the animation costs
-    // a plain white page and removes the whole class of glitch.
-    final routeAnimation = ModalRoute.of(context)?.animation;
+    // a plain page and removes the whole class of glitch.
+    final route = ModalRoute.of(context);
+    final routeAnimation = route?.animation;
+    // The same problem in the other direction: pushing the full-page player
+    // over the reader, and popping it again, slides *this* route under another
+    // one. The document has to be covered for that too, or the glitch simply
+    // moves from opening the book to leaving the player.
+    final coveringAnimation = route?.secondaryAnimation;
 
     final reader = AnimatedBuilder(
       animation: _expandAnimation,
       child: ColoredBox(
-        color: Colors.white,
+        color: context.palette.background,
         child: widget.document,
       ),
       builder: (context, documentChild) {
         final bottomOffset = _expandAnimation.value * 76.0;
         final bottomMargin = bottomInset > 0 ? bottomInset + 8 : 16.0;
 
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            // Full-page document viewer
-            documentChild!,
+        // Rebuilt on the loaded clip, not read once: moving to a topic with no
+        // narration stops the player a frame after this build, and a strip that
+        // only re-read its title when something else happened to rebuild was
+        // left on screen showing the previous topic's clip.
+        return ValueListenableBuilder<String?>(
+          valueListenable: audio.title,
+          builder: (context, loadedClipTitle, _) {
+            final showAudio = widget.hasAudio || loadedClipTitle != null;
 
-            // The cover, over the document and under the controls: those are
-            // ordinary Flutter widgets and animate perfectly well.
-            if (routeAnimation != null)
-              AnimatedBuilder(
-                animation: routeAnimation,
-                builder: (context, _) =>
-                    routeAnimation.status == AnimationStatus.completed
-                        ? const SizedBox.shrink()
-                        : const ColoredBox(
-                            key: documentTransitionCoverKey,
-                            color: Colors.white,
-                          ),
-              ),
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                // Full-page document viewer
+                documentChild!,
 
-            // Back button in the top corner.
-            Positioned(
-              top: topInset + 8,
-              left: 8,
-              child: _ReaderCornerButton(
-                icon: Icons.arrow_back_ios_new_rounded,
-                tooltip: 'Back',
-                onTap: widget.onBack,
-              ),
-            ),
+                // The cover, over the document and under the controls: those are
+                // ordinary Flutter widgets and animate perfectly well.
+                PdfTransitionCover(
+                  routeAnimation: routeAnimation,
+                  coveringAnimation: coveringAnimation,
+                  isLoading: widget.isSwitchingTopic,
+                  loadingLabel: 'Loading next topic…',
+                ),
 
-            // Bottom left: the download, until the book is on the device.
-            if (!widget.isOffline)
-              Positioned(
-                left: 20,
-                bottom: 20 + bottomOffset,
-                child: _ReaderDownloadCorner(bookId: widget.bookId),
-              ),
-
-            // Bottom right: Book/Chapter icon, and Audio button below it!
-            Positioned(
-              right: 20,
-              bottom: 20 + bottomOffset,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  ValueListenableBuilder<bool>(
-                    valueListenable: audio.playing,
-                    builder: (context, playing, _) => AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      transitionBuilder: (child, animation) => FadeTransition(
-                        opacity: animation,
-                        child: ScaleTransition(scale: animation, child: child),
-                      ),
-                      child: !playing
-                          ? const SizedBox.shrink()
-                          : Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _ReaderCornerButton(
-                                icon: widget.autoScroll
-                                    ? Icons.swipe_vertical_rounded
-                                    : Icons.do_not_touch_outlined,
-                                tooltip: widget.autoScroll
-                                    ? 'Pages follow the audio — tap to stop'
-                                    : 'Follow the audio',
-                                onTap: widget.onToggleAutoScroll,
-                                accent: widget.autoScroll,
-                              ),
-                            ),
-                    ),
-                  ),
-                  if (widget.onContents != null)
-                    FloatingActionButton(
-                      heroTag: null,
-                      onPressed: widget.onContents,
-                      backgroundColor: context.palette.card,
-                      foregroundColor: AppColors.cyan,
-                      elevation: 3,
-                      tooltip: 'Chapters and topics',
-                      child: const Icon(Icons.menu_book_rounded, size: 22),
-                    ),
-                  if (showAudio) ...[
-                    if (widget.onContents != null) const SizedBox(height: 12),
-                    FloatingActionButton(
-                      heroTag: null,
-                      onPressed: () {
-                        ref.read(audioBarCollapsedProvider.notifier).toggle();
-                      },
-                      backgroundColor:
-                          isExpanded ? AppColors.cyan : context.palette.card,
-                      foregroundColor:
-                          isExpanded ? Colors.white : AppColors.cyan,
-                      elevation: 3,
-                      tooltip:
-                          isExpanded ? 'Hide audio player' : 'Audio player',
-                      child: ValueListenableBuilder<bool>(
-                        valueListenable: audio.playing,
-                        builder: (context, playing, _) => Icon(
-                          playing
-                              ? Icons.graphic_eq_rounded
-                              : Icons.headphones_rounded,
-                          size: 22,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            // Tablet-style Audio player expanding horizontally from left to right!
-            if (showAudio && _expandAnimation.value > 0.0)
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: bottomMargin,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 680),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(18),
-                        child: SizeTransition(
-                          axis: Axis.horizontal,
-                          axisAlignment: -1.0, // expands from left to right!
-                          sizeFactor: _expandAnimation,
-                          child: FadeTransition(
-                            opacity: _expandAnimation,
-                            child: ReaderTabletAudioPlayer(
-                              onClose: () => ref
-                                  .read(audioBarCollapsedProvider.notifier)
-                                  .set(true),
-                              onExpand: widget.onExpandAudio,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                // Back button in the top corner.
+                Positioned(
+                  top: topInset + 8,
+                  left: 8,
+                  child: _ReaderCornerButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    tooltip: 'Back',
+                    onTap: widget.onBack,
                   ),
                 ),
-              ),
-          ],
+
+                // Bottom left: the download, until the book is on the device.
+                if (!widget.isOffline)
+                  Positioned(
+                    left: 20,
+                    bottom: 20 + bottomOffset,
+                    child: _ReaderDownloadCorner(bookId: widget.bookId),
+                  ),
+
+                // Bottom right: Book/Chapter icon, and Audio button below it!
+                Positioned(
+                  right: 20,
+                  bottom: 20 + bottomOffset,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      ValueListenableBuilder<bool>(
+                        valueListenable: audio.playing,
+                        builder: (context, playing, _) => AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          switchInCurve: Curves.easeOutCubic,
+                          transitionBuilder: (child, animation) => FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(scale: animation, child: child),
+                          ),
+                          child: !playing
+                              ? const SizedBox.shrink()
+                              : Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: _ReaderCornerButton(
+                                    icon: widget.autoScroll
+                                        ? Icons.swipe_vertical_rounded
+                                        : Icons.do_not_touch_outlined,
+                                    tooltip: widget.autoScroll
+                                        ? 'Pages follow the audio — tap to stop'
+                                        : 'Follow the audio',
+                                    onTap: widget.onToggleAutoScroll,
+                                    accent: widget.autoScroll,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      if (widget.onContents != null)
+                        FloatingActionButton(
+                          heroTag: null,
+                          onPressed: widget.onContents,
+                          backgroundColor: context.palette.card,
+                          foregroundColor: AppColors.cyan,
+                          elevation: 3,
+                          tooltip: 'Chapters and topics',
+                          child: const Icon(Icons.menu_book_rounded, size: 22),
+                        ),
+                      if (showAudio) ...[
+                        if (widget.onContents != null) const SizedBox(height: 12),
+                        FloatingActionButton(
+                          heroTag: null,
+                          onPressed: () {
+                            ref.read(audioBarCollapsedProvider.notifier).toggle();
+                          },
+                          backgroundColor:
+                              isExpanded ? AppColors.cyan : context.palette.card,
+                          foregroundColor:
+                              isExpanded ? Colors.white : AppColors.cyan,
+                          elevation: 3,
+                          tooltip:
+                              isExpanded ? 'Hide audio player' : 'Audio player',
+                          child: ValueListenableBuilder<bool>(
+                            valueListenable: audio.playing,
+                            builder: (context, playing, _) => Icon(
+                              playing
+                                  ? Icons.graphic_eq_rounded
+                                  : Icons.headphones_rounded,
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                // Tablet-style Audio player expanding horizontally from left to right!
+                if (showAudio && _expandAnimation.value > 0.0)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: bottomMargin,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 680),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: SizeTransition(
+                              axis: Axis.horizontal,
+                              axisAlignment: -1.0, // expands from left to right!
+                              sizeFactor: _expandAnimation,
+                              child: FadeTransition(
+                                opacity: _expandAnimation,
+                                child: ReaderTabletAudioPlayer(
+                                  onClose: () => ref
+                                      .read(audioBarCollapsedProvider.notifier)
+                                      .set(true),
+                                  onExpand: widget.onExpandAudio,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // Reading without narration, at the end of the notes: the way on to
+                // the next topic. With a clip playing it stays out of the way —
+                // the audio walks the student on by itself when it plays out.
+                if (widget.onNextTopic != null)
+                  ValueListenableBuilder<bool>(
+                    valueListenable: audio.playing,
+                    builder: (context, playing, _) {
+                      final offer = readerOffersNextTopic(
+                        document: widget.documentState,
+                        hasNextTopic: widget.hasNextTopic,
+                        audioPlaying: playing,
+                      );
+                      if (!offer) return const SizedBox.shrink();
+                      return Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: bottomMargin + 12 + bottomOffset,
+                        child: Center(
+                          child: _NextTopicButton(onPressed: widget.onNextTopic!),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            );
+          },
         );
       },
     );
@@ -1365,6 +1549,44 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
         VerticalDivider(width: 1, color: context.palette.border),
         Expanded(child: reader),
       ],
+    );
+  }
+}
+
+/// The way on to the next topic for a student reading without narration.
+class _NextTopicButton extends StatelessWidget {
+  const _NextTopicButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.cyan,
+      borderRadius: BorderRadius.circular(24),
+      elevation: 4,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onPressed,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Next topic',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+              SizedBox(width: 7),
+              Icon(Icons.arrow_forward_rounded, size: 17, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -9,6 +9,7 @@ import 'core/theme/app_theme.dart';
 import 'core/update/app_update_controller.dart';
 import 'core/widgets/app_launch_splash.dart';
 import 'features/announcements/announcement_popup.dart';
+import 'features/notifications/notifications_screen.dart';
 import 'features/offline/offline_gate.dart';
 import 'features/offline/offline_providers.dart';
 import 'features/update/update_gate.dart';
@@ -62,6 +63,12 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
       // running or the student is already looking at the blocking screen, so
       // this never doubles up or re-launches a flow that is already open.
       ref.read(appUpdateControllerProvider.notifier).checkForUpdate();
+      // Read state is kept per student on the server, so a notice opened on the
+      // website is already marked read by the time the phone asks again. Coming
+      // forward is when to ask: it is the moment the list on screen is most
+      // likely to be out of date, and it costs one request. Nothing is fetched
+      // if no badge or list is currently listening.
+      ref.invalidate(notificationsProvider);
     }
   }
 

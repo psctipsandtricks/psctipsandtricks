@@ -222,7 +222,7 @@ class _BooksSkeleton extends StatelessWidget {
       itemBuilder: (_, __) => const GlassCard(
         padding: EdgeInsets.all(12),
         borderRadius: AppTheme.radiusLg,
-        child: const Row(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SkeletonBox(

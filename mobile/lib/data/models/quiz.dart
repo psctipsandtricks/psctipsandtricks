@@ -203,6 +203,8 @@ class QuizFolder {
     this.description,
     this.quizCount = 0,
     this.subFolderCount = 0,
+    this.freeQuizCount = 0,
+    this.paidQuizCount = 0,
   });
 
   final String id;
@@ -211,8 +213,18 @@ class QuizFolder {
   final String? parentName;
   final String? description;
   final int orderIndex;
+
+  /// Quizzes filed directly under this folder.
   final int quizCount;
   final int subFolderCount;
+
+  /// Free quizzes in this folder *and every folder beneath it*. The server
+  /// rolls these up, which is what lets the hub draw the folder tree with its
+  /// counts before a single quiz has been fetched.
+  final int freeQuizCount;
+
+  /// Paid quizzes in this folder and everything beneath it.
+  final int paidQuizCount;
 
   bool get isEmpty => quizCount == 0 && subFolderCount == 0;
 
@@ -225,6 +237,48 @@ class QuizFolder {
         orderIndex: J.intVal(json['orderIndex']),
         quizCount: J.intVal(json['quizCount']),
         subFolderCount: J.intVal(json['subFolderCount']),
+        freeQuizCount: J.intVal(json['freeQuizCount']),
+        paidQuizCount: J.intVal(json['paidQuizCount']),
+      );
+}
+
+/// Where one student stands on one quiz — what the card's Start / Resume /
+/// Retake button and its attempt count are drawn from.
+///
+/// `completedCount` only ever counts submitted attempts. A quiz opened and
+/// walked away from is an `inProgressAttemptId`, not a count: per the rule the
+/// app follows everywhere, an attempt is only an attempt once it is submitted.
+class QuizAttemptSummary {
+  const QuizAttemptSummary({
+    required this.quizId,
+    this.completedCount = 0,
+    this.inProgressAttemptId,
+    this.lastSubmittedAt,
+  });
+
+  final String quizId;
+  final int completedCount;
+  final String? inProgressAttemptId;
+  final DateTime? lastSubmittedAt;
+
+  /// An unfinished attempt outranks a finished one: what to offer someone who
+  /// walked away mid-quiz is the way back in, not another fresh run.
+  bool get canResume => (inProgressAttemptId ?? '').isNotEmpty;
+  bool get hasCompleted => completedCount > 0;
+
+  /// What the button on the card should say.
+  String get actionLabel => canResume
+      ? 'Resume'
+      : hasCompleted
+          ? 'Retake'
+          : 'Start';
+
+  factory QuizAttemptSummary.fromJson(Map<String, dynamic> json) =>
+      QuizAttemptSummary(
+        quizId: J.str(json['quizId']),
+        completedCount: J.intVal(json['completedCount']),
+        inProgressAttemptId: J.strOrNull(json['inProgressAttemptId']),
+        lastSubmittedAt: J.dateOrNull(json['lastSubmittedAt']),
       );
 }
 

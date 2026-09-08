@@ -176,9 +176,18 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * What the caller can see, newest first, with `isRead` answered *for them*.
+   *
+   * A broadcast is one row shared by every student, so its own `isRead` column
+   * cannot say whether this student has read it — the receipt table does, and
+   * the two are merged here. That merge is what synchronises read state across
+   * devices: a notice opened in the phone app comes back read on the website
+   * and the other way round.
+   */
   async getUserNotifications(userId: string) {
     const now = new Date();
-    return this.prisma.notification.findMany({
+    const notifications = await this.prisma.notification.findMany({
       where: {
         OR: [{ userId }, { target: 'all' }],
         AND: [
@@ -197,15 +206,34 @@ export class NotificationsService {
       // they are, so the window cannot be as shallow as one screenful.
       take: 100,
     });
+
+    if (notifications.length === 0) return notifications;
+
+    const receipts = await this.prisma.notificationRead.findMany({
+      where: { userId, notificationId: { in: notifications.map((n) => n.id) } },
+      select: { notificationId: true },
+    });
+    const readIds = new Set(receipts.map((r) => r.notificationId));
+
+    return notifications.map((n) => ({
+      ...n,
+      isRead: n.isRead || readIds.has(n.id),
+    }));
   }
 
   /**
-   * Marks one notification read for the caller.
+   * Marks one notification read for the caller, on every device they use.
    *
-   * Only a row addressed to that student can be marked: a broadcast is a
-   * single row shared by everyone, so setting `isRead` on it would mark it read
-   * for the whole school. The app tracks those per device instead, and the
-   * `perUser` flag here tells it which case it got.
+   * The read state is a receipt keyed by (notification, student) rather than a
+   * column on the notification, because a broadcast is a single row shared by
+   * everyone and setting `isRead` on it would mark the notice read for the
+   * whole school. Broadcasts used to be remembered only in the browser's local
+   * storage and the phone's preferences, which is why reading one on the phone
+   * left it unread on the website; a receipt is read back by both.
+   *
+   * A notification addressed to this student also keeps its own `isRead` set,
+   * so the admin-facing view and any client still reading that column are not
+   * left behind.
    */
   async markNotificationRead(id: string, userId: string) {
     const notification = await this.prisma.notification.findUnique({ where: { id } });
@@ -216,16 +244,64 @@ export class NotificationsService {
       throw new NotFoundException('Notification not found');
     }
 
-    if (!notification.userId) {
-      return { id, isRead: notification.isRead, perUser: false };
+    await this.recordReadReceipts(userId, [id]);
+
+    if (notification.userId) {
+      await this.prisma.notification.update({
+        where: { id },
+        data: { isRead: true },
+        select: { id: true },
+      });
     }
 
-    const updated = await this.prisma.notification.update({
-      where: { id },
+    // `perUser` used to mean "the server could remember this"; it now always
+    // can. Kept in the response so older app builds, which only trust a true
+    // here, keep working against this server.
+    return { id, isRead: true, perUser: true };
+  }
+
+  /**
+   * Marks several notifications read at once — what "mark all as read" needs.
+   *
+   * With no ids, everything the student can currently see is marked, so the
+   * client does not have to enumerate a list the server can work out itself.
+   * Ids the caller cannot see are ignored rather than rejected: a stale list is
+   * a normal thing for a client to hold, not an error worth failing the whole
+   * request over.
+   */
+  async markNotificationsRead(userId: string, ids?: string[]) {
+    const visible = await this.getUserNotifications(userId);
+    const allowed = new Set(visible.map((n) => n.id));
+
+    const targetIds = (ids && ids.length > 0 ? ids : visible.map((n) => n.id)).filter(
+      (id) => allowed.has(id),
+    );
+    if (targetIds.length === 0) return { count: 0, ids: [] as string[] };
+
+    await this.recordReadReceipts(userId, targetIds);
+
+    // The student's own notifications keep their column in step, exactly as
+    // marking them one at a time does.
+    await this.prisma.notification.updateMany({
+      where: { id: { in: targetIds }, userId },
       data: { isRead: true },
-      select: { id: true, isRead: true },
     });
-    return { ...updated, perUser: true };
+
+    return { count: targetIds.length, ids: targetIds };
+  }
+
+  /**
+   * Writes one receipt per notification, ignoring the ones already there.
+   *
+   * `skipDuplicates` is what makes marking read idempotent: re-reading a notice
+   * on a second device is a no-op instead of a unique-constraint failure.
+   */
+  private async recordReadReceipts(userId: string, notificationIds: string[]) {
+    if (notificationIds.length === 0) return;
+    await this.prisma.notificationRead.createMany({
+      data: notificationIds.map((notificationId) => ({ notificationId, userId })),
+      skipDuplicates: true,
+    });
   }
 
   /**

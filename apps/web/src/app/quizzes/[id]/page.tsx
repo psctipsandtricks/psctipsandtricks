@@ -22,6 +22,8 @@ import {
   Play,
   ListChecks,
   LogOut,
+  RotateCcw,
+  Receipt,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
@@ -351,13 +353,28 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
     };
   }, [hasStarted, isSubmitted, isSubmitting, attemptId, currentIndex, selectedAnswers, timeLeft, quizDuration, questions, params.id, backHref]);
 
-  // Begins or Resumes the attempt: continues with remaining time from where they left off
-  const handleStartAttempt = async () => {
+  /**
+   * Opens the attempt.
+   *
+   * By default it resumes: the same attempt, the answers already given, and
+   * the clock where it stopped. `restart` is the "Start from beginning" path —
+   * the server retires the unfinished attempt and issues a new one, and the
+   * saved progress on this device is dropped with it, so nothing from the
+   * abandoned run leaks into the fresh one.
+   */
+  const handleStartAttempt = async ({ restart = false }: { restart?: boolean } = {}) => {
     if (isStartingAttempt) return;
     setIsStartingAttempt(true);
     setStartError('');
     try {
-      const attempt = await ApiClient.startQuizAttempt(params.id);
+      if (restart) {
+        try {
+          localStorage.removeItem(progressStorageKey(params.id));
+        } catch {
+          // A blocked storage just means there was nothing cached to drop.
+        }
+      }
+      const attempt = await ApiClient.startQuizAttempt(params.id, { restart });
       if (attempt) {
         setAttemptId(attempt.id);
         setAttemptNumber(attempt.attemptNumber || 1);
@@ -366,15 +383,16 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
         // there's a genuinely resumable attempt — otherwise a fresh "Start Quiz"
         // (e.g. a Retake right after finishing) could inherit stale answers left
         // over in localStorage from a previous, unrelated attempt.
-        const saved =
-          loadSavedProgress(params.id, attempt.id) ||
-          (hasSavedProgress ? loadSavedProgress(params.id) : null);
+        const saved = restart
+          ? null
+          : loadSavedProgress(params.id, attempt.id) ||
+            (hasSavedProgress ? loadSavedProgress(params.id) : null);
 
         // Restore answers from saved local progress or backend attempt.answers
         if (saved && saved.selectedAnswers && Object.keys(saved.selectedAnswers).length > 0) {
           setSelectedAnswers(saved.selectedAnswers);
           setCurrentIndex(Math.min(saved.currentIndex, Math.max(0, questions.length - 1)));
-        } else if (Array.isArray(attempt.answers) && attempt.answers.length > 0) {
+        } else if (!restart && Array.isArray(attempt.answers) && attempt.answers.length > 0) {
           const restoredAnswers: Record<string, number> = {};
           attempt.answers.forEach((ans: any) => {
             if (ans.questionId && typeof ans.selectedOptionIndex === 'number') {
@@ -390,8 +408,9 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
         }
 
         // CRITICAL: compute remaining time from elapsed seconds and resume clock
-        const elapsed =
-          typeof attempt.timeTakenSeconds === 'number' && attempt.timeTakenSeconds > 0
+        const elapsed = restart
+          ? 0
+          : typeof attempt.timeTakenSeconds === 'number' && attempt.timeTakenSeconds > 0
             ? attempt.timeTakenSeconds
             : (saved?.elapsedSeconds ?? 0);
         const remaining = Math.max(0, quizDuration - elapsed);
@@ -468,17 +487,42 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
   }
 
   if (error || questions.length === 0) {
+    const isUnavailable =
+      error?.toLowerCase().includes('not found') ||
+      error?.toLowerCase().includes('failed to fetch') ||
+      error?.toLowerCase().includes('404') ||
+      error?.toLowerCase().includes('no longer available') ||
+      (!loading && questions.length === 0 && !access);
+
     return (
-      <div className="max-w-3xl mx-auto py-20 text-center space-y-4">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-          {error || 'No questions available for this quiz yet.'}
-        </h2>
-        <Link href={backHref}>
-          <Button variant="gold" className="flex items-center space-x-2 mx-auto">
-            <ChevronLeft className="w-4 h-4" />
-            <span>Back to Quiz Hub</span>
-          </Button>
-        </Link>
+      <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/5">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+            {isUnavailable ? 'This product is no longer available.' : (error || 'Quiz Unavailable')}
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+            {isUnavailable
+              ? 'This quiz has been removed and is no longer accessible. If you previously purchased this item, your purchase remains recorded in your order history.'
+              : (error || 'No questions available for this quiz yet.')}
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <Link href="/orders">
+            <Button variant="gold" className="font-bold flex items-center gap-2">
+              <Receipt className="w-4 h-4" />
+              <span>Back to Order History</span>
+            </Button>
+          </Link>
+          <Link href="/quizzes">
+            <Button variant="outline" className="font-bold flex items-center gap-2">
+              <ChevronLeft className="w-4 h-4" />
+              <span>Browse Quiz Hub</span>
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -502,7 +546,8 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
         hasSavedProgress={hasSavedProgress}
         isStarting={isStartingAttempt}
         error={startError}
-        onStart={handleStartAttempt}
+        onStart={() => handleStartAttempt()}
+        onRestart={() => handleStartAttempt({ restart: true })}
         backHref={backHref}
       />
     );
@@ -1003,6 +1048,7 @@ function QuizStartScreen({
   isStarting,
   error,
   onStart,
+  onRestart,
   backHref,
 }: {
   title: string;
@@ -1016,6 +1062,8 @@ function QuizStartScreen({
   isStarting: boolean;
   error: string;
   onStart: () => void;
+  /** Abandons the unfinished attempt and begins again at question one. */
+  onRestart: () => void;
   backHref: string;
 }) {
   const durationMin = Math.max(1, Math.round(durationSeconds / 60));
@@ -1030,7 +1078,7 @@ function QuizStartScreen({
         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-amber-500 dark:text-slate-400 dark:hover:text-amber-400 transition-colors mb-4"
       >
         <ChevronLeft className="w-4 h-4" />
-        <span>Back to Quiz Hub</span>
+        <span>Back</span>
       </Link>
       <Card className="p-6 sm:p-8 space-y-6 border border-amber-500/30">
         <div className="text-center space-y-3">
@@ -1104,12 +1152,23 @@ function QuizStartScreen({
           <span>{isStarting ? 'Starting…' : hasSavedProgress ? 'Resume Quiz' : 'Start Quiz'}</span>
         </Button>
 
-        <Link href={backHref} className="block">
-          <Button variant="outline" className="w-full font-bold flex items-center justify-center gap-2">
-            <ChevronLeft className="w-4 h-4" />
-            <span>Back to Quiz Hub</span>
-          </Button>
-        </Link>
+        {hasSavedProgress && (
+          <>
+            <Button
+              variant="outline"
+              className="w-full font-bold flex items-center justify-center gap-2 cursor-pointer"
+              onClick={onRestart}
+              disabled={isStarting}
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Start from Beginning</span>
+            </Button>
+            <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">
+              Starting over discards the answers saved in this attempt. It does not
+              count as an attempt — only a submitted quiz does.
+            </p>
+          </>
+        )}
       </Card>
     </div>
   );

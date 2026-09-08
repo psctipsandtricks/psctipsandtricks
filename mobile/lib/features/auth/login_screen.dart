@@ -9,6 +9,7 @@ import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/email_validator.dart';
 import '../../core/widgets/glass_card.dart';
 import 'auth_scaffold.dart';
 import 'oauth_webview_screen.dart';
@@ -167,14 +168,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   hintText: 'you@example.com',
                   prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
                 ),
-                validator: (value) {
-                  final v = value?.trim() ?? '';
-                  if (v.isEmpty) return 'Enter your email';
-                  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
-                    return 'Enter a valid email address';
-                  }
-                  return null;
-                },
+                validator: (value) => EmailValidator.validate(value, emptyMessage: 'Enter your email'),
               ),
               const SizedBox(height: 14),
               TextFormField(

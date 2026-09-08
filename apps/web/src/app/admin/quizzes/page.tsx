@@ -1235,6 +1235,7 @@ export default function AdminQuizFoldersPage() {
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         title={editingFolder ? 'Edit Quiz Folder' : parentForNewFolder ? `Create Sub-folder in "${parentForNewFolder.name}"` : 'Add Quiz Folder'}
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

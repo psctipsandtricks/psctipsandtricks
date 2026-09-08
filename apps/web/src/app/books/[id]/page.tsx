@@ -25,6 +25,7 @@ import {
   Pause,
   Volume2,
   VolumeX,
+  Receipt,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '../../auth-provider';
@@ -261,19 +262,32 @@ export default function BookDetailPage({ params }: { params: { id: string } }) {
 
   if (loadError || !book) {
     return (
-      <div className="max-w-xl mx-auto py-16 text-center space-y-4">
-        <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
-          <AlertCircle className="w-6 h-6" />
+      <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/5">
+          <AlertCircle className="w-8 h-8" />
         </div>
-        <div className="space-y-1">
-          <h3 className="text-base font-black text-slate-900 dark:text-white">Book Not Found</h3>
-          <p className="text-slate-600 dark:text-slate-400 text-xs">{loadError || 'This book could not be loaded.'}</p>
+        <div className="space-y-2">
+          <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+            This product is no longer available.
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+            This e-book has been removed and is no longer accessible. If you previously purchased this book, your purchase remains recorded in your order history.
+          </p>
         </div>
-        <Link href="/books">
-          <Button variant="outline" size="sm" className="font-bold">
-            <ArrowLeft className="w-4 h-4 mr-1.5" /> Back to E-Books Catalog
-          </Button>
-        </Link>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <Link href="/orders">
+            <Button variant="gold" className="font-bold flex items-center gap-2">
+              <Receipt className="w-4 h-4" />
+              <span>Back to Order History</span>
+            </Button>
+          </Link>
+          <Link href="/books">
+            <Button variant="outline" className="font-bold flex items-center gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              <span>Browse E-Books</span>
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }

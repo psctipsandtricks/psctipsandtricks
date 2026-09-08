@@ -1060,6 +1060,7 @@ export default function AdminPdfFoldersPage() {
         isOpen={isFolderDialogOpen}
         onClose={() => setIsFolderDialogOpen(false)}
         title={editingFolder ? 'Edit PDF Folder' : parentForNewFolder ? `Add Subfolder inside "${parentForNewFolder.name}"` : 'Create PDF Folder'}
+        isLoading={folderFormik.isSubmitting}
       >
         <form onSubmit={folderFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">
@@ -1145,6 +1146,7 @@ export default function AdminPdfFoldersPage() {
         isOpen={isDocDialogOpen}
         onClose={() => setIsDocDialogOpen(false)}
         title={editingDoc ? 'Edit PDF Document' : `Add PDF Document to "${targetFolderForDoc?.name || 'Folder'}"`}
+        isLoading={docFormik.isSubmitting || pdfUploadPercent !== null}
       >
         <form onSubmit={docFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">

@@ -1234,15 +1234,17 @@ export default function AdminAnnouncementsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="p-2 rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+                disabled={formik.isSubmitting || uploadingImage}
+                onClick={() => !formik.isSubmitting && !uploadingImage && setIsModalOpen(false)}
+                className={`p-2 rounded-full text-slate-400 transition-colors ${formik.isSubmitting || uploadingImage ? 'opacity-40 cursor-not-allowed pointer-events-none' : 'hover:text-slate-100 hover:bg-slate-800 cursor-pointer'}`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Scrollable Body */}
-            <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-5">
+            <div className={`flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-5 ${formik.isSubmitting || uploadingImage ? 'pointer-events-none opacity-80 cursor-wait select-none' : ''}`}>
+              <fieldset disabled={formik.isSubmitting || uploadingImage} className="contents disabled:pointer-events-none">
               {/* Live Modal Preview with Dynamic Background */}
               <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.03] dark:bg-cyan-950/10 p-3.5 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-cyan-600 dark:text-cyan-400">
@@ -1759,6 +1761,7 @@ export default function AdminAnnouncementsPage() {
                   </p>
                 )}
               </form>
+              </fieldset>
             </div>
 
             {/* Modal Fixed Footer */}
@@ -1766,6 +1769,7 @@ export default function AdminAnnouncementsPage() {
               <Button
                 type="button"
                 variant="outline"
+                disabled={formik.isSubmitting || uploadingImage}
                 onClick={() => setIsModalOpen(false)}
                 className="font-bold cursor-pointer"
               >
@@ -1776,6 +1780,7 @@ export default function AdminAnnouncementsPage() {
                 type="submit"
                 variant="gold"
                 disabled={formik.isSubmitting || uploadingImage}
+                isLoading={formik.isSubmitting}
                 className="font-black px-6 shadow-md shadow-amber-500/20 cursor-pointer"
               >
                 {formik.isSubmitting

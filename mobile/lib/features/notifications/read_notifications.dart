@@ -9,17 +9,19 @@ import '../../data/repositories/notifications_repository.dart';
 
 /// Notifications this student has opened on this device.
 ///
-/// The server can only remember `isRead` for a notification addressed to one
-/// student. A broadcast is a single row shared by everyone, so marking it read
-/// there would mark it read for the whole school — those are remembered here
-/// instead, keyed by student so a shared phone does not leak one reader's state
-/// into another's list.
+/// The server is the shared record — it keeps a read receipt per student, for
+/// broadcasts as well as for notices addressed to one student, so what is read
+/// on the website comes back read here. This local set is what paints the
+/// change the instant it is tapped and what carries the list offline, and it is
+/// keyed by student so a shared phone does not leak one reader's state into
+/// another's list.
 ///
-/// Read state from both sources is merged when the list is built, so a targeted
-/// notification read on another device still shows as read here.
+/// Read state from both sources is merged when the list is built.
 class ReadNotificationsController extends StateNotifier<Set<String>> {
   ReadNotificationsController(this._prefs, this._userId, this._repository)
-      : super(_prefs.getStringList(_keyFor(_userId))?.toSet() ?? <String>{});
+      : super(_prefs.getStringList(_keyFor(_userId))?.toSet() ?? <String>{}) {
+    _uploadExistingReads();
+  }
 
   final SharedPreferences _prefs;
   final String? _userId;
@@ -27,6 +29,9 @@ class ReadNotificationsController extends StateNotifier<Set<String>> {
 
   static String _keyFor(String? userId) =>
       'psc_read_notifications_${userId ?? 'guest'}';
+
+  static String _syncedKeyFor(String? userId) =>
+      'psc_read_notifications_synced_${userId ?? 'guest'}';
 
   /// Ids are only useful while the notification is still being listed, and the
   /// API returns a bounded window — there is no reason to grow this forever.
@@ -36,11 +41,11 @@ class ReadNotificationsController extends StateNotifier<Set<String>> {
 
   /// The single way anything in the app marks a notification read: it records
   /// the id on this device — which is what the list paints from, instantly and
-  /// offline — and tells the server, which persists it for a notification
-  /// addressed to this student and ignores it for a broadcast.
+  /// offline — and tells the server, which persists it against this student so
+  /// their other devices see it too.
   void markRead(String id) {
     // The server call is worth making even when this device already knows: a
-    // targeted notification read here should stop being unread elsewhere.
+    // notification read here should stop being unread elsewhere.
     _repository.markRead(id).catchError((Object e) {
       // Read state is never worth interrupting anyone for.
       if (kDebugMode) debugPrint('Could not mark notification read: $e');
@@ -54,6 +59,62 @@ class ReadNotificationsController extends StateNotifier<Set<String>> {
         : ids;
     state = kept.toSet();
     _prefs.setStringList(_keyFor(_userId), kept);
+  }
+
+  /// Marks multiple notifications read at once, syncing the bulk receipt to the server.
+  void markAllRead(Iterable<String> ids) {
+    final toMark = ids.toList();
+    if (toMark.isEmpty) return;
+
+    _repository.markManyRead(toMark).catchError((Object e) {
+      if (kDebugMode) debugPrint('Could not mark notifications read: $e');
+    });
+
+    final newSet = {...state, ...toMark};
+    final kept = newSet.length > _maxRemembered
+        ? newSet.toList().sublist(newSet.length - _maxRemembered)
+        : newSet.toList();
+    state = kept.toSet();
+    _prefs.setStringList(_keyFor(_userId), kept);
+  }
+
+  /// Merges server-confirmed read states into local cache for offline consistency.
+  void mergeServerReads(Iterable<String> serverReadIds) {
+    final unmerged = serverReadIds.where((id) => !state.contains(id)).toList();
+    if (unmerged.isEmpty) return;
+    final newSet = {...state, ...unmerged};
+    final kept = newSet.length > _maxRemembered
+        ? newSet.toList().sublist(newSet.length - _maxRemembered)
+        : newSet.toList();
+    state = kept.toSet();
+    _prefs.setStringList(_keyFor(_userId), kept);
+  }
+
+  /// Hands this device's existing read state to the server, once per student.
+  ///
+  /// Everything read before the server kept per-student receipts is recorded
+  /// only here, so without this the synchronisation would start from an empty
+  /// slate and the website would re-surface notices already dealt with on the
+  /// phone. Ids the server no longer lists are ignored by it, so no filtering
+  /// is needed on this side — only a cap, since its window is bounded.
+  Future<void> _uploadExistingReads() async {
+    if (_userId == null) return;
+    final key = _syncedKeyFor(_userId);
+    if (_prefs.getBool(key) ?? false) return;
+
+    final backlog = state.toList();
+    // The server's own window is bounded, so there is no point sending more
+    // ids than it could still be listing.
+    final recent =
+        backlog.length > 100 ? backlog.sublist(backlog.length - 100) : backlog;
+
+    try {
+      await _repository.markManyRead(recent);
+      await _prefs.setBool(key, true);
+    } catch (e) {
+      // Left unflagged, so the next launch tries again.
+      if (kDebugMode) debugPrint('Could not sync read notifications: $e');
+    }
   }
 }
 

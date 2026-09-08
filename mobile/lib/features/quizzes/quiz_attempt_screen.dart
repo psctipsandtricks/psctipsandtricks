@@ -120,6 +120,11 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
   bool _starting = false;
   Object? _startError;
 
+  /// How many times this student has already finished and submitted this quiz.
+  /// Only submitted attempts count, so this is what the intro screen reports
+  /// and what "Retake" is offered on top of.
+  int _completedAttempts = 0;
+
   String get _storageKey => 'quiz-progress-${widget.quizId}';
 
   @override
@@ -150,6 +155,18 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       try {
         activeAttempt = await repo.fetchActiveAttempt(widget.quizId);
       } catch (_) {}
+
+      var completed = 0;
+      try {
+        final summary = await repo.fetchAttemptSummary();
+        completed = summary
+                .where((row) => row.quizId == widget.quizId)
+                .firstOrNull
+                ?.completedCount ??
+            0;
+      } catch (_) {
+        // Only the attempt count is missing; the quiz still opens.
+      }
       if (!mounted) return;
 
       // A locked premium quiz arrives with no questions; the paywall renders
@@ -158,6 +175,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       setState(() {
         _quiz = quiz;
         _activeAttempt = activeAttempt;
+        _completedAttempts = completed;
         _loading = false;
       });
     } catch (e) {
@@ -174,7 +192,11 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
   /// server, restores any local progress, then reveals the questions and starts
   /// the clock. A refusal here (an unpaid premium quiz) drops back to the
   /// paywall rather than erroring.
-  Future<void> _startAttempt() async {
+  ///
+  /// [restart] is the "Start from beginning" path: the server retires the
+  /// unfinished attempt and issues a fresh one, and the progress saved on this
+  /// device is dropped with it so nothing from the abandoned run carries over.
+  Future<void> _startAttempt({bool restart = false}) async {
     final quiz = _quiz;
     if (quiz == null || _starting || _started) return;
 
@@ -185,10 +207,19 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
 
     try {
       final repo = ref.read(quizzesRepositoryProvider);
-      final attempt = await repo.startAttempt(widget.quizId);
+      if (restart) {
+        await ref.read(sharedPrefsProvider).remove(_storageKey);
+      }
+      final attempt = await repo.startAttempt(widget.quizId, restart: restart);
       if (!mounted) return;
 
-      _restoreProgress(attempt, quiz);
+      if (restart) {
+        _answers.clear();
+        _currentIndex = 0;
+        _elapsedSeconds = 0;
+      } else {
+        _restoreProgress(attempt, quiz);
+      }
       setState(() {
         _attemptId = attempt?.id;
         _attemptNumber = attempt?.attemptNumber ?? 1;
@@ -504,8 +535,12 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
             submission,
             attemptId: _attemptId,
           );
-      // History and the dashboard both change once this lands.
+      // History and the dashboard both change once this lands — and so does
+      // the hub: this quiz has one more completed attempt and nothing left to
+      // resume, so its card turns from Resume into Retake.
       ref.invalidate(quizHistoryPageProvider);
+      ref.invalidate(allQuizAttemptsProvider);
+      ref.invalidate(quizAttemptSummaryProvider);
     } catch (_) {
       saved = null;
     }
@@ -638,7 +673,9 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
         error: _startError,
         hasSavedProgress: hasProgress,
         savedElapsedSeconds: elapsed,
-        onStart: _startAttempt,
+        completedAttempts: _completedAttempts,
+        onStart: () => _startAttempt(),
+        onRestart: () => _startAttempt(restart: true),
       );
     }
 
@@ -1231,7 +1268,9 @@ class _QuizIntroScreen extends StatelessWidget {
     required this.error,
     required this.hasSavedProgress,
     this.savedElapsedSeconds = 0,
+    this.completedAttempts = 0,
     required this.onStart,
+    required this.onRestart,
   });
 
   final Quiz quiz;
@@ -1239,7 +1278,13 @@ class _QuizIntroScreen extends StatelessWidget {
   final Object? error;
   final bool hasSavedProgress;
   final int savedElapsedSeconds;
+
+  /// Submitted attempts only — an unfinished one is not an attempt.
+  final int completedAttempts;
   final Future<void> Function() onStart;
+
+  /// Abandons the unfinished attempt and begins again at question one.
+  final Future<void> Function() onRestart;
 
   @override
   Widget build(BuildContext context) {
@@ -1288,7 +1333,9 @@ class _QuizIntroScreen extends StatelessWidget {
                     Text(
                       hasSavedProgress
                           ? 'You have an attempt in progress with ${remMin}m ${remSec > 0 ? '$remSec s ' : ''}remaining. Press Resume to continue from where you left off.'
-                          : 'Check the details below. The timer starts the moment you press Start.',
+                          : completedAttempts > 0
+                              ? 'You have completed this quiz ${Fmt.count(completedAttempts, 'time')}. The timer starts the moment you press Retake.'
+                              : 'Check the details below. The timer starts the moment you press Start.',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: palette.textSecondary,
@@ -1369,12 +1416,33 @@ class _QuizIntroScreen extends StatelessWidget {
                           ? 'Starting…'
                           : hasSavedProgress
                               ? 'Resume Quiz'
-                              : 'Start Quiz',
+                              : completedAttempts > 0
+                                  ? 'Retake Quiz'
+                                  : 'Start Quiz',
                       icon: Icons.play_arrow_rounded,
                       gradient: AppColors.goldGradient,
                       isLoading: starting,
                       onPressed: starting ? null : () => onStart(),
                     ),
+                    if (hasSavedProgress) ...[
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: starting ? null : () => onRestart(),
+                        icon: const Icon(Icons.replay_rounded, size: 18),
+                        label: const Text('Start from Beginning'),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Starting over discards the answers saved in this '
+                        'attempt. It does not count as an attempt — only a '
+                        'submitted quiz does.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: palette.textMuted,
+                              height: 1.4,
+                            ),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
                       onPressed: () {

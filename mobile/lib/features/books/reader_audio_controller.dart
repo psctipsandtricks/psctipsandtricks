@@ -76,6 +76,15 @@ class ReaderAudioController {
   /// Title of whatever is loaded, for the PDF viewer's now-playing line.
   final title = ValueNotifier<String?>(null);
 
+  /// The clip currently loaded, so a view can rebuild when the player is
+  /// pointed at a different topic.
+  ///
+  /// [title] is not a usable stand-in for this: two topics can share a name,
+  /// and a `ValueNotifier` set to the value it already holds notifies nobody —
+  /// which left the full-page player's next/previous buttons showing the
+  /// previous topic's state after a clip played out and moved the book on.
+  final source = ValueNotifier<String?>(null);
+
   late final StreamSubscription<Duration> _positionSub;
   late final StreamSubscription<Duration?> _durationSub;
   late final StreamSubscription<PlayerState> _stateSub;
@@ -118,6 +127,7 @@ class ReaderAudioController {
       return;
     }
     _url = url;
+    source.value = url;
     _announcedComplete = null;
     title.value = label;
     failed.value = false;
@@ -195,6 +205,7 @@ class ReaderAudioController {
   Future<void> stop() async {
     _url = null;
     _announcedComplete = null;
+    source.value = null;
     title.value = null;
     fraction.value = 0;
     position.value = Duration.zero;
@@ -215,6 +226,7 @@ class ReaderAudioController {
     loading.dispose();
     fraction.dispose();
     title.dispose();
+    source.dispose();
   }
 }
 

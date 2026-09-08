@@ -16,11 +16,16 @@ class QuizCard extends StatelessWidget {
     required this.quiz,
     this.onTap,
     this.width = 240,
+    this.attempt,
   });
 
   final Quiz quiz;
   final VoidCallback? onTap;
   final double? width;
+
+  /// Where this student stands on this quiz. Null when they have never opened
+  /// it — or when nobody is signed in, which reads the same way: Start.
+  final QuizAttemptSummary? attempt;
 
   @override
   Widget build(BuildContext context) {
@@ -349,7 +354,14 @@ class QuizCard extends StatelessWidget {
                             ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
+                    // Fixed-height slot so cards in a row stay aligned whether
+                    // or not this student has opened the quiz.
+                    SizedBox(
+                      height: 14,
+                      child: _AttemptStatusLine(attempt: attempt),
+                    ),
+                    const SizedBox(height: 6),
                     // Price & Actions Row - Always pinned at the exact same horizontal baseline!
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
@@ -402,37 +414,7 @@ class QuizCard extends StatelessWidget {
                         if (quiz.isPaid && quiz.isLocked)
                           const BuyNowButton(compact: true)
                         else
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 9, vertical: 4.5),
-                            decoration: BoxDecoration(
-                              color: AppColors.cyan.withValues(alpha: isDark ? 0.12 : 0.08),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: AppColors.cyan.withValues(alpha: isDark ? 0.3 : 0.25),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Start',
-                                  style: TextStyle(
-                                    color: isDark ? AppColors.cyan : const Color(0xFF0284C7),
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(width: 2.5),
-                                Icon(
-                                  Icons.arrow_forward_rounded,
-                                  size: 11,
-                                  color: isDark ? AppColors.cyan : const Color(0xFF0284C7),
-                                ),
-                              ],
-                            ),
-                          ),
+                          _AttemptAction(attempt: attempt, isDark: isDark),
                       ],
                     ),
                   ],
@@ -441,6 +423,100 @@ class QuizCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// "In progress", "3 attempts", or nothing at all for a quiz never opened.
+///
+/// Only submitted attempts are counted — walking away from a quiz leaves it in
+/// progress, not attempted.
+class _AttemptStatusLine extends StatelessWidget {
+  const _AttemptStatusLine({required this.attempt});
+
+  final QuizAttemptSummary? attempt;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = attempt;
+    if (state == null || (!state.canResume && !state.hasCompleted)) {
+      return const SizedBox.shrink();
+    }
+
+    final resuming = state.canResume;
+    final color = resuming ? AppColors.amber : AppColors.emerald;
+    final label = resuming
+        ? 'In progress'
+        : Fmt.count(state.completedCount, 'attempt');
+
+    return Row(
+      children: [
+        Icon(
+          resuming ? Icons.history_rounded : Icons.check_circle_rounded,
+          size: 11,
+          color: color,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Start, Resume or Retake — the one thing this student can do next.
+class _AttemptAction extends StatelessWidget {
+  const _AttemptAction({required this.attempt, required this.isDark});
+
+  final QuizAttemptSummary? attempt;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final resuming = attempt?.canResume ?? false;
+    final accent = resuming
+        ? AppColors.amber
+        : (isDark ? AppColors.cyan : const Color(0xFF0284C7));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: accent.withValues(alpha: isDark ? 0.3 : 0.25),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            attempt?.actionLabel ?? 'Start',
+            style: TextStyle(
+              color: accent,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 2.5),
+          Icon(
+            resuming ? Icons.play_arrow_rounded : Icons.arrow_forward_rounded,
+            size: 11,
+            color: accent,
+          ),
+        ],
       ),
     );
   }

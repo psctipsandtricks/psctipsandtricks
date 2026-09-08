@@ -48,7 +48,15 @@ class Order {
   final String? razorpayPaymentId;
   final DateTime? createdAt;
 
-  String get itemTitle => bookTitle ?? quizTitle ?? 'Purchase';
+  String get itemTitle {
+    final bt = bookTitle?.trim();
+    if (bt != null && bt.isNotEmpty) return bt;
+    final qt = quizTitle?.trim();
+    if (qt != null && qt.isNotEmpty) return qt;
+    if (isBook) return 'E-Book (Unavailable)';
+    if (quizId != null && quizId!.trim().isNotEmpty) return 'Question Bank (Unavailable)';
+    return 'Purchased Product (Unavailable)';
+  }
   bool get isBook => bookId != null;
 
   /// Prefer the 3:4 hero cover for book artwork, falling back to the catalog cover.
@@ -68,12 +76,12 @@ class Order {
       amount: J.dbl(json['amount']),
       currency: J.str(json['currency'], 'INR'),
       status: orderStatusFrom(json['status']),
-      bookId: J.strOrNull(json['bookId']),
-      quizId: J.strOrNull(json['quizId']),
-      bookTitle: J.strOrNull(book['title']),
-      bookCoverUrl: J.strOrNull(book['coverUrl']),
-      bookHeroCoverUrl: J.strOrNull(book['heroCoverUrl']),
-      quizTitle: J.strOrNull(quiz['title']),
+      bookId: J.strOrNull(json['bookId']) ?? J.strOrNull(book['id']),
+      quizId: J.strOrNull(json['quizId']) ?? J.strOrNull(quiz['id']),
+      bookTitle: J.strOrNull(book['title']) ?? J.strOrNull(json['bookTitle']),
+      bookCoverUrl: J.strOrNull(book['coverUrl']) ?? J.strOrNull(json['bookCoverUrl']),
+      bookHeroCoverUrl: J.strOrNull(book['heroCoverUrl']) ?? J.strOrNull(json['bookHeroCoverUrl']),
+      quizTitle: J.strOrNull(quiz['title']) ?? J.strOrNull(json['quizTitle']),
       razorpayPaymentId: J.strOrNull(json['razorpayPaymentId']),
       createdAt: J.dateOrNull(json['createdAt']),
     );

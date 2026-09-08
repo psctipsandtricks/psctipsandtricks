@@ -1017,6 +1017,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
         isOpen={isFolderDialogOpen}
         onClose={() => setIsFolderDialogOpen(false)}
         title={editingFolder ? 'Edit Subfolder' : parentForNewFolder ? `Add Subfolder inside "${parentForNewFolder.name}"` : `Create Subfolder inside "${folder.name}"`}
+        isLoading={subFolderFormik.isSubmitting}
       >
         <form onSubmit={subFolderFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">
@@ -1081,6 +1082,7 @@ export default function AdminVideoFolderDetailPage({ params }: { params: { folde
         isOpen={isVideoDialogOpen}
         onClose={() => setIsVideoDialogOpen(false)}
         title={editingVideo ? 'Edit Video' : `Add Video to "${targetFolderForVideo?.name || folder.name}"`}
+        isLoading={videoFormik.isSubmitting || pdfUploadPercent !== null}
       >
         <form onSubmit={videoFormik.handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1">

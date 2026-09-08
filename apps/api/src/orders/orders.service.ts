@@ -1,5 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  resolveOrderAccessStatus,
+  subscriptionExpiryFrom,
+} from '../common/access/order-access-status';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { CreateManualOrderDto } from './dto/create-manual-order.dto';
@@ -7,6 +11,24 @@ import { RazorpayService } from './razorpay.service';
 
 /** Marks an order as admin-granted rather than paid through Razorpay — the admin orders table reads this prefix to show a "Manual" badge. */
 export const MANUAL_ORDER_TAG = 'MANUAL_GRANT';
+
+/**
+ * Tags each row with what it currently entitles its buyer to, so the admin
+ * table can show access alongside payment.
+ *
+ * Resolved here rather than in the browser because the answer needs the book's
+ * subscription terms, which the table has no other reason to load — and because
+ * "is it expired" has to be judged against the server's clock, not a laptop's.
+ */
+function withAccessStatus<T extends { status: string; validTill: Date | null; createdAt: Date; book?: { subscriptionType?: string | null; subscriptionDuration?: string | null } | null }>(
+  orders: T[],
+): (T & { access: ReturnType<typeof resolveOrderAccessStatus> })[] {
+  const now = new Date();
+  return orders.map((order) => ({
+    ...order,
+    access: resolveOrderAccessStatus(order, now),
+  }));
+}
 
 @Injectable()
 export class OrdersService {
@@ -104,25 +126,7 @@ export class OrdersService {
 
   /** Calculates the subscription expiration date based on a book's subscriptionDuration */
   private calculateSubscriptionExpiry(duration?: string | null): Date {
-    const validTill = new Date();
-    switch (duration) {
-      case '1_MONTH':
-        validTill.setMonth(validTill.getMonth() + 1);
-        break;
-      case '3_MONTHS':
-        validTill.setMonth(validTill.getMonth() + 3);
-        break;
-      case '6_MONTHS':
-        validTill.setMonth(validTill.getMonth() + 6);
-        break;
-      case '1_YEAR':
-        validTill.setFullYear(validTill.getFullYear() + 1);
-        break;
-      default:
-        validTill.setMonth(validTill.getMonth() + 1);
-        break;
-    }
-    return validTill;
+    return subscriptionExpiryFrom(duration);
   }
 
   /** Grants a book/quiz to a user without going through Razorpay — for support/testing use, admin- or manageOrders-staff-only. */
@@ -157,15 +161,36 @@ export class OrdersService {
       if (amount === undefined) amount = (quiz.finalPrice && quiz.finalPrice > 0) ? quiz.finalPrice : (quiz.price ?? 0);
     }
 
+    // Granting a second copy of something the student already holds would leave
+    // two live orders for one item — the access checks read the first one they
+    // find, and the duplicate only ever shows up as a confusing extra row in
+    // their order history. An expired subscription is not active, so re-granting
+    // that is allowed and is the normal way to renew one by hand.
+    const activeGrant = await this.prisma.order.findFirst({
+      where: {
+        userId: dto.userId,
+        status: 'SUCCESS',
+        ...(dto.bookId ? { bookId: dto.bookId } : { quizId: dto.quizId }),
+        OR: [{ validTill: null }, { validTill: { gt: new Date() } }],
+      },
+      select: { id: true },
+    });
+    if (activeGrant) {
+      throw new ConflictException(
+        'This product has already been purchased and is currently active for this user.',
+      );
+    }
+
     let purchasedAt = new Date();
-    if (dto.purchaseDate) {
-      const parsed = new Date(dto.purchaseDate);
+    const dateInput = dto.purchaseDate || dto.orderDate || dto.createdAt;
+    if (dateInput) {
+      const parsed = new Date(dateInput);
       if (Number.isNaN(parsed.getTime())) {
-        throw new BadRequestException('Invalid purchaseDate.');
+        throw new BadRequestException('Invalid purchaseDate / orderDate.');
       }
       // A date-only string ("YYYY-MM-DD") parses to midnight UTC; nudge it to
       // noon so the recorded day is stable across timezones.
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dto.purchaseDate)) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
         parsed.setUTCHours(12, 0, 0, 0);
       }
       purchasedAt = parsed;
@@ -353,7 +378,11 @@ export class OrdersService {
           where,
           include: {
             user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },
-            book: { select: { title: true } },
+            // subscriptionType/Duration are what recover an expiry date for the
+            // rows that predate `Order.validTill` being written.
+            book: {
+              select: { title: true, subscriptionType: true, subscriptionDuration: true },
+            },
             quiz: { select: { title: true } },
           },
           skip,
@@ -391,7 +420,7 @@ export class OrdersService {
       }
 
       return {
-        data,
+        data: withAccessStatus(data),
         total,
         page,
         limit,
@@ -408,11 +437,13 @@ export class OrdersService {
       };
     }
 
-    return this.prisma.order.findMany({
+    const rows = await this.prisma.order.findMany({
       where,
       include: {
         user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },
-        book: { select: { title: true } },
+        book: {
+          select: { title: true, subscriptionType: true, subscriptionDuration: true },
+        },
         quiz: { select: { title: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -421,6 +452,7 @@ export class OrdersService {
       // not just a theoretical one.
       take: 500,
     });
+    return withAccessStatus(rows);
   }
 
   async updateOrder(
@@ -460,7 +492,7 @@ export class OrdersService {
         ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.razorpayPaymentId !== undefined ? { razorpayPaymentId: dto.razorpayPaymentId } : {}),
-        ...(createdAt !== undefined ? { createdAt } : {}),
+        ...(createdAt !== undefined ? { createdAt, paidAt: createdAt } : {}),
       },
       include: {
         user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },

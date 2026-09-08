@@ -11,7 +11,10 @@
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "ts-node prisma/seed.ts"
+    "db:seed": "ts-node prisma/seed.ts",
+    "check:streak": "ts-node src/analytics/study-streak.check.ts",
+    "check:attempts": "ts-node src/quizzes/attempt-counting.check.ts",
+    "check:grants": "ts-node src/orders/active-grant.check.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.3",

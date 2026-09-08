@@ -355,6 +355,7 @@ export default function AdminCouponsPage() {
           setEditingCoupon(null);
         }}
         title={editingCoupon ? `Edit Coupon — ${editingCoupon.code}` : 'Create Discount Coupon'}
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

@@ -73,6 +73,25 @@ class ChatGroup {
             ? ChatMessage.fromJson(J.map(json['lastMessage']))
             : null,
       );
+
+  /// Round-trips back through `fromJson`, so the on-disk cache stores exactly
+  /// what the API would have sent.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'description': description,
+        'category': category,
+        'iconEmoji': iconEmoji,
+        'imageUrl': imageUrl,
+        'isLocked': isLocked,
+        'allowTextMessages': allowTextMessages,
+        'allowPolls': allowPolls,
+        'memberCount': memberCount,
+        'isJoined': isJoined,
+        'isPinned': isPinned,
+        'unreadCount': unreadCount,
+        'lastMessage': lastMessage?.toJson(),
+      };
 }
 
 class ChatMessage {
@@ -154,6 +173,25 @@ class ChatMessage {
       createdAt: J.dateOrNull(json['createdAt']) ?? DateTime.now(),
     );
   }
+
+  /// Round-trips back through `fromJson`, so the on-disk cache stores exactly
+  /// what the API would have sent. `type` is written under `messageType` — the
+  /// API's own field name — and the poll flavour is re-derived from `metadata`
+  /// on read, exactly as it is for a live response.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'userId': userId,
+        'userName': userName,
+        'userAvatar': userAvatar,
+        'content': content,
+        'messageType': type.name.toUpperCase(),
+        'mediaUrl': mediaUrl,
+        'metadata': metadata,
+        'groupId': groupId,
+        // Written in UTC so a device that changes timezone between sessions
+        // reads back the same instant, not the same wall clock.
+        'createdAt': createdAt.toUtc().toIso8601String(),
+      };
 }
 
 class PollOption {

@@ -580,6 +580,7 @@ export default function AdminMockTestsPage() {
           setEditingMockTest(null);
         }}
         title={editingMockTest ? 'Edit Live Mock Test' : 'Schedule Live Mock Test'}
+        isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
           <Input

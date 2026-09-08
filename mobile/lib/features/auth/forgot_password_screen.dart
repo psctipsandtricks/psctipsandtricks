@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,7 @@ import '../../core/network/api_exception.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/email_validator.dart';
 import '../../core/widgets/glass_card.dart';
 import 'auth_scaffold.dart';
 
@@ -32,16 +35,37 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   bool _obscureNew = true;
   bool _obscureConfirm = true;
   bool _submitting = false;
+  int _resendCooldown = 0;
+  Timer? _cooldownTimer;
   String? _error;
   String? _info;
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _email.dispose();
     _otp.dispose();
     _newPassword.dispose();
     _confirmPassword.dispose();
     super.dispose();
+  }
+
+  void _startCooldown([int seconds = 30]) {
+    _cooldownTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _resendCooldown = seconds);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_resendCooldown <= 1) {
+        timer.cancel();
+        setState(() => _resendCooldown = 0);
+      } else {
+        setState(() => _resendCooldown -= 1);
+      }
+    });
   }
 
   // Step 1: Send OTP to email
@@ -65,6 +89,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           _info = res['message']?.toString() ??
               'A 6-digit verification code has been sent to ${_email.text.trim()}';
         });
+        _startCooldown(30);
       }
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -95,7 +120,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       if (mounted) {
         setState(() {
           _step = _Step.createPassword;
-          _info = res['message']?.toString() ?? 'OTP verified successfully!';
+          _info = res['message']?.toString() ?? 'OTP verified successfully.';
         });
       }
     } on ApiException catch (e) {
@@ -218,14 +243,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
               hintText: 'aspirant@example.com',
               prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
             ),
-            validator: (value) {
-              final v = value?.trim() ?? '';
-              if (v.isEmpty) return 'Enter your email address';
-              if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
-                return 'Enter a valid email address';
-              }
-              return null;
-            },
+            validator: (value) => EmailValidator.validate(value, emptyMessage: 'Enter your email address'),
           ),
           const SizedBox(height: 22),
           GradientButton(
@@ -294,8 +312,10 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                 label: const Text('Change email'),
               ),
               TextButton(
-                onPressed: _submitting ? null : _sendOtp,
-                child: const Text('Resend code'),
+                onPressed: (_submitting || _resendCooldown > 0) ? null : _sendOtp,
+                child: Text(
+                  _resendCooldown > 0 ? 'Resend in ${_resendCooldown}s' : 'Resend code',
+                ),
               ),
             ],
           ),
