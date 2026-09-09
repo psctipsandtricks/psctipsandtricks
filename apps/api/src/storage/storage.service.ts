@@ -85,4 +85,113 @@ export class StorageService {
     const { data } = this.client.storage.from(bucket).getPublicUrl(path);
     return data.publicUrl;
   }
+
+  /**
+   * Splits one of our own public URLs back into the bucket and object key it
+   * points at, or null if it is not ours.
+   *
+   * "Ours" is deliberately strict — the origin has to match the configured
+   * Supabase project and the path has to have the exact public-object shape.
+   * Records hold plenty of URLs this must never match: Google profile photos,
+   * YouTube thumbnails, and URLs carried over verbatim from the legacy PHP app.
+   * Anything unrecognised is somebody else's file and is left alone.
+   */
+  parsePublicUrl(url: string | null | undefined): { bucket: string; path: string } | null {
+    if (!url) return null;
+
+    const base = this.configService.get<string>('SUPABASE_URL');
+    if (!base) return null;
+
+    let parsed: URL;
+    let origin: URL;
+    try {
+      parsed = new URL(url);
+      origin = new URL(base);
+    } catch {
+      return null;
+    }
+    if (parsed.host !== origin.host) return null;
+
+    // /storage/v1/object/public/<bucket>/<path...>
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const marker = ['storage', 'v1', 'object', 'public'];
+    if (segments.length < marker.length + 2) return null;
+    if (marker.some((part, i) => segments[i] !== part)) return null;
+
+    const bucket = segments[marker.length];
+    const path = segments
+      .slice(marker.length + 1)
+      .map((segment) => decodeURIComponent(segment))
+      .join('/');
+    if (!bucket || !path) return null;
+
+    return { bucket, path };
+  }
+
+  /**
+   * Deletes a file this application uploaded, given the public URL held in a
+   * record.
+   *
+   * Never throws. A file left behind is wasted storage; an exception here would
+   * fail a request whose real work — the new file and the updated record — has
+   * already succeeded, which is far worse. Every outcome is logged instead.
+   *
+   * [ownedBy] is a required safety catch rather than an option: every upload
+   * path in this codebase embeds the id of the record it belongs to, so
+   * insisting the key contains that id is what stops a record whose URL was
+   * hand-edited to point at *another* record's file from deleting it. Pass the
+   * id the file should belong to.
+   */
+  async removeOwnedFile(
+    url: string | null | undefined,
+    ownedBy: string,
+  ): Promise<boolean> {
+    const target = this.parsePublicUrl(url);
+    if (!target || !this.client) return false;
+
+    if (!ownedBy || !target.path.includes(ownedBy)) {
+      this.logger.warn(
+        `Refusing to delete "${target.path}" — it is not filed under ${ownedBy}.`,
+      );
+      return false;
+    }
+
+    try {
+      const { error } = await this.client.storage
+        .from(target.bucket)
+        .remove([target.path]);
+      if (error) {
+        this.logger.warn(
+          `Could not delete replaced file ${target.bucket}/${target.path}: ${error.message}`,
+        );
+        return false;
+      }
+      this.logger.log(`Deleted replaced file ${target.bucket}/${target.path}`);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(
+        `Could not delete replaced file ${target.bucket}/${target.path}: ${err?.message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * The whole replace-a-file rule in one place: drop [previousUrl] now that
+   * [currentUrl] has taken over.
+   *
+   * Only ever called *after* the new file is stored and the record updated, so
+   * a failure anywhere earlier leaves the old file exactly where it was. Also
+   * declines when the two URLs are the same, which happens when an upload
+   * overwrites its own key rather than writing a new one — deleting there would
+   * throw away the file that was just uploaded.
+   */
+  async removeReplacedFile(
+    previousUrl: string | null | undefined,
+    currentUrl: string | null | undefined,
+    ownedBy: string,
+  ): Promise<boolean> {
+    if (!previousUrl || previousUrl === currentUrl) return false;
+    return this.removeOwnedFile(previousUrl, ownedBy);
+  }
 }

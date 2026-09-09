@@ -164,37 +164,82 @@ void main() {
     });
   });
 
-  group('one step of the chase', () {
-    test('a small gap is closed outright', () {
-      expect(
-        pdfNextScrollOffset(current: -100, target: -140),
-        closeTo(-140, 0.001),
-      );
+  group('following the narration', () {
+    // One frame at 60fps, which is the rate the chase actually runs at.
+    const frame = Duration(microseconds: 16667);
+
+    double? next(double current, double target, [Duration elapsed = frame]) =>
+        pdfNextScrollOffset(current: current, target: target, elapsed: elapsed);
+
+    test('a large gap is not rationed out a few lines at a time', () {
+      // The regression this exists for: the follow used to move a fixed ~72px
+      // on a 600ms timer, which read as hopping rather than scrolling. It now
+      // closes a proportion of the gap, so a big gap moves proportionally far.
+      final small = next(0, -100)!;
+      final large = next(0, -4000)!;
+
+      expect(large.abs(), greaterThan(small.abs() * 10));
     });
 
-    test('a large gap moves a few lines and no more', () {
-      final next = pdfNextScrollOffset(current: -100, target: -5000)!;
+    test('it eases in, slowing as it arrives', () {
+      // The shape of a scroll on a web page: fastest when it has furthest to
+      // go, gentlest at the end.
+      var at = 0.0;
+      const target = -1000.0;
+      final steps = <double>[];
+      for (var i = 0; i < 6; i++) {
+        final moved = next(at, target)!;
+        steps.add((moved - at).abs());
+        at = moved;
+      }
 
-      expect(next, closeTo(-100 - kPdfMaxStepPx, 0.001));
-      expect(
-        (next + 100).abs(),
-        lessThanOrEqualTo(kPdfLineHeight * 3),
-        reason: 'a step should read as two or three lines of reading',
-      );
+      for (var i = 1; i < steps.length; i++) {
+        expect(steps[i], lessThan(steps[i - 1]),
+            reason: 'each frame should travel less than the one before it');
+      }
     });
 
-    test('backwards is capped the same way', () {
-      expect(
-        pdfNextScrollOffset(current: -5000, target: -100),
-        closeTo(-5000 + kPdfMaxStepPx, 0.001),
-      );
+    test('it converges on the target rather than circling it', () {
+      var at = 0.0;
+      const target = -900.0;
+      for (var i = 0; i < 240; i++) {
+        final moved = next(at, target);
+        if (moved == null) break;
+        at = moved;
+      }
+
+      expect(at, closeTo(target, kPdfSettlePx));
+    });
+
+    test('the speed is the same on a 120Hz screen as on a 60Hz one', () {
+      // Frame-rate independent: two half-length frames must cover the same
+      // ground as one whole one, or a fast phone would scroll twice as quickly.
+      const half = Duration(microseconds: 8333);
+      final oneWholeFrame = next(0, -1000)!;
+
+      var at = 0.0;
+      at = next(at, -1000, half)!;
+      at = next(at, -1000, half)!;
+
+      expect(at, closeTo(oneWholeFrame, 1.0));
+    });
+
+    test('backwards works the same way', () {
+      final moved = next(-1000, -100)!;
+
+      expect(moved, greaterThan(-1000));
+      expect(moved, lessThan(-100));
     });
 
     test('already there means do not move at all', () {
-      // Every move costs a platform round trip, and a document nudged a pixel
-      // at a time is exactly the flicker this is meant to avoid.
-      expect(pdfNextScrollOffset(current: -100, target: -101), isNull);
-      expect(pdfNextScrollOffset(current: -100, target: -100), isNull);
+      // Every move costs a platform round trip, and a document nudged a
+      // fraction of a pixel is the flicker this is meant to avoid.
+      expect(next(-100, -100), isNull);
+      expect(next(-100, -100 + kPdfSettlePx / 2), isNull);
+    });
+
+    test('a frame with no time in it moves nothing', () {
+      expect(next(0, -1000, Duration.zero), isNull);
     });
   });
 

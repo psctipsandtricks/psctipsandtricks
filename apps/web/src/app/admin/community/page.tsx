@@ -42,6 +42,7 @@ import {
   Tag,
   Image as ImageIcon,
   Camera,
+  FileSignature,
 } from 'lucide-react';
 import {
   useAdminGroups,
@@ -79,6 +80,9 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 const groupSchema = Yup.object({
   groupName: Yup.string().trim().required('Group name is required'),
   groupDesc: Yup.string().trim().required('Description is required'),
+  // Optional on purpose: a group with no agreement lets students in straight
+  // away, which is how every group behaved before this field existed.
+  groupAgreement: Yup.string().max(10000, 'Keep the agreement under 10,000 characters'),
 });
 
 const postAnnouncementSchema = Yup.object({
@@ -183,7 +187,7 @@ export default function AdminCommunityPage() {
     // Category is no longer chosen at creation (the picker was removed from
     // the form), so every new group gets a neutral default rather than
     // silently defaulting to "Kerala PSC" for groups about anything else.
-    initialValues: { groupName: '', groupDesc: '', groupCategory: 'General' },
+    initialValues: { groupName: '', groupDesc: '', groupCategory: 'General', groupAgreement: '' },
     validationSchema: groupSchema,
     onSubmit: async (values, { setSubmitting }) => {
       setGroupFormError('');
@@ -196,6 +200,7 @@ export default function AdminCommunityPage() {
               name: values.groupName.trim(),
               description: values.groupDesc.trim(),
               category: values.groupCategory,
+              agreement: values.groupAgreement.trim(),
             },
           });
         } else {
@@ -204,6 +209,7 @@ export default function AdminCommunityPage() {
             name: values.groupName.trim(),
             description: values.groupDesc.trim(),
             category: values.groupCategory,
+            agreement: values.groupAgreement.trim(),
           });
           targetGroup = created;
           // Switch into "editing" the newly created group right away so that,
@@ -217,8 +223,7 @@ export default function AdminCommunityPage() {
             await uploadImageMutation.mutateAsync({ groupId: targetGroup.id, file: groupImageFile });
           } catch (uploadErr: any) {
             setGroupFormError(
-              `${editingGroup ? 'Changes saved' : 'Group created'}, but the photo failed to upload — ${
-                uploadErr?.message || 'please try again.'
+              `${editingGroup ? 'Changes saved' : 'Group created'}, but the photo failed to upload — ${uploadErr?.message || 'please try again.'
               }`,
             );
             return;
@@ -363,7 +368,7 @@ export default function AdminCommunityPage() {
   const handleOpenCreateModal = () => {
     setEditingGroup(null);
     groupFormik.resetForm({
-      values: { groupName: '', groupDesc: '', groupCategory: 'General' },
+      values: { groupName: '', groupDesc: '', groupCategory: 'General', groupAgreement: '' },
     });
     setGroupFormError('');
     setGroupImageFile(null);
@@ -375,7 +380,12 @@ export default function AdminCommunityPage() {
   const handleOpenEditModal = (group: AdminGroup) => {
     setEditingGroup(group);
     groupFormik.resetForm({
-      values: { groupName: group.name, groupDesc: group.description, groupCategory: group.category },
+      values: {
+        groupName: group.name,
+        groupDesc: group.description,
+        groupCategory: group.category,
+        groupAgreement: group.agreement || '',
+      },
     });
     setGroupFormError('');
     // Clear any file picked in a previous session so it can't be uploaded to
@@ -599,147 +609,145 @@ export default function AdminCommunityPage() {
                 </TableRow>
               ) : (
                 paginatedGroups.map((group) => (
-                <TableRow key={group.id}>
-                  <TableCell className="max-w-[240px] lg:max-w-[320px] py-4">
-                    <div className="flex items-center gap-3">
-                      <GroupAvatar
-                        name={group.name}
-                        imageUrl={group.imageUrl}
-                        coverGradient={group.coverGradient}
-                        className="w-9 h-9 rounded-xl shrink-0"
-                        textClassName="text-xs"
-                      />
-                      <div className="relative group/title min-w-0">
-                        <span className="block truncate font-bold text-slate-900 dark:text-white text-sm cursor-pointer">
-                          {group.name}
-                        </span>
-                        <span className="block truncate text-xs font-normal text-slate-500 dark:text-slate-400 mt-0.5">
-                          {group.description}
-                        </span>
-                        <div className="pointer-events-none absolute left-0 bottom-full mb-1.5 hidden group-hover/title:block z-[90] w-max max-w-xs sm:max-w-md px-3 py-2 rounded-xl bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white text-xs font-semibold shadow-xl border border-slate-700/80 leading-snug break-words">
-                          {group.name}
+                  <TableRow key={group.id}>
+                    <TableCell className="max-w-[240px] lg:max-w-[320px] py-4">
+                      <div className="flex items-center gap-3">
+                        <GroupAvatar
+                          name={group.name}
+                          imageUrl={group.imageUrl}
+                          coverGradient={group.coverGradient}
+                          className="w-9 h-9 rounded-xl shrink-0"
+                          textClassName="text-xs"
+                        />
+                        <div className="relative group/title min-w-0">
+                          <span className="block truncate font-bold text-slate-900 dark:text-white text-sm cursor-pointer">
+                            {group.name}
+                          </span>
+                          <span className="block truncate text-xs font-normal text-slate-500 dark:text-slate-400 mt-0.5">
+                            {group.description}
+                          </span>
+                          <div className="pointer-events-none absolute left-0 bottom-full mb-1.5 hidden group-hover/title:block z-[90] w-max max-w-xs sm:max-w-md px-3 py-2 rounded-xl bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-md text-white text-xs font-semibold shadow-xl border border-slate-700/80 leading-snug break-words">
+                            {group.name}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-800 dark:text-cyan-300 border border-cyan-500/25 shadow-2xs">
-                      <Tag className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
-                      <span>{group.category}</span>
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-mono font-extrabold text-cyan-600 dark:text-cyan-300 whitespace-nowrap">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs font-bold border-cyan-500/40 text-cyan-700 dark:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 py-1 px-2.5 rounded-xl flex items-center space-x-1.5 cursor-pointer"
-                      title="View group roster"
-                      onClick={() => handleOpenMembersModal(group)}
-                    >
-                      <Users className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Manage ({group.memberCount} members)</span>
-                    </Button>
-                  </TableCell>
-
-                  <TableCell className="whitespace-nowrap">
-                    {group.isLocked ? (
-                      <Badge variant="danger" className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-rose-500/15 text-rose-800 dark:text-rose-300 border border-rose-500/30 px-2.5 py-1">
-                        <Lock className="w-3 h-3" />
-                        <span>Locked</span>
-                      </Badge>
-                    ) : (
-                      <Badge variant="success" className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2.5 py-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Active</span>
-                      </Badge>
-                    )}
-                  </TableCell>
-
-                  {/* Per-group student feature switches */}
-                  <TableCell className="whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          toggleFeatureMutation.mutate({
-                            groupId: group.id,
-                            feature: 'allowTextMessages',
-                            enabled: !group.allowTextMessages,
-                          })
-                        }
-                        disabled={toggleFeatureMutation.isPending}
-                        aria-pressed={group.allowTextMessages}
-                        title={group.allowTextMessages ? 'Text messages enabled — click to disable' : 'Text messages disabled — click to enable'}
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer ${
-                          group.allowTextMessages
-                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                            : 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 line-through'
-                        }`}
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        <span>Text</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          toggleFeatureMutation.mutate({
-                            groupId: group.id,
-                            feature: 'allowPolls',
-                            enabled: !group.allowPolls,
-                          })
-                        }
-                        disabled={toggleFeatureMutation.isPending}
-                        aria-pressed={group.allowPolls}
-                        title={group.allowPolls ? 'Polls enabled — click to disable' : 'Polls disabled — click to enable'}
-                        className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer ${
-                          group.allowPolls
-                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                            : 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 line-through'
-                        }`}
-                      >
-                        <BarChart2 className="w-3 h-3" />
-                        <span>Polls</span>
-                      </button>
-                    </div>
-                  </TableCell>
-
-                  <TableCell className="text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end space-x-1.5">
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-cyan-500/10 text-cyan-800 dark:text-cyan-300 border border-cyan-500/25 shadow-2xs">
+                        <Tag className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                        <span>{group.category}</span>
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-mono font-extrabold text-cyan-600 dark:text-cyan-300 whitespace-nowrap">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/10 transition-all shadow-2xs"
-                        title={group.isLocked ? 'Unlock Group' : 'Lock Group'}
-                        onClick={() => setConfirmAction({ type: 'lock', group })}
+                        className="text-xs font-bold border-cyan-500/40 text-cyan-700 dark:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 py-1 px-2.5 rounded-xl flex items-center space-x-1.5 cursor-pointer"
+                        title="View group roster"
+                        onClick={() => handleOpenMembersModal(group)}
                       >
-                        {group.isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        <Users className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Manage ({group.memberCount} members)</span>
                       </Button>
+                    </TableCell>
 
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all shadow-2xs"
-                        title="Edit Group"
-                        onClick={() => handleOpenEditModal(group)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
+                    <TableCell className="whitespace-nowrap">
+                      {group.isLocked ? (
+                        <Badge variant="danger" className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-rose-500/15 text-rose-800 dark:text-rose-300 border border-rose-500/30 px-2.5 py-1">
+                          <Lock className="w-3 h-3" />
+                          <span>Locked</span>
+                        </Badge>
+                      ) : (
+                        <Badge variant="success" className="font-extrabold flex items-center w-fit gap-1.5 text-[11px] bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 px-2.5 py-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Active</span>
+                        </Badge>
+                      )}
+                    </TableCell>
 
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/10 transition-all shadow-2xs"
-                        title="Delete Group"
-                        onClick={() => setConfirmAction({ type: 'delete-group', group })}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
+                    {/* Per-group student feature switches */}
+                    <TableCell className="whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleFeatureMutation.mutate({
+                              groupId: group.id,
+                              feature: 'allowTextMessages',
+                              enabled: !group.allowTextMessages,
+                            })
+                          }
+                          disabled={toggleFeatureMutation.isPending}
+                          aria-pressed={group.allowTextMessages}
+                          title={group.allowTextMessages ? 'Text messages enabled — click to disable' : 'Text messages disabled — click to enable'}
+                          className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer ${group.allowTextMessages
+                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 line-through'
+                            }`}
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>Text</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleFeatureMutation.mutate({
+                              groupId: group.id,
+                              feature: 'allowPolls',
+                              enabled: !group.allowPolls,
+                            })
+                          }
+                          disabled={toggleFeatureMutation.isPending}
+                          aria-pressed={group.allowPolls}
+                          title={group.allowPolls ? 'Polls enabled — click to disable' : 'Polls disabled — click to enable'}
+                          className={`px-2 py-1 rounded-lg border text-[10px] font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60 cursor-pointer ${group.allowPolls
+                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 line-through'
+                            }`}
+                        >
+                          <BarChart2 className="w-3 h-3" />
+                          <span>Polls</span>
+                        </button>
+                      </div>
+                    </TableCell>
+
+                    <TableCell className="text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/10 transition-all shadow-2xs"
+                          title={group.isLocked ? 'Unlock Group' : 'Lock Group'}
+                          onClick={() => setConfirmAction({ type: 'lock', group })}
+                        >
+                          {group.isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all shadow-2xs"
+                          title="Edit Group"
+                          onClick={() => handleOpenEditModal(group)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          className="p-2 rounded-xl border-slate-300 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/10 transition-all shadow-2xs"
+                          title="Delete Group"
+                          onClick={() => setConfirmAction({ type: 'delete-group', group })}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>
@@ -761,7 +769,7 @@ export default function AdminCommunityPage() {
 
       {/* Create / Edit Group Modal */}
       {isGroupModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 !mt-0">
           <div className="w-full max-w-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-3 min-w-0">
@@ -790,135 +798,164 @@ export default function AdminCommunityPage() {
 
             <form onSubmit={groupFormik.handleSubmit} className="space-y-4 text-xs" noValidate>
               <fieldset disabled={groupFormik.isSubmitting} className="contents disabled:pointer-events-none">
-              {groupFormError && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center">
-                  {groupFormError}
-                </div>
-              )}
+                {groupFormError && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center">
+                    {groupFormError}
+                  </div>
+                )}
 
-              {/* Group Profile Picture */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Group Profile Picture
-                </label>
-                <div
-                  {...groupImageDrop.dropProps}
-                  className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${
-                    groupImageDrop.isDragActive
+                {/* Group Profile Picture */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    Group Profile Picture
+                  </label>
+                  <div
+                    {...groupImageDrop.dropProps}
+                    className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${groupImageDrop.isDragActive
                       ? 'border-cyan-500 ring-2 ring-cyan-500/30 bg-cyan-500/10'
                       : 'border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50'
-                  }`}
-                >
-                  <div className="relative shrink-0">
-                    {groupImagePreview ? (
-                      <img
-                        src={groupImagePreview}
-                        alt="Group preview"
-                        className="w-16 h-16 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-sm"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center text-slate-400">
-                        <ImageIcon className="w-6 h-6" />
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => groupImageInputRef.current?.click()}
-                      className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white border-2 border-white dark:border-slate-950 flex items-center justify-center shadow-md transition-colors cursor-pointer"
-                      title={groupImagePreview ? 'Change photo' : 'Upload photo'}
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
+                      }`}
+                  >
+                    <div className="relative shrink-0">
+                      {groupImagePreview ? (
+                        <img
+                          src={groupImagePreview}
+                          alt="Group preview"
+                          className="w-16 h-16 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-sm"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center text-slate-400">
+                          <ImageIcon className="w-6 h-6" />
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={() => groupImageInputRef.current?.click()}
-                        className="text-xs font-bold text-cyan-700 dark:text-cyan-400 hover:underline cursor-pointer"
+                        className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white border-2 border-white dark:border-slate-950 flex items-center justify-center shadow-md transition-colors cursor-pointer"
+                        title={groupImagePreview ? 'Change photo' : 'Upload photo'}
                       >
-                        {groupImagePreview ? 'Change Photo' : 'Upload Photo'}
+                        <Camera className="w-3.5 h-3.5" />
                       </button>
-                      {groupImageFile && (
-                        <>
-                          <span className="text-slate-300 dark:text-slate-700">•</span>
-                          <button
-                            type="button"
-                            onClick={handleRemoveStagedGroupImage}
-                            className="text-xs font-bold text-rose-500 hover:underline cursor-pointer"
-                          >
-                            Remove
-                          </button>
-                        </>
-                      )}
                     </div>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                      {groupImageDrop.isDragActive ? 'Drop image to upload…' : 'PNG, JPG or WEBP — up to 5MB. Drag and drop works too.'}
-                    </p>
-                    {groupImageFile && (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono">
-                        {groupImageFile.name}
+
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => groupImageInputRef.current?.click()}
+                          className="text-xs font-bold text-cyan-700 dark:text-cyan-400 hover:underline cursor-pointer"
+                        >
+                          {groupImagePreview ? 'Change Photo' : 'Upload Photo'}
+                        </button>
+                        {groupImageFile && (
+                          <>
+                            <span className="text-slate-300 dark:text-slate-700">•</span>
+                            <button
+                              type="button"
+                              onClick={handleRemoveStagedGroupImage}
+                              className="text-xs font-bold text-rose-500 hover:underline cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                        {groupImageDrop.isDragActive ? 'Drop image to upload…' : 'PNG, JPG or WEBP — up to 5MB. Drag and drop works too.'}
                       </p>
-                    )}
-                    {groupImageError && <p className="text-[11px] text-rose-500 font-semibold">{groupImageError}</p>}
+                      {groupImageFile && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono">
+                          {groupImageFile.name}
+                        </p>
+                      )}
+                      {groupImageError && <p className="text-[11px] text-rose-500 font-semibold">{groupImageError}</p>}
+                    </div>
+
+                    <input
+                      ref={groupImageInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={(e) => {
+                        handleGroupImageSelect(e.target.files?.[0] || null);
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                    />
                   </div>
-
-                  <input
-                    ref={groupImageInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    onChange={(e) => {
-                      handleGroupImageSelect(e.target.files?.[0] || null);
-                      e.target.value = '';
-                    }}
-                    className="hidden"
-                  />
                 </div>
-              </div>
 
-              <Input
-                label="Group Name"
-                name="groupName"
-                value={groupFormik.values.groupName}
-                onChange={groupFormik.handleChange}
-                onBlur={groupFormik.handleBlur}
-                error={groupFormik.touched.groupName && groupFormik.errors.groupName ? groupFormik.errors.groupName : undefined}
-                placeholder="e.g. Kerala PSC LDC 2026 Warriors"
-              />
-
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 dark:text-slate-300">Description</label>
-                <textarea
-                  name="groupDesc"
-                  value={groupFormik.values.groupDesc}
+                <Input
+                  label="Group Name"
+                  name="groupName"
+                  value={groupFormik.values.groupName}
                   onChange={groupFormik.handleChange}
                   onBlur={groupFormik.handleBlur}
-                  placeholder="Summary of target exams and discussion guidelines..."
-                  rows={3}
-                  className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                  error={groupFormik.touched.groupName && groupFormik.errors.groupName ? groupFormik.errors.groupName : undefined}
+                  placeholder="e.g. Kerala PSC LDC 2026 Warriors"
                 />
-                {groupFormik.touched.groupDesc && groupFormik.errors.groupDesc && (
-                  <p className="text-xs text-rose-500 font-medium">{groupFormik.errors.groupDesc}</p>
-                )}
-              </div>
 
-              <div className="pt-2 flex items-center justify-end space-x-3">
-                <Button type="button" variant="outline" onClick={() => setIsGroupModalOpen(false)} disabled={groupFormik.isSubmitting}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="gold" className="font-bold" isLoading={groupFormik.isSubmitting}>
-                  {uploadImageMutation.isPending
-                    ? 'Uploading Photo…'
-                    : createGroupMutation.isPending || updateGroupMutation.isPending
-                    ? editingGroup
-                      ? 'Saving…'
-                      : 'Creating…'
-                    : editingGroup
-                    ? 'Save Changes'
-                    : 'Create Group'}
-                </Button>
-              </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Description</label>
+                  <textarea
+                    name="groupDesc"
+                    value={groupFormik.values.groupDesc}
+                    onChange={groupFormik.handleChange}
+                    onBlur={groupFormik.handleBlur}
+                    placeholder="Summary of target exams and discussion guidelines..."
+                    rows={3}
+                    className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                  />
+                  {groupFormik.touched.groupDesc && groupFormik.errors.groupDesc && (
+                    <p className="text-xs text-rose-500 font-medium">{groupFormik.errors.groupDesc}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <FileSignature className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Group Agreement</span>
+                    <span className="font-medium text-slate-400 normal-case">(optional)</span>
+                  </label>
+                  <textarea
+                    name="groupAgreement"
+                    value={groupFormik.values.groupAgreement}
+                    onChange={groupFormik.handleChange}
+                    onBlur={groupFormik.handleBlur}
+                    placeholder={
+                      'Rules a student must accept before joining. For example:\n\n' +
+                      '• Be respectful — no abuse, no personal attacks.\n' +
+                      '• No sharing of paid material outside the group.\n' +
+                      '• Keep discussion on topic.'
+                    }
+                    rows={6}
+                    className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
+                  />
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    {groupFormik.values.groupAgreement.trim()
+                      ? 'Students will have to read and accept this before the Join button adds them — on the website and in the app. Rewriting it means anyone who rejoins later accepts the new version.'
+                      : 'Leave this blank and Join adds students straight away, with no prompt.'}
+                  </p>
+                  {groupFormik.touched.groupAgreement && groupFormik.errors.groupAgreement && (
+                    <p className="text-xs text-rose-500 font-medium">{groupFormik.errors.groupAgreement}</p>
+                  )}
+                </div>
+
+                <div className="pt-2 flex items-center justify-end space-x-3">
+                  <Button type="button" variant="outline" onClick={() => setIsGroupModalOpen(false)} disabled={groupFormik.isSubmitting}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="gold" className="font-bold" isLoading={groupFormik.isSubmitting}>
+                    {uploadImageMutation.isPending
+                      ? 'Uploading Photo…'
+                      : createGroupMutation.isPending || updateGroupMutation.isPending
+                        ? editingGroup
+                          ? 'Saving…'
+                          : 'Creating…'
+                        : editingGroup
+                          ? 'Save Changes'
+                          : 'Create Group'}
+                  </Button>
+                </div>
               </fieldset>
             </form>
           </div>
@@ -927,7 +964,7 @@ export default function AdminCommunityPage() {
 
       {/* Post Announcement Modal */}
       {isPostModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 !mt-0">
           <div className="w-full max-w-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
@@ -941,197 +978,194 @@ export default function AdminCommunityPage() {
 
             <form onSubmit={postFormik.handleSubmit} className="space-y-4 text-xs" noValidate>
               <fieldset disabled={postFormik.isSubmitting} className="contents disabled:pointer-events-none">
-              {announcementFormError && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center">
-                  {announcementFormError}
-                </div>
-              )}
-              <Select
-                label="Target Group"
-                name="selectedTargetGroupId"
-                value={postFormik.values.selectedTargetGroupId}
-                onChange={(val) => postFormik.setFieldValue('selectedTargetGroupId', val)}
-                searchable
-                options={groups.map((g) => ({
-                  value: g.id,
-                  label: g.name,
-                }))}
-                error={postFormik.touched.selectedTargetGroupId && postFormik.errors.selectedTargetGroupId ? (postFormik.errors.selectedTargetGroupId as string) : undefined}
-              />
-
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 dark:text-slate-300">Announcement Text</label>
-                <textarea
-                  name="postContent"
-                  value={postFormik.values.postContent}
-                  onChange={postFormik.handleChange}
-                  onBlur={postFormik.handleBlur}
-                  placeholder="Write your announcement, instructions, or exam update..."
-                  rows={4}
-                  className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                />
-                {postFormik.touched.postContent && postFormik.errors.postContent && (
-                  <p className="text-xs text-rose-500 font-medium">{postFormik.errors.postContent}</p>
+                {announcementFormError && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 font-semibold text-center">
+                    {announcementFormError}
+                  </div>
                 )}
-              </div>
-
-              {/* Pin Checkbox */}
-              <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={postFormik.values.isPinned}
-                  onChange={(e) => postFormik.setFieldValue('isPinned', e.target.checked)}
-                  className="rounded text-cyan-400 focus:ring-cyan-500"
+                <Select
+                  label="Target Group"
+                  name="selectedTargetGroupId"
+                  value={postFormik.values.selectedTargetGroupId}
+                  onChange={(val) => postFormik.setFieldValue('selectedTargetGroupId', val)}
+                  searchable
+                  options={groups.map((g) => ({
+                    value: g.id,
+                    label: g.name,
+                  }))}
+                  error={postFormik.touched.selectedTargetGroupId && postFormik.errors.selectedTargetGroupId ? (postFormik.errors.selectedTargetGroupId as string) : undefined}
                 />
-                <Pin className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Pin to top of group chat</span>
-              </label>
 
-              {/* Attachment Toggle */}
-              <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] space-y-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">Announcement Text</label>
+                  <textarea
+                    name="postContent"
+                    value={postFormik.values.postContent}
+                    onChange={postFormik.handleChange}
+                    onBlur={postFormik.handleBlur}
+                    placeholder="Write your announcement, instructions, or exam update..."
+                    rows={4}
+                    className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/80 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  />
+                  {postFormik.touched.postContent && postFormik.errors.postContent && (
+                    <p className="text-xs text-rose-500 font-medium">{postFormik.errors.postContent}</p>
+                  )}
+                </div>
+
+                {/* Pin Checkbox */}
                 <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={postFormik.values.hasAttachment}
-                    onChange={(e) => postFormik.setFieldValue('hasAttachment', e.target.checked)}
+                    checked={postFormik.values.isPinned}
+                    onChange={(e) => postFormik.setFieldValue('isPinned', e.target.checked)}
                     className="rounded text-cyan-400 focus:ring-cyan-500"
                   />
-                  <Paperclip className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Attach Document / File (PDF, Image, Audio)</span>
+                  <Pin className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Pin to top of group chat</span>
                 </label>
 
-                {postFormik.values.hasAttachment && (
-                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#091124] space-y-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => postFormik.setFieldValue('attachmentType', 'pdf')}
-                        className={`p-2 rounded-lg text-center font-bold text-[11px] border ${
-                          postFormik.values.attachmentType === 'pdf' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        PDF Document
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => postFormik.setFieldValue('attachmentType', 'image')}
-                        className={`p-2 rounded-lg text-center font-bold text-[11px] border ${
-                          postFormik.values.attachmentType === 'image' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        Image Note
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => postFormik.setFieldValue('attachmentType', 'audio')}
-                        className={`p-2 rounded-lg text-center font-bold text-[11px] border ${
-                          postFormik.values.attachmentType === 'audio' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        Audio Explanation
-                      </button>
-                    </div>
-
-                    <Input
-                      label="Attachment Title"
-                      name="attachmentName"
-                      value={postFormik.values.attachmentName}
-                      onChange={postFormik.handleChange}
-                      onBlur={postFormik.handleBlur}
-                      error={postFormik.touched.attachmentName && postFormik.errors.attachmentName ? postFormik.errors.attachmentName : undefined}
-                      placeholder="e.g. LDC_2026_Study_Notes.pdf"
+                {/* Attachment Toggle */}
+                <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] space-y-3">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={postFormik.values.hasAttachment}
+                      onChange={(e) => postFormik.setFieldValue('hasAttachment', e.target.checked)}
+                      className="rounded text-cyan-400 focus:ring-cyan-500"
                     />
-                  </div>
-                )}
-              </div>
+                    <Paperclip className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Attach Document / File (PDF, Image, Audio)</span>
+                  </label>
 
-              {/* Poll Toggle */}
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={postFormik.values.hasPoll}
-                    onChange={(e) => postFormik.setFieldValue('hasPoll', e.target.checked)}
-                    className="rounded text-cyan-500 focus:ring-cyan-500"
-                  />
-                  <BarChart2 className="w-3.5 h-3.5 text-cyan-500" />
-                  <span>Create Interactive Poll</span>
-                </label>
-
-                {postFormik.values.hasPoll && (
-                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 space-y-3">
-                    <Input
-                      label="Poll Question"
-                      name="pollQuestion"
-                      value={postFormik.values.pollQuestion}
-                      onChange={postFormik.handleChange}
-                      onBlur={postFormik.handleBlur}
-                      error={postFormik.touched.pollQuestion && postFormik.errors.pollQuestion ? postFormik.errors.pollQuestion : undefined}
-                      placeholder="e.g. Which topic needs extra live classes?"
-                    />
-
-                    <div className="space-y-2">
-                      <label className="font-bold text-slate-700 dark:text-slate-300">Poll Options</label>
-                      {postFormik.values.pollOptions.map((opt, idx) => (
-                        <div key={idx} className="flex items-center space-x-2">
-                          <input
-                            type="text"
-                            value={opt}
-                            onChange={(e) => {
-                              const copy = [...postFormik.values.pollOptions];
-                              copy[idx] = e.target.value;
-                              postFormik.setFieldValue('pollOptions', copy);
-                            }}
-                            placeholder={`Option ${idx + 1}`}
-                            className="flex-1 p-2 rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs"
-                          />
-                          {postFormik.values.pollOptions.length > 2 && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                postFormik.setFieldValue(
-                                  'pollOptions',
-                                  postFormik.values.pollOptions.filter((_, i) => i !== idx),
-                                )
-                              }
-                              className="text-rose-500 text-xs font-bold"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                      {typeof postFormik.errors.pollOptions === 'string' && postFormik.touched.pollOptions && (
-                        <p className="text-xs text-rose-500 font-medium">{postFormik.errors.pollOptions}</p>
-                      )}
-
-                      {postFormik.values.pollOptions.length < 5 && (
+                  {postFormik.values.hasAttachment && (
+                    <div className="p-3 rounded-xl bg-slate-100 dark:bg-[#091124] space-y-3">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           type="button"
-                          onClick={() =>
-                            postFormik.setFieldValue('pollOptions', [
-                              ...postFormik.values.pollOptions,
-                              `Option ${postFormik.values.pollOptions.length + 1}`,
-                            ])
-                          }
-                          className="text-cyan-600 dark:text-cyan-400 text-xs font-bold hover:underline inline-block pt-1"
+                          onClick={() => postFormik.setFieldValue('attachmentType', 'pdf')}
+                          className={`p-2 rounded-lg text-center font-bold text-[11px] border ${postFormik.values.attachmentType === 'pdf' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
+                            }`}
                         >
-                          + Add Option
+                          PDF Document
                         </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+                        <button
+                          type="button"
+                          onClick={() => postFormik.setFieldValue('attachmentType', 'image')}
+                          className={`p-2 rounded-lg text-center font-bold text-[11px] border ${postFormik.values.attachmentType === 'image' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
+                            }`}
+                        >
+                          Image Note
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => postFormik.setFieldValue('attachmentType', 'audio')}
+                          className={`p-2 rounded-lg text-center font-bold text-[11px] border ${postFormik.values.attachmentType === 'audio' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-400' : 'bg-slate-200 dark:bg-[#0c152e] text-slate-700 dark:text-slate-300'
+                            }`}
+                        >
+                          Audio Explanation
+                        </button>
+                      </div>
 
-              <div className="pt-2 flex items-center justify-end space-x-3">
-                <Button type="button" variant="outline" onClick={() => setIsPostModalOpen(false)} disabled={postFormik.isSubmitting}>
-                  Cancel
-                </Button>
-                <Button type="submit" variant="gold" className="font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none" isLoading={postFormik.isSubmitting}>
-                  Publish Content
-                </Button>
-              </div>
+                      <Input
+                        label="Attachment Title"
+                        name="attachmentName"
+                        value={postFormik.values.attachmentName}
+                        onChange={postFormik.handleChange}
+                        onBlur={postFormik.handleBlur}
+                        error={postFormik.touched.attachmentName && postFormik.errors.attachmentName ? postFormik.errors.attachmentName : undefined}
+                        placeholder="e.g. LDC_2026_Study_Notes.pdf"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Poll Toggle */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={postFormik.values.hasPoll}
+                      onChange={(e) => postFormik.setFieldValue('hasPoll', e.target.checked)}
+                      className="rounded text-cyan-500 focus:ring-cyan-500"
+                    />
+                    <BarChart2 className="w-3.5 h-3.5 text-cyan-500" />
+                    <span>Create Interactive Poll</span>
+                  </label>
+
+                  {postFormik.values.hasPoll && (
+                    <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 space-y-3">
+                      <Input
+                        label="Poll Question"
+                        name="pollQuestion"
+                        value={postFormik.values.pollQuestion}
+                        onChange={postFormik.handleChange}
+                        onBlur={postFormik.handleBlur}
+                        error={postFormik.touched.pollQuestion && postFormik.errors.pollQuestion ? postFormik.errors.pollQuestion : undefined}
+                        placeholder="e.g. Which topic needs extra live classes?"
+                      />
+
+                      <div className="space-y-2">
+                        <label className="font-bold text-slate-700 dark:text-slate-300">Poll Options</label>
+                        {postFormik.values.pollOptions.map((opt, idx) => (
+                          <div key={idx} className="flex items-center space-x-2">
+                            <input
+                              type="text"
+                              value={opt}
+                              onChange={(e) => {
+                                const copy = [...postFormik.values.pollOptions];
+                                copy[idx] = e.target.value;
+                                postFormik.setFieldValue('pollOptions', copy);
+                              }}
+                              placeholder={`Option ${idx + 1}`}
+                              className="flex-1 p-2 rounded-lg border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs"
+                            />
+                            {postFormik.values.pollOptions.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  postFormik.setFieldValue(
+                                    'pollOptions',
+                                    postFormik.values.pollOptions.filter((_, i) => i !== idx),
+                                  )
+                                }
+                                className="text-rose-500 text-xs font-bold"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {typeof postFormik.errors.pollOptions === 'string' && postFormik.touched.pollOptions && (
+                          <p className="text-xs text-rose-500 font-medium">{postFormik.errors.pollOptions}</p>
+                        )}
+
+                        {postFormik.values.pollOptions.length < 5 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              postFormik.setFieldValue('pollOptions', [
+                                ...postFormik.values.pollOptions,
+                                `Option ${postFormik.values.pollOptions.length + 1}`,
+                              ])
+                            }
+                            className="text-cyan-600 dark:text-cyan-400 text-xs font-bold hover:underline inline-block pt-1"
+                          >
+                            + Add Option
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2 flex items-center justify-end space-x-3">
+                  <Button type="button" variant="outline" onClick={() => setIsPostModalOpen(false)} disabled={postFormik.isSubmitting}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="gold" className="font-bold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none" isLoading={postFormik.isSubmitting}>
+                    Publish Content
+                  </Button>
+                </div>
               </fieldset>
             </form>
           </div>
@@ -1140,7 +1174,7 @@ export default function AdminCommunityPage() {
 
       {/* Group Members Modal */}
       {isMemberModalOpen && activeGroup && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 !mt-0">
           <div className="w-full max-w-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-[#1e2e56]">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
@@ -1188,19 +1222,17 @@ export default function AdminCommunityPage() {
               {activeGroupMembers.map((m) => (
                 <div
                   key={m.userId}
-                  className={`p-3 rounded-2xl flex items-center justify-between text-xs ${
-                    m.isBlocked
-                      ? 'bg-rose-500/5 border border-rose-500/30'
-                      : 'bg-slate-100 dark:bg-[#091124]'
-                  }`}
+                  className={`p-3 rounded-2xl flex items-center justify-between text-xs ${m.isBlocked
+                    ? 'bg-rose-500/5 border border-rose-500/30'
+                    : 'bg-slate-100 dark:bg-[#091124]'
+                    }`}
                 >
                   <div className="flex items-center space-x-3">
                     <div
-                      className={`w-8 h-8 rounded-full font-black flex items-center justify-center text-xs shadow-xs ${
-                        m.isBlocked
-                          ? 'bg-slate-400 text-white'
-                          : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950'
-                      }`}
+                      className={`w-8 h-8 rounded-full font-black flex items-center justify-center text-xs shadow-xs ${m.isBlocked
+                        ? 'bg-slate-400 text-white'
+                        : 'bg-gradient-to-r from-cyan-400 to-blue-500 text-slate-950'
+                        }`}
                     >
                       {m.user.name.slice(0, 2).toUpperCase()}
                     </div>
@@ -1265,8 +1297,8 @@ export default function AdminCommunityPage() {
                   {isFetchingMembers
                     ? 'Loading members...'
                     : debouncedMemberSearch || memberStatusFilter !== 'ALL'
-                    ? 'No members match this search.'
-                    : 'No members yet.'}
+                      ? 'No members match this search.'
+                      : 'No members yet.'}
                 </div>
               )}
             </div>
@@ -1298,25 +1330,25 @@ export default function AdminCommunityPage() {
               ? 'Unlock Group'
               : 'Lock Group'
             : confirmAction?.type === 'delete-group'
-            ? 'Delete Study Group'
-            : confirmAction?.type === 'block-member'
-            ? 'Block Member'
-            : confirmAction?.type === 'unblock-member'
-            ? 'Unblock Member'
-            : 'Remove Member'
+              ? 'Delete Study Group'
+              : confirmAction?.type === 'block-member'
+                ? 'Block Member'
+                : confirmAction?.type === 'unblock-member'
+                  ? 'Unblock Member'
+                  : 'Remove Member'
         }
         description={
           confirmAction?.type === 'lock'
             ? `${confirmAction.group.isLocked ? 'Unlock' : 'Lock'} "${confirmAction.group.name}"?`
             : confirmAction?.type === 'delete-group'
-            ? `This will permanently delete "${confirmAction.group.name}" and all its messages. This action cannot be undone.`
-            : confirmAction?.type === 'remove-member'
-            ? `Remove ${confirmAction.name} from this group?`
-            : confirmAction?.type === 'block-member'
-            ? `Block ${confirmAction.name}? This group will disappear from their community page and they won't be able to read or post in it. You can unblock them from this roster later.`
-            : confirmAction?.type === 'unblock-member'
-            ? `Unblock ${confirmAction.name}? The group will show up on their community page again.`
-            : undefined
+              ? `This will permanently delete "${confirmAction.group.name}" and all its messages. This action cannot be undone.`
+              : confirmAction?.type === 'remove-member'
+                ? `Remove ${confirmAction.name} from this group?`
+                : confirmAction?.type === 'block-member'
+                  ? `Block ${confirmAction.name}? This group will disappear from their community page and they won't be able to read or post in it. You can unblock them from this roster later.`
+                  : confirmAction?.type === 'unblock-member'
+                    ? `Unblock ${confirmAction.name}? The group will show up on their community page again.`
+                    : undefined
         }
         confirmLabel={
           confirmAction?.type === 'lock'
@@ -1324,17 +1356,17 @@ export default function AdminCommunityPage() {
               ? 'Unlock'
               : 'Lock'
             : confirmAction?.type === 'delete-group'
-            ? 'Delete'
-            : confirmAction?.type === 'block-member'
-            ? 'Block'
-            : confirmAction?.type === 'unblock-member'
-            ? 'Unblock'
-            : 'Remove'
+              ? 'Delete'
+              : confirmAction?.type === 'block-member'
+                ? 'Block'
+                : confirmAction?.type === 'unblock-member'
+                  ? 'Unblock'
+                  : 'Remove'
         }
         variant={
           confirmAction?.type === 'delete-group' ||
-          confirmAction?.type === 'remove-member' ||
-          confirmAction?.type === 'block-member'
+            confirmAction?.type === 'remove-member' ||
+            confirmAction?.type === 'block-member'
             ? 'danger'
             : 'default'
         }

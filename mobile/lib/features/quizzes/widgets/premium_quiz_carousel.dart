@@ -138,7 +138,7 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
         widget.quizzesAsync ?? ref.watch(premiumCarouselQuizzesProvider);
 
     return SizedBox(
-      height: 256,
+      height: 278,
       child: asyncData.when(
         skipLoadingOnRefresh: true,
         loading: () => ListView.separated(
@@ -148,7 +148,7 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
           separatorBuilder: (_, __) => const SizedBox(width: 14),
           itemBuilder: (_, __) => const SkeletonBox(
             width: 240,
-            height: 240,
+            height: 260,
             radius: AppTheme.radiusLg,
           ),
         ),

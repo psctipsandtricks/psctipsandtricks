@@ -14,8 +14,19 @@ import {
   Link2,
   Link2Off,
   Crosshair,
+  Highlighter,
+  Eraser,
+  Check,
 } from 'lucide-react';
 import { ReaderWatermarkOverlay } from './reader-watermark-overlay';
+import { ReaderHighlightLayer } from './reader-highlight-layer';
+import {
+  DEFAULT_HIGHLIGHT_COLOR,
+  DEFAULT_HIGHLIGHT_WIDTH,
+  type AnnotationTool,
+  type ReaderHighlight,
+} from './reader-highlights';
+import { ApiClient } from '@/lib/api-client';
 import { decideSyncScroll, type ResolvedSyncTarget, type Span } from './pdf-audio-sync';
 
 // Worker path from public directory
@@ -104,6 +115,10 @@ const LazyPdfPage = memo(function LazyPdfPage({
   scale = 1.0,
   onHeightMeasured,
   onPageIntersect,
+  tool = 'none',
+  highlights,
+  onDraw,
+  onErase,
 }: {
   pageNumber: number;
   width: number;
@@ -112,6 +127,10 @@ const LazyPdfPage = memo(function LazyPdfPage({
   scale?: number;
   onHeightMeasured?: (height: number) => void;
   onPageIntersect?: (pageNumber: number) => void;
+  tool?: AnnotationTool;
+  highlights?: ReaderHighlight[];
+  onDraw?: (page: number, points: number[]) => void;
+  onErase?: (ids: string[]) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   // Always render the first 2 pages immediately for instant first-paint
@@ -187,6 +206,22 @@ const LazyPdfPage = memo(function LazyPdfPage({
           <span>Page {pageNumber}</span>
         </div>
       )}
+
+      {/* The marker layer, a child of the page itself — so it scrolls, zooms
+          and reflows with the page rather than being positioned against it. */}
+      {onDraw && onErase && (
+        <ReaderHighlightLayer
+          // Zero-based on the wire; react-pdf counts from one.
+          page={pageNumber - 1}
+          tool={tool}
+          highlights={highlights ?? []}
+          aspectRatio={aspectRatio}
+          color={DEFAULT_HIGHLIGHT_COLOR}
+          strokeWidth={DEFAULT_HIGHLIGHT_WIDTH}
+          onDraw={(points) => onDraw(pageNumber - 1, points)}
+          onErase={onErase}
+        />
+      )}
     </div>
   );
 });
@@ -215,6 +250,101 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
     const [aspectRatio, setAspectRatio] = useState(1.414); // Standard A4 ratio default
     const [retryCount, setRetryCount] = useState(0);
     const [scale, setScale] = useState(1.0);
+
+    /* ── Marker and eraser ─────────────────────────────────────────────
+       Strokes live on the server keyed by the document's url, which is the
+       same identity the app uses — so a highlight made on a phone is already
+       here when the page loads, and one made here is on the phone next time
+       it opens the topic. */
+    const [tool, setTool] = useState<AnnotationTool>('none');
+    const [highlights, setHighlights] = useState<ReaderHighlight[]>([]);
+    const [toolMenuOpen, setToolMenuOpen] = useState(false);
+    const toolMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      setHighlights([]);
+      ApiClient.getPdfHighlights(url)
+        .then((rows) => {
+          if (cancelled) return;
+          setHighlights(
+            (rows ?? [])
+              .filter((r: any) => Array.isArray(r?.points) && r.points.length >= 2)
+              .map((r: any) => ({
+                id: String(r.id),
+                page: Number(r.page) || 0,
+                points: r.points.map((n: any) => Number(n) || 0),
+                color: Number(r.color) || DEFAULT_HIGHLIGHT_COLOR,
+                width: Number(r.width) || DEFAULT_HIGHLIGHT_WIDTH,
+                createdAt: r.createdAt,
+              }))
+          );
+        })
+        // Signed out, offline, or the request failed. The page reads perfectly
+        // well without anyone's marks on it; nothing here is worth an error.
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }, [url]);
+
+    /** Draws at once, saves behind. The server assigns the id, so the local
+        one is a placeholder swapped for the real thing when the save lands —
+        without that the eraser would later quote an id nobody has heard of. */
+    const handleDraw = useCallback(
+      (page: number, points: number[]) => {
+        const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const optimistic: ReaderHighlight = {
+          id: localId,
+          page,
+          points,
+          color: DEFAULT_HIGHLIGHT_COLOR,
+          width: DEFAULT_HIGHLIGHT_WIDTH,
+        };
+        setHighlights((prev) => [...prev, optimistic]);
+
+        ApiClient.createPdfHighlight({
+          documentKey: url,
+          page,
+          points,
+          color: DEFAULT_HIGHLIGHT_COLOR,
+          width: DEFAULT_HIGHLIGHT_WIDTH,
+        })
+          .then((saved) => {
+            if (!saved?.id) return;
+            setHighlights((prev) =>
+              prev.map((h) => (h.id === localId ? { ...h, id: String(saved.id) } : h))
+            );
+          })
+          .catch(() => {
+            // Could not be saved, so it is not really there — taking it back
+            // beats leaving a mark that vanishes on the next reload with no
+            // explanation.
+            setHighlights((prev) => prev.filter((h) => h.id !== localId));
+          });
+      },
+      [url]
+    );
+
+    const handleErase = useCallback((ids: string[]) => {
+      if (ids.length === 0) return;
+      setHighlights((prev) => prev.filter((h) => !ids.includes(h.id)));
+      // A stroke that never reached the server has no id to delete.
+      const saved = ids.filter((id) => !id.startsWith('local-'));
+      if (saved.length > 0) ApiClient.erasePdfHighlights(saved).catch(() => {});
+    }, []);
+
+    // Close the tool menu on an outside click, the way the rest of the admin
+    // and reader menus behave.
+    useEffect(() => {
+      if (!toolMenuOpen) return;
+      const onDocClick = (e: MouseEvent) => {
+        if (!toolMenuRef.current?.contains(e.target as Node)) setToolMenuOpen(false);
+      };
+      document.addEventListener('mousedown', onDocClick);
+      return () => document.removeEventListener('mousedown', onDocClick);
+    }, [toolMenuOpen]);
+
     const containerRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [isPanning, setIsPanning] = useState(false);
@@ -570,6 +700,9 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // A tool in hand owns the drag; panning a zoomed page would pull the
+    // document out from under the stroke being drawn on it.
+    if (tool !== 'none') return;
     if (scale <= 1.0 || !scrollContainerRef.current) return;
     setIsPanning(true);
     startPosRef.current = {
@@ -674,8 +807,89 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
           </div>
         </div>
 
-        {/* Right side: Auto-scroll & Zoom in single line */}
+        {/* Right side: Marker, Auto-scroll & Zoom in single line */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* One icon holding both tools, the same shape as the app's control:
+              the icon shows which tool is in hand and lights up while one is
+              held, and picking the tool already held puts it down. */}
+          <div className="relative" ref={toolMenuRef}>
+            <button
+              type="button"
+              onClick={() => setToolMenuOpen((o) => !o)}
+              className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-black transition-all cursor-pointer shadow-xs border ${
+                tool !== 'none'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40'
+                  : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+              }`}
+              title={
+                tool === 'marker'
+                  ? 'Marker in hand — drag to highlight'
+                  : tool === 'eraser'
+                    ? 'Eraser in hand — drag over a highlight'
+                    : 'Marker and eraser'
+              }
+              aria-haspopup="menu"
+              aria-expanded={toolMenuOpen}
+            >
+              {tool === 'eraser' ? (
+                <Eraser className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+              ) : (
+                <Highlighter className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {tool === 'marker' ? 'Marker' : tool === 'eraser' ? 'Eraser' : 'Mark'}
+              </span>
+            </button>
+
+            {toolMenuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-1.5 z-40 w-44 rounded-xl border border-slate-200 dark:border-[#1e2e56] bg-white dark:bg-[#0c152e] shadow-lg overflow-hidden"
+              >
+                {(
+                  [
+                    { value: 'marker', label: 'Marker', hint: 'Drag to highlight', Icon: Highlighter },
+                    { value: 'eraser', label: 'Eraser', hint: 'Drag over a highlight', Icon: Eraser },
+                  ] as const
+                ).map(({ value, label, hint, Icon }) => {
+                  const selected = tool === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      onClick={() => {
+                        setTool((current) => (current === value ? 'none' : value));
+                        setToolMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
+                    >
+                      <Icon
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          selected ? 'text-amber-500' : 'text-slate-400'
+                        }`}
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span
+                          className={`block text-[12px] font-extrabold ${
+                            selected
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-slate-800 dark:text-slate-200'
+                          }`}
+                        >
+                          {label}
+                        </span>
+                        <span className="block text-[10px] text-slate-400">{hint}</span>
+                      </span>
+                      {selected && <Check className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Sync state: Auto-Scroll switch + explicit re-follow */}
           <div className="flex items-center gap-1 bg-slate-100/90 dark:bg-[#0c152e] p-0.5 sm:p-1 rounded-xl border border-slate-200/90 dark:border-[#1e2e56]">
             <button
@@ -784,11 +998,18 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
             onMouseUp={handleMouseUpOrLeave}
             onMouseLeave={handleMouseUpOrLeave}
             className={`w-full max-w-full overflow-x-auto overflow-y-visible pb-12 pt-1 touch-pan-y ${
-              scale > 1.0 ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''
+              scale > 1.0 && tool === 'none'
+                ? isPanning
+                  ? 'cursor-grabbing'
+                  : 'cursor-grab'
+                : ''
             }`}
             style={{
               WebkitOverflowScrolling: 'touch',
-              touchAction: scale > 1.0 ? 'pan-x pan-y' : 'pan-y',
+              // With a tool in hand the drag belongs to the marker, not to
+              // panning a zoomed page — otherwise a stroke would drag the
+              // document out from under itself.
+              touchAction: tool !== 'none' ? 'none' : scale > 1.0 ? 'pan-x pan-y' : 'pan-y',
             }}
           >
             <div
@@ -809,6 +1030,10 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
                   scale={scale}
                   onHeightMeasured={pageNumber === 1 ? handleHeightMeasured : undefined}
                   onPageIntersect={handlePageIntersect}
+                  tool={tool}
+                  highlights={highlights}
+                  onDraw={handleDraw}
+                  onErase={handleErase}
                 />
               ))}
             </div>

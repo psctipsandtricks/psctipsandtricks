@@ -31,6 +31,8 @@ class ChatGroup {
     required this.unreadCount,
     this.imageUrl,
     this.lastMessage,
+    this.isMuted = false,
+    this.agreement,
   });
 
   final String id;
@@ -48,8 +50,20 @@ class ChatGroup {
   final int memberCount;
   final bool isJoined;
   final bool isPinned;
+
+  /// This member has silenced the group. Server-side, so muting on the phone
+  /// mutes on the website too — and the notification is never sent rather than
+  /// sent and hidden.
+  final bool isMuted;
+
   final int unreadCount;
   final ChatMessage? lastMessage;
+
+  /// Terms an admin wrote that a student must accept before joining. Blank or
+  /// null means Join is immediate.
+  final String? agreement;
+
+  bool get requiresAgreement => (agreement?.trim().isNotEmpty ?? false);
 
   /// Students can only type when they have joined an unlocked group that still
   /// permits text.
@@ -69,6 +83,8 @@ class ChatGroup {
         isJoined: J.boolVal(json['isJoined']),
         isPinned: J.boolVal(json['isPinned']),
         unreadCount: J.intVal(json['unreadCount']),
+        isMuted: J.boolVal(json['isMuted']),
+        agreement: J.strOrNull(json['agreement']),
         lastMessage: json['lastMessage'] is Map
             ? ChatMessage.fromJson(J.map(json['lastMessage']))
             : null,
@@ -90,8 +106,47 @@ class ChatGroup {
         'isJoined': isJoined,
         'isPinned': isPinned,
         'unreadCount': unreadCount,
+        'isMuted': isMuted,
+        'agreement': agreement,
         'lastMessage': lastMessage?.toJson(),
       };
+
+  ChatGroup copyWith({
+    String? id,
+    String? name,
+    String? description,
+    String? category,
+    String? iconEmoji,
+    String? imageUrl,
+    bool? isLocked,
+    bool? allowTextMessages,
+    bool? allowPolls,
+    int? memberCount,
+    bool? isJoined,
+    bool? isPinned,
+    int? unreadCount,
+    bool? isMuted,
+    String? agreement,
+    ChatMessage? lastMessage,
+  }) =>
+      ChatGroup(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        description: description ?? this.description,
+        category: category ?? this.category,
+        iconEmoji: iconEmoji ?? this.iconEmoji,
+        imageUrl: imageUrl ?? this.imageUrl,
+        isLocked: isLocked ?? this.isLocked,
+        allowTextMessages: allowTextMessages ?? this.allowTextMessages,
+        allowPolls: allowPolls ?? this.allowPolls,
+        memberCount: memberCount ?? this.memberCount,
+        isJoined: isJoined ?? this.isJoined,
+        isPinned: isPinned ?? this.isPinned,
+        unreadCount: unreadCount ?? this.unreadCount,
+        isMuted: isMuted ?? this.isMuted,
+        agreement: agreement ?? this.agreement,
+        lastMessage: lastMessage ?? this.lastMessage,
+      );
 }
 
 class ChatMessage {
@@ -106,6 +161,7 @@ class ChatMessage {
     this.mediaUrl,
     this.metadata,
     this.groupId,
+    this.editedAt,
   });
 
   final String id;
@@ -118,6 +174,10 @@ class ChatMessage {
   final Map<String, dynamic>? metadata;
   final String? groupId;
   final DateTime createdAt;
+
+  /// Set once the author has rewritten this message, so it can be marked
+  /// "edited" rather than changing silently under people who already read it.
+  final DateTime? editedAt;
 
   /// Poll payloads live in `metadata['poll']` or `metadata` as `{ question, options: [{ id, text, votes, votedUserIds }], correctOptionId, totalVotes }`.
   Map<String, dynamic>? get pollData =>
@@ -171,6 +231,7 @@ class ChatMessage {
       metadata: meta,
       groupId: J.strOrNull(json['groupId']),
       createdAt: J.dateOrNull(json['createdAt']) ?? DateTime.now(),
+      editedAt: J.dateOrNull(json['editedAt']),
     );
   }
 
@@ -191,6 +252,7 @@ class ChatMessage {
         // Written in UTC so a device that changes timezone between sessions
         // reads back the same instant, not the same wall clock.
         'createdAt': createdAt.toUtc().toIso8601String(),
+        'editedAt': editedAt?.toUtc().toIso8601String(),
       };
 }
 

@@ -410,6 +410,8 @@ export class QuizzesService {
       data: { imageUrl: url },
     });
 
+    // Only now that the replacement is stored and the record points at it.
+    await this.storageService.removeReplacedFile(existing.imageUrl, url, id);
     return { url, quiz: updated };
   }
 

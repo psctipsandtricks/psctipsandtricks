@@ -138,6 +138,10 @@ export class UsersService {
   }
 
   async uploadAvatar(id: string, file: Express.Multer.File) {
+    const existing = await this.prisma.user.findUnique({
+      where: { id },
+      select: { avatarUrl: true },
+    });
     await this.findOne(id);
     if (!file) throw new BadRequestException('No image file provided');
 
@@ -152,6 +156,10 @@ export class UsersService {
       data: { avatarUrl: url },
       select: SAFE_SELECT,
     });
+    // A Google profile photo lives on Google's servers, so it can never match
+    // our storage and is left alone by `removeReplacedFile` — which is what
+    // stops "use my Google photo" being broken by uploading a new one.
+    await this.storageService.removeReplacedFile(existing?.avatarUrl, url, id);
     return withCounts(user);
   }
 

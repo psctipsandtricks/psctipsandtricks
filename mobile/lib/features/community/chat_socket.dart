@@ -22,12 +22,17 @@ class ChatSocket {
       StreamController<({String messageId, Map<String, dynamic> metadata})>
           .broadcast();
   final _deletions = StreamController<String>.broadcast();
+
+  /// Messages an author rewrote — the whole message, so the thread can swap it
+  /// in rather than guessing what changed.
+  final _edits = StreamController<ChatMessage>.broadcast();
   final _connected = StreamController<bool>.broadcast();
 
   Stream<ChatMessage> get onMessage => _messages.stream;
   Stream<({String messageId, Map<String, dynamic> metadata})>
       get onMetadataUpdate => _metadataUpdates.stream;
   Stream<String> get onDelete => _deletions.stream;
+  Stream<ChatMessage> get onEdit => _edits.stream;
   Stream<bool> get onConnectionChange => _connected.stream;
 
   bool get isConnected => _socket?.connected ?? false;
@@ -71,6 +76,14 @@ class ChatSocket {
       }
     });
 
+    socket.on('messageEdited', (data) {
+      if (data is Map && data['message'] is Map) {
+        _edits.add(ChatMessage.fromJson(
+          Map<String, dynamic>.from(data['message'] as Map),
+        ));
+      }
+    });
+
     socket.on('messageDeleted', (data) {
       if (data is Map && data['messageId'] != null) {
         _deletions.add(data['messageId'].toString());
@@ -109,6 +122,7 @@ class ChatSocket {
     _messages.close();
     _metadataUpdates.close();
     _deletions.close();
+    _edits.close();
     _connected.close();
   }
 }

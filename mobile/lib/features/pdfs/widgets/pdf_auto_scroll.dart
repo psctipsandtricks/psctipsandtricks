@@ -2,26 +2,24 @@ import 'dart:math' as math;
 
 import '../../../data/models/pdf_sync.dart';
 
-/// A rough line of body text, in logical pixels. Only ever used as the unit the
-/// auto-scroll step is expressed in, so it does not need to match any
-/// particular document.
-const double kPdfLineHeight = 24;
-
-/// The furthest one auto-scroll step travels: about three lines.
+/// How hard the document pulls towards where the narration has reached, per
+/// 60fps frame. Roughly a 140ms time constant — the same figure the notes view
+/// and the website's reader both use, so a book followed on a phone and on a
+/// laptop travels at the same speed.
 ///
-/// This is what makes following the narration read as reading rather than as
-/// being dragged — the page creeps down a couple of lines at a time instead of
-/// snapping to wherever the audio has got to.
-const double kPdfMaxStepPx = kPdfLineHeight * 3;
+/// Applied frame-rate independently, so a 120Hz screen and a struggling phone
+/// scroll at the same rate rather than the fast one moving twice as far.
+const double kPdfFollowEasePerFrame = 0.12;
 
 /// Below this the document is where it should be; moving again would only
 /// jitter, and on a native view every move costs a platform round trip.
-const double kPdfSettlePx = 6;
+///
+/// Sub-pixel rather than the several pixels a stepped scroll could afford: the
+/// chase now runs every frame, and a threshold big enough to be seen would show
+/// up as the stutter it is.
+const double kPdfSettlePx = 0.4;
 
-/// How often the document is nudged. Slow enough that each step is a visible,
-/// comfortable movement rather than a per-frame crawl, and slow enough not to
-/// flood the platform channel.
-const Duration kPdfStepInterval = Duration(milliseconds: 600);
+const double kPdfFrameMicros = 16667;
 
 /// Where the narration wants the document: a page, and the point down that page
 /// that is being talked about right now.
@@ -126,21 +124,34 @@ double pdfCenteringOffset({
   return -top;
 }
 
-/// One step of the chase: where to move the document to now, or null when it is
-/// already close enough that moving would only jitter.
+/// One frame of the chase: where to move the document to now, or null when it
+/// is already close enough that moving would only jitter.
 ///
-/// Capped at [maxStep] so the page creeps rather than jumps. A gap too large to
-/// close at that rate is the caller's cue to turn the page outright instead.
+/// Closes a fraction of the remaining gap each frame rather than travelling a
+/// fixed distance. That is what makes the page glide the way a web page does
+/// under a scroll wheel — fastest when it has furthest to go, easing to a stop
+/// as it arrives — instead of hopping a few lines at a time on a timer.
+///
+/// [elapsed] is the time since the previous frame, which is what keeps the
+/// speed the same on every refresh rate.
 double? pdfNextScrollOffset({
   required double current,
   required double target,
-  double maxStep = kPdfMaxStepPx,
+  required Duration elapsed,
+  double easePerFrame = kPdfFollowEasePerFrame,
   double settle = kPdfSettlePx,
 }) {
   final gap = target - current;
   if (gap.abs() < settle) return null;
-  if (gap.abs() <= maxStep) return target;
-  return current + maxStep * (gap.isNegative ? -1 : 1);
+
+  final frames = elapsed.inMicroseconds / kPdfFrameMicros;
+  if (frames <= 0) return null;
+  final ease = 1 - math.pow(1 - easePerFrame, frames);
+
+  final next = current + gap * ease;
+  // Within a whisker of the target, land on it exactly rather than creeping the
+  // last fraction of a pixel over several more frames.
+  return (target - next).abs() < settle ? target : next;
 }
 
 /// The height one page occupies on screen, in the viewer's own units.

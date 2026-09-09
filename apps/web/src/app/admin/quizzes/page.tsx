@@ -84,6 +84,8 @@ export default function AdminQuizFoldersPage() {
   const [parentForNewFolder, setParentForNewFolder] = useState<QuizFolder | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<QuizFolder | null>(null);
   const [deleteQuizTarget, setDeleteQuizTarget] = useState<{ quiz: any; folderId: string; folderName: string } | null>(null);
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
+  const [isDeletingQuiz, setIsDeletingQuiz] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
   // Expandable Hierarchy Tree State
@@ -184,7 +186,8 @@ export default function AdminQuizFoldersPage() {
   const formik = useFormik({
     initialValues: emptyValues,
     validationSchema: folderSchema,
-    onSubmit: async (values, { resetForm, setSubmitting, setFieldError }) => {
+    onSubmit: async (values, { resetForm, setSubmitting, setFieldError, setStatus }) => {
+      setStatus(null);
       try {
         const payload = {
           name: values.name.trim(),
@@ -195,15 +198,12 @@ export default function AdminQuizFoldersPage() {
 
         if (editingFolder) {
           const edited = editingFolder;
-          setFolders((prev) =>
-            prev.map((f) => (f.id === edited.id ? { ...f, ...payload } : f)),
-          );
+          await ApiClient.updateQuizFolder(edited.id, payload);
           setIsDialogOpen(false);
           setEditingFolder(null);
           setParentForNewFolder(null);
           resetForm();
           setToastMsg({ type: 'success', text: `Folder "${payload.name}" updated successfully.` });
-          await ApiClient.updateQuizFolder(edited.id, payload);
           await loadFolders();
 
           if (edited.parentId) {
@@ -211,12 +211,12 @@ export default function AdminQuizFoldersPage() {
           }
         } else {
           const parent = parentForNewFolder;
+          await ApiClient.createQuizFolder({ ...payload, orderIndex: folders.length });
           setIsDialogOpen(false);
           setEditingFolder(null);
           setParentForNewFolder(null);
           resetForm();
           setToastMsg({ type: 'success', text: `Folder "${payload.name}" created successfully.` });
-          await ApiClient.createQuizFolder({ ...payload, orderIndex: folders.length });
           await loadFolders();
 
           if (parent) {
@@ -225,7 +225,9 @@ export default function AdminQuizFoldersPage() {
           }
         }
       } catch (err: any) {
-        setFieldError('name', err.message || 'Failed to save folder.');
+        const message = err.message || 'Failed to save folder.';
+        setStatus(message);
+        setFieldError('name', message);
       } finally {
         setSubmitting(false);
       }
@@ -236,6 +238,7 @@ export default function AdminQuizFoldersPage() {
     setEditingFolder(null);
     setParentForNewFolder(parent || null);
     formik.resetForm({ values: emptyValues });
+    formik.setStatus(null);
     setIsDialogOpen(true);
   };
 
@@ -249,15 +252,16 @@ export default function AdminQuizFoldersPage() {
         isActive: folder.isActive !== false,
       },
     });
+    formik.setStatus(null);
     setIsDialogOpen(true);
   };
 
   const handleDelete = async (folder: QuizFolder) => {
-    const previous = folders;
-    setFolders((prev) => prev.filter((f) => f.id !== folder.id));
-    setToastMsg({ type: 'success', text: `Folder "${folder.name}" deleted.` });
+    setIsDeletingFolder(true);
     try {
       await ApiClient.deleteQuizFolder(folder.id);
+      setDeleteTarget(null);
+      setToastMsg({ type: 'success', text: `Folder "${folder.name}" deleted.` });
       await loadFolders();
       if (folder.parentId) {
         refreshFolderContents(folder.parentId, folder.parentName || '');
@@ -276,19 +280,24 @@ export default function AdminQuizFoldersPage() {
         return next;
       });
     } catch (err: any) {
-      setFolders(previous);
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete folder.' });
+    } finally {
+      setIsDeletingFolder(false);
     }
   };
 
   const handleDeleteQuiz = async (target: { quiz: any; folderId: string; folderName: string }) => {
-    setToastMsg({ type: 'success', text: `Quiz "${target.quiz.title}" deleted.` });
+    setIsDeletingQuiz(true);
     try {
       await ApiClient.deleteQuiz(target.quiz.id);
+      setDeleteQuizTarget(null);
+      setToastMsg({ type: 'success', text: `Quiz "${target.quiz.title}" deleted.` });
       await refreshFolderContents(target.folderId, target.folderName);
       await loadFolders();
     } catch (err: any) {
       setToastMsg({ type: 'error', text: err.message || 'Failed to delete quiz.' });
+    } finally {
+      setIsDeletingQuiz(false);
     }
   };
 
@@ -1233,11 +1242,23 @@ export default function AdminQuizFoldersPage() {
       {/* Add / Edit Folder Dialog */}
       <Dialog
         isOpen={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
+        onClose={() => {
+          if (!formik.isSubmitting) {
+            setIsDialogOpen(false);
+            setEditingFolder(null);
+            setParentForNewFolder(null);
+          }
+        }}
         title={editingFolder ? 'Edit Quiz Folder' : parentForNewFolder ? `Create Sub-folder in "${parentForNewFolder.name}"` : 'Add Quiz Folder'}
         isLoading={formik.isSubmitting}
       >
         <form className="space-y-4 pt-2" onSubmit={formik.handleSubmit} noValidate>
+          {formik.status && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-bold">
+              {formik.status}
+            </div>
+          )}
+
           <Input
             label="Folder Name"
             name="name"
@@ -1245,7 +1266,8 @@ export default function AdminQuizFoldersPage() {
             value={formik.values.name}
             onChange={formik.handleChange}
             onBlur={formik.handleBlur}
-            error={formik.touched.name && formik.errors.name ? formik.errors.name : undefined}
+            error={(formik.touched.name || formik.submitCount > 0) && formik.errors.name ? formik.errors.name : undefined}
+            disabled={formik.isSubmitting}
             required
             autoFocus
           />
@@ -1260,7 +1282,8 @@ export default function AdminQuizFoldersPage() {
               placeholder="Brief description of the quizzes contained in this folder..."
               value={formik.values.description}
               onChange={formik.handleChange}
-              className="w-full p-3 text-sm rounded-xl border border-slate-300 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#091124] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 resize-none transition-all font-medium"
+              disabled={formik.isSubmitting}
+              className="w-full p-3 text-sm rounded-xl border border-slate-300 dark:border-[#1e2e56] bg-slate-50/70 dark:bg-[#091124] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 resize-none transition-all font-medium disabled:opacity-50"
             />
           </div>
 
@@ -1270,7 +1293,7 @@ export default function AdminQuizFoldersPage() {
             label="Visible to students"
             description="When OFF, this folder and all quizzes inside it are hidden from the student quiz catalog."
             checked={formik.values.isActive}
-            onChange={(checked) => formik.setFieldValue('isActive', checked)}
+            onChange={(checked) => !formik.isSubmitting && formik.setFieldValue('isActive', checked)}
           />
 
           <Button
@@ -1295,11 +1318,11 @@ export default function AdminQuizFoldersPage() {
         }
         confirmLabel="Delete Folder"
         variant="danger"
+        isLoading={isDeletingFolder}
         onConfirm={() => {
           if (deleteTarget) handleDelete(deleteTarget);
-          setDeleteTarget(null);
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => !isDeletingFolder && setDeleteTarget(null)}
       />
 
       {/* Delete Quiz Confirm Dialog */}
@@ -1313,11 +1336,11 @@ export default function AdminQuizFoldersPage() {
         }
         confirmLabel="Delete Quiz"
         variant="danger"
+        isLoading={isDeletingQuiz}
         onConfirm={() => {
           if (deleteQuizTarget) handleDeleteQuiz(deleteQuizTarget);
-          setDeleteQuizTarget(null);
         }}
-        onCancel={() => setDeleteQuizTarget(null)}
+        onCancel={() => !isDeletingQuiz && setDeleteQuizTarget(null)}
       />
     </div>
   );

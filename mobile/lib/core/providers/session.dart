@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/community/community_providers.dart';
+import '../../features/pdfs/annotations/pdf_highlight_store.dart';
 import '../../features/offline/offline_providers.dart';
 import 'app_providers.dart';
 
@@ -58,6 +59,18 @@ Future<void> clearAccountScopedState(Ref ref) async {
   } catch (e) {
     if (kDebugMode) {
       debugPrint('Could not clear community chat cache on account switch: $e');
+    }
+  }
+
+  // 4. Marker highlights on book PDFs. Already filed per user, so the next
+  //    account could not read them — but they are personal notes on paid
+  //    material, and leaving them on a shared device outlives the session that
+  //    made them.
+  try {
+    await PdfHighlightStore().clear();
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Could not clear PDF highlights on account switch: $e');
     }
   }
 }

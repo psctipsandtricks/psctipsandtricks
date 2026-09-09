@@ -99,6 +99,7 @@ model User {
   chatGroupReads     ChatGroupRead[]
   oauthIdentities    OAuthIdentity[]
   deviceTokens       DeviceToken[]
+  pdfHighlights      PdfHighlight[]
   // --- Legacy migration fields (PHP/MySQL app) ---
   /// Primary key this user had in the legacy `users` table. Kept as a
   /// reference only — the new app still issues its own uuid — so the migration
@@ -167,51 +168,51 @@ model StaffPermission {
 }
 
 model Book {
-  id                  String            @id @default(uuid())
-  title               String
-  author              String
-  description         String            @db.Text
-  coverUrl            String
-  heroCoverUrl        String?
-  pdfUrl              String?
-  previewPdfUrl       String?
-  previewPdfFileName  String?
-  previewPdfSizeBytes Int?
+  id                    String            @id @default(uuid())
+  title                 String
+  author                String
+  description           String            @db.Text
+  coverUrl              String
+  heroCoverUrl          String?
+  pdfUrl                String?
+  previewPdfUrl         String?
+  previewPdfFileName    String?
+  previewPdfSizeBytes   Int?
   previewAudioUrl       String?
   previewAudioFileName  String?
   previewAudioSizeBytes Int?
-  price               Float             @default(0)
-  discountPercent     Float             @default(0)
+  price                 Float             @default(0)
+  discountPercent       Float             @default(0)
   /// Always the effective, actually-charged price (price minus the discount).
   /// Persisted rather than derived so the checkout and order history read one
   /// authoritative number instead of each re-deriving the discount.
-  finalPrice          Float             @default(0)
-  category            String
-  publicationYear     Int?
+  finalPrice            Float             @default(0)
+  category              String
+  publicationYear       Int?
   /// Store-listing identifiers carried over from the previous app: the
   /// Play Store product / base-plan ids and the App Store product id.
-  productId           String?
-  appleId             String?
-  basePlanId          String?
-  subscriptionType    String            @default("FULL_TIME_ACCESS")
-  subscriptionDuration String?
-  isPremium           Boolean           @default(false)
-  isPublished         Boolean           @default(true)
+  productId             String?
+  appleId               String?
+  basePlanId            String?
+  subscriptionType      String            @default("FULL_TIME_ACCESS")
+  subscriptionDuration  String?
+  isPremium             Boolean           @default(false)
+  isPublished           Boolean           @default(true)
   /// Whether the book shows in the public/guest listing for signed-out users.
-  visibleToGuests     Boolean           @default(false)
-  downloadCount       Int               @default(0)
-  orders              Order[]
-  chapters            Chapter[]
-  readingProgress     ReadingProgress[]
+  visibleToGuests       Boolean           @default(false)
+  downloadCount         Int               @default(0)
+  orders                Order[]
+  chapters              Chapter[]
+  readingProgress       ReadingProgress[]
   // --- Legacy migration fields ---
   /// `book_id` this title had in the legacy app.
-  legacyId            String?           @unique
+  legacyId              String?           @unique
   /// True for books that existed only in the legacy app and were never brought
   /// across. They exist purely so historical orders keep a valid book
   /// reference; they are unpublished, hidden from guests, and grant no access.
-  isLegacyPlaceholder Boolean           @default(false)
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  isLegacyPlaceholder   Boolean           @default(false)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   @@index([isLegacyPlaceholder, createdAt(sort: Desc)])
   @@index([category])
@@ -539,6 +540,10 @@ model ChatGroup {
   isLocked          Boolean           @default(false)
   allowTextMessages Boolean           @default(true)
   allowPolls        Boolean           @default(true)
+  /// The terms a student must accept before joining, written by an admin.
+  /// Empty or null means the group has none and Join is immediate — which is
+  /// how every group behaved before this existed, so nothing needs backfilling.
+  agreement         String?           @db.Text
   type              String            @default("community")
   messages          ChatMessage[]
   members           ChatGroupMember[]
@@ -548,17 +553,25 @@ model ChatGroup {
 }
 
 model ChatGroupMember {
-  id        String    @id @default(uuid())
-  groupId   String
-  group     ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      String    @default("MEMBER")
+  id                  String    @id @default(uuid())
+  groupId             String
+  group               ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role                String    @default("MEMBER")
   /// A blocked member keeps their row (so an admin can find and unblock them)
   /// but the group disappears from their community list entirely.
-  isBlocked Boolean   @default(false)
-  blockedAt DateTime?
-  joinedAt  DateTime  @default(now())
+  isBlocked           Boolean   @default(false)
+  blockedAt           DateTime?
+  /// Silences this group's notifications for this member. Server-side rather
+  /// than a per-device setting so muting on a phone also mutes on the website,
+  /// and — more importantly — so the notification is never sent rather than
+  /// sent and then hidden.
+  isMuted             Boolean   @default(false)
+  /// When this member accepted the group's agreement, if it had one. Kept as
+  /// evidence of what was agreed and when, which is the point of asking.
+  agreementAcceptedAt DateTime?
+  joinedAt            DateTime  @default(now())
 
   @@unique([groupId, userId])
   @@index([groupId, isBlocked])
@@ -600,24 +613,69 @@ model ChatMessage {
   messageType ChatMessageType @default(TEXT)
   mediaUrl    String?
   metadata    Json?
+  /// Set the first time the author changes a message, so clients can mark it
+  /// "edited" rather than silently rewriting what other people already read.
+  editedAt    DateTime?
   createdAt   DateTime        @default(now())
 
   @@index([groupId, createdAt(sort: Desc)])
   @@index([userId])
 }
 
+/// One marker stroke a student drew over a page of a book's PDF.
+///
+/// Stored per user and synchronised, so a highlight made on the phone is there
+/// on the website and the other way round. Nobody sees anyone else's: every
+/// query is scoped to the caller, and the table carries no shared rows at all.
+model PdfHighlight {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The document being marked, identified by its URL — the same identity both
+  /// clients already use to remember a reading position. One topic's PDF is one
+  /// document, and a file reused across topics carries its marks with it.
+  documentKey String
+
+  /// Zero-based, as both viewers count.
+  page Int
+
+  /// The stroke path as flat `[x0, y0, x1, y1, ...]` **fractions of the page
+  /// box**, origin top-left. Normalised rather than pixels because the same
+  /// stroke has to land on the same words on a phone, a tablet and a desktop
+  /// browser, at any zoom — a pixel path is only true for the viewport that
+  /// drew it. Matches the convention `PdfSyncRegion` already uses.
+  points Json
+
+  /// ARGB as an integer, which is what both clients' colour types take.
+  /// 1728042319 is 0x66FFD54F — highlighter yellow at 40%, the value both
+  /// clients send. Only ever used if a client omits the field.
+  color Int @default(1728042319)
+
+  /// Nib width as a fraction of the page width, so a mark is the same
+  /// thickness relative to the text on every screen.
+  width Float @default(0.035)
+
+  createdAt DateTime @default(now())
+
+  /// Every read is "this user's marks on this document", which is exactly this
+  /// index. Ordered by creation so strokes redraw in the order they were laid
+  /// down, which is what makes overlapping marks look the same everywhere.
+  @@index([userId, documentKey, createdAt])
+}
+
 model Notification {
-  id        String   @id @default(uuid())
-  title     String
-  body      String   @db.Text
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  target    String   @default("all")
-  sentById  String?
-  sentBy    User?    @relation("NotificationSender", fields: [sentById], references: [id])
-  isRead       Boolean   @default(false)
-  type         String?   @default("ANNOUNCEMENT")
-  status       String    @default("SENT")
+  id           String             @id @default(uuid())
+  title        String
+  body         String             @db.Text
+  userId       String?
+  user         User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  target       String             @default("all")
+  sentById     String?
+  sentBy       User?              @relation("NotificationSender", fields: [sentById], references: [id])
+  isRead       Boolean            @default(false)
+  type         String?            @default("ANNOUNCEMENT")
+  status       String             @default("SENT")
   scheduledFor DateTime?
   /// Where tapping the notification should land — an in-app route like
   /// `/books/<id>`, or an external https link. Null opens the notifications
@@ -627,7 +685,7 @@ model Notification {
   /// Optional 16:9 banner image (e.g. YouTube thumbnail style) shown expanded
   /// in the device notification tray and in the in-app notification list.
   imageUrl     String?
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime           @default(now())
   /// Per-student read receipts. A broadcast's own `isRead` cannot answer
   /// "has *this* student read it", so these do.
   reads        NotificationRead[]

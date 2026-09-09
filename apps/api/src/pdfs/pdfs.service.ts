@@ -448,7 +448,7 @@ export class PdfsService {
       file.mimetype,
     );
 
-    return this.prisma.pdfDocument.update({
+    const updated = await this.prisma.pdfDocument.update({
       where: { id: documentId },
       data: {
         fileUrl: url,
@@ -456,6 +456,9 @@ export class PdfsService {
         fileSizeBytes: file.size,
       },
     });
+    // Only now that the replacement is stored and the record points at it.
+    await this.storageService.removeReplacedFile(doc.fileUrl, url, documentId);
+    return updated;
   }
 
   async removePdfFile(documentId: string) {

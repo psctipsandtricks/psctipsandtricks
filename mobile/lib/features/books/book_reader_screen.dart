@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/providers/app_providers.dart';
+import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_glass.dart';
@@ -21,6 +22,7 @@ import '../../data/repositories/books_repository.dart';
 import '../offline/offline_providers.dart';
 import '../../core/utils/orientation.dart';
 import '../../core/utils/secure_screen.dart';
+import '../pdfs/annotations/pdf_annotation_layer.dart';
 import '../pdfs/widgets/pdf_document_view.dart';
 import '../pdfs/widgets/pdf_transition_cover.dart';
 import '../videos/video_player_screen.dart';
@@ -142,6 +144,12 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   /// so a document that fails to load shows its own error rather than sitting
   /// behind a spinner for ever.
   Timer? _switchTimer;
+
+  /// The marker or eraser, if the student has picked one up. Reset on every
+  /// topic change: a tool is for the page in front of you, and arriving at the
+  /// next topic still holding a marker means the first swipe to scroll draws
+  /// on it instead.
+  PdfAnnotationTool _tool = PdfAnnotationTool.none;
 
   /// Where this book's narration was left last time, read once on the way in.
   /// Non-null only while [BookReaderScreen.resumeAudio] is being honoured — it
@@ -502,6 +510,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
         // would offer "next topic" against the wrong document's last page.
         _pdfState = null;
         _switchingTopic = _units[index].hasPdf;
+        _tool = PdfAnnotationTool.none;
       }
     });
     if (isDifferentTopic) _armSwitchTimeout();
@@ -997,6 +1006,10 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
               documentState: _pdfState,
               hasNextTopic: _activeIndex < _units.length - 1,
               onNextTopic: () => _goTo(_activeIndex + 1),
+              tool: _tool,
+              onSelectTool: (tool) {
+                setState(() => _tool = _tool == tool ? PdfAnnotationTool.none : tool);
+              },
               contents: isWide
                   ? SizedBox(
                       width: 340,
@@ -1011,6 +1024,10 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
                 url: unit.pdfUrl!,
                 localPath: _localPaths[unit.pdfUrl],
                 syncCues: unit.syncCues,
+                annotationTool: _tool,
+                // Highlights belong to a person. Signed out, there is nobody to
+                // load them for and nowhere to put new ones.
+                userId: ref.watch(currentUserProvider)?.id,
                 onStateChanged: (state) {
                   if (!mounted) return;
                   // The incoming document has rendered: the swap is over, and
@@ -1257,6 +1274,8 @@ class _DocumentReader extends ConsumerStatefulWidget {
     this.documentState,
     this.hasNextTopic = false,
     this.onNextTopic,
+    this.tool = PdfAnnotationTool.none,
+    this.onSelectTool,
   });
 
   final String bookId;
@@ -1290,6 +1309,12 @@ class _DocumentReader extends ConsumerStatefulWidget {
 
   /// Moves on. Shown only when [readerOffersNextTopic] says so.
   final VoidCallback? onNextTopic;
+
+  /// The marker or eraser currently in hand.
+  final PdfAnnotationTool tool;
+
+  /// Tapping a tool picks it up; tapping the one already held puts it down.
+  final ValueChanged<PdfAnnotationTool>? onSelectTool;
 
   @override
   ConsumerState<_DocumentReader> createState() => _DocumentReaderState();
@@ -1394,6 +1419,39 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
                     onTap: widget.onBack,
                   ),
                 ),
+
+                // One icon opposite the back button, opening a menu with the
+                // two tools. A single control rather than a row of them keeps
+                // the reading page as bare as the rest of its chrome, and the
+                // icon itself reports which tool is in hand.
+                if (widget.onSelectTool != null)
+                  Positioned(
+                    top: topInset + 8,
+                    right: 8,
+                    child: _AnnotationToolButton(
+                      tool: widget.tool,
+                      onSelect: widget.onSelectTool!,
+                    ),
+                  ),
+
+                // While a tool is in hand the document cannot be scrolled — the
+                // layer above it is taking every touch — so say so rather than
+                // leaving the student to wonder why the page has seized up.
+                if (widget.tool != PdfAnnotationTool.none)
+                  Positioned(
+                    top: topInset + 12,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Center(
+                        child: _ToolNotice(
+                          label: widget.tool == PdfAnnotationTool.marker
+                              ? 'Drag to highlight'
+                              : 'Drag over a highlight to erase it',
+                        ),
+                      ),
+                    ),
+                  ),
 
                 // Bottom left: the download, until the book is on the device.
                 if (!widget.isOffline)
@@ -1549,6 +1607,139 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
         VerticalDivider(width: 1, color: context.palette.border),
         Expanded(child: reader),
       ],
+    );
+  }
+}
+
+/// The reading page's one annotation control: a single icon that opens a menu
+/// holding the marker and the eraser.
+///
+/// The icon doubles as the indicator — it shows the tool in hand and lights up
+/// while one is held, so there is no separate state to read. Picking the tool
+/// already in hand puts it down, which is the quickest way back to scrolling.
+class _AnnotationToolButton extends StatelessWidget {
+  const _AnnotationToolButton({required this.tool, required this.onSelect});
+
+  final PdfAnnotationTool tool;
+  final ValueChanged<PdfAnnotationTool> onSelect;
+
+  IconData get _icon => switch (tool) {
+        PdfAnnotationTool.marker => Icons.brush_rounded,
+        PdfAnnotationTool.eraser => Icons.cleaning_services_rounded,
+        PdfAnnotationTool.none => Icons.edit_note_rounded,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final active = tool != PdfAnnotationTool.none;
+
+    return PopupMenuButton<PdfAnnotationTool>(
+      tooltip: active ? 'Marker and eraser — a tool is in hand' : 'Marker and eraser',
+      position: PopupMenuPosition.under,
+      color: palette.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+      ),
+      onSelected: onSelect,
+      itemBuilder: (context) => [
+        _item(
+          context,
+          value: PdfAnnotationTool.marker,
+          icon: Icons.brush_rounded,
+          label: 'Marker',
+          hint: 'Drag to highlight',
+        ),
+        _item(
+          context,
+          value: PdfAnnotationTool.eraser,
+          icon: Icons.cleaning_services_rounded,
+          label: 'Eraser',
+          hint: 'Drag over a highlight',
+        ),
+      ],
+      // The same disc as the other corner controls, so it reads as one of them
+      // rather than as a menu bolted on.
+      child: IgnorePointer(
+        child: _ReaderCornerButton(
+          icon: _icon,
+          tooltip: '',
+          accent: active,
+          onTap: () {},
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<PdfAnnotationTool> _item(
+    BuildContext context, {
+    required PdfAnnotationTool value,
+    required IconData icon,
+    required String label,
+    required String hint,
+  }) {
+    final palette = context.palette;
+    final selected = tool == value;
+    return PopupMenuItem<PdfAnnotationTool>(
+      value: value,
+      height: 46,
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: selected ? AppColors.cyan : palette.textSecondary),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: selected ? AppColors.cyan : palette.textPrimary,
+                  ),
+                ),
+                Text(
+                  hint,
+                  style: TextStyle(fontSize: 10.5, color: palette.textMuted),
+                ),
+              ],
+            ),
+          ),
+          if (selected) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.check_rounded, size: 15, color: AppColors.cyan),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The pill that explains why the page has stopped scrolling while a tool is
+/// in hand.
+class _ToolNotice extends StatelessWidget {
+  const _ToolNotice({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.cyan.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
     );
   }
 }

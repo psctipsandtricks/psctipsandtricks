@@ -17,6 +17,7 @@ import '../../data/models/chat.dart';
 import '../pdfs/pdf_viewer_screen.dart';
 import 'chat_cache.dart';
 import 'chat_socket.dart';
+import 'group_agreement_sheet.dart';
 import 'community_providers.dart';
 
 /// One study group's conversation, live over Socket.IO with REST for history.
@@ -46,6 +47,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   bool _loadingMore = false;
   bool _reachedStart = false;
   bool _joining = false;
+  bool _joinedLocally = false;
   Object? _error;
 
   /// Held rather than read on demand, so the cache is still reachable from
@@ -193,6 +195,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     );
 
     _subscriptions.add(
+      socket.onEdit.listen((message) {
+        if (!mounted) return;
+        final index = _messages.indexWhere((m) => m.id == message.id);
+        if (index < 0) return;
+        setState(() => _messages[index] = message);
+        _persist();
+      }),
+    );
+
+    _subscriptions.add(
       socket.onDelete.listen((messageId) {
         if (!mounted) return;
         setState(() => _messages.removeWhere((m) => m.id == messageId));
@@ -268,18 +280,255 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
   }
 
+  /// Joins the group — showing its agreement first, if it has one.
+  ///
+  /// Nothing is created until the student accepts: the server refuses a join
+  /// that did not carry an acceptance, so backing out of the sheet leaves them
+  /// outside the group rather than quietly in it.
   Future<void> _join() async {
+    final group = ref.read(chatGroupProvider(widget.groupId));
+    var accepted = false;
+
+    if (group != null && group.requiresAgreement) {
+      accepted = await showGroupAgreement(context, group);
+      if (!accepted || !mounted) return;
+    }
+
     setState(() => _joining = true);
     try {
-      await ref.read(chatRepositoryProvider).join(widget.groupId);
+      await ref
+          .read(chatRepositoryProvider)
+          .join(widget.groupId, acceptedAgreement: accepted);
+      if (mounted) {
+        setState(() => _joinedLocally = true);
+      }
+      final token = ref.read(tokenStoreProvider).accessToken;
+      if (token != null && token.isNotEmpty) {
+        ref.read(chatSocketProvider(token)).joinGroup(widget.groupId);
+      }
       ref.invalidate(chatGroupsProvider);
+      await ref.read(chatGroupsProvider.future);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _joinedLocally = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _joinedLocally = false);
+      }
+    } finally {
+      if (mounted) setState(() => _joining = false);
+    }
+  }
+
+  Future<void> _handleLeaveGroup(ChatGroup group) async {
+    final repo = ref.read(chatRepositoryProvider);
+    final messenger = ScaffoldMessenger.of(context);
+    var isLeaving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final palette = context.palette;
+
+            return AlertDialog(
+              backgroundColor: palette.card,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.rose.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.logout_rounded,
+                      color: AppColors.rose,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Leave this group?',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
+                  ),
+                ],
+              ),
+              content: Text(
+                'You will stop receiving messages from ${group.name}. You can join again later.',
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 13,
+                  height: 1.45,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isLeaving
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: isLeaving ? palette.textMuted : palette.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: isLeaving
+                      ? null
+                      : () async {
+                          setDialogState(() => isLeaving = true);
+                          try {
+                            if (group.isPinned) {
+                              await repo.setPinned(group.id, false);
+                            }
+                            await repo.leave(group.id);
+                            if (mounted) {
+                              setState(() => _joinedLocally = false);
+                            }
+                            ref.invalidate(chatGroupsProvider);
+                            await ref.read(chatGroupsProvider.future);
+
+                            if (context.mounted) {
+                              Navigator.of(dialogContext).pop();
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text('Left ${group.name}'),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              setDialogState(() => isLeaving = false);
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text(e is ApiException
+                                      ? e.message
+                                      : 'Failed to leave group'),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  child: isLeaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.rose,
+                          ),
+                        )
+                      : const Text(
+                          'Leave',
+                          style: TextStyle(
+                            color: AppColors.rose,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Rewrites a message the student wrote.
+  ///
+  /// Text opens a dialog; a poll is deliberately not editable from the phone
+  /// yet — the app has no poll composer to reopen, and offering an edit that
+  /// silently drops the options would be worse than not offering one.
+  Future<void> _editMessage(ChatMessage message) async {
+    if (message.isPoll) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Polls can be edited from the website'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // The dialog owns its own text controller — see [_EditMessageDialog].
+    final updated = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditMessageDialog(initialText: message.content),
+    );
+
+    if (updated == null || updated.isEmpty || updated == message.content) return;
+    if (!mounted) return;
+
+    final index = _messages.indexWhere((m) => m.id == message.id);
+    try {
+      final saved = await ref
+          .read(chatRepositoryProvider)
+          .editMessage(message.id, content: updated);
+      if (!mounted || index < 0) return;
+      setState(() => _messages[index] = saved);
+      _persist();
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.message)));
       }
-    } finally {
-      if (mounted) setState(() => _joining = false);
+    }
+  }
+
+  /// Takes back a message the student wrote. Confirmed first: it cannot be
+  /// undone, and other people may already have read it.
+  Future<void> _deleteMessage(ChatMessage message) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: const Text('This removes it for everyone in the group.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child:
+                const Text('Delete', style: TextStyle(color: AppColors.rose)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Taken off the page at once; the socket tells everyone else.
+    setState(() => _messages.removeWhere((m) => m.id == message.id));
+    _persist();
+    try {
+      await ref.read(chatRepositoryProvider).deleteOwnMessage(message.id);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // Put it back rather than leaving the student thinking it went.
+      setState(() {
+        _messages
+          ..add(message)
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      });
+      _persist();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -432,84 +681,125 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   void _showGroupDetails(ChatGroup group) {
     showGlassSheet<void>(
       context: context,
-      isScrollControlled: false,
+      isScrollControlled: true,
       handle: false,
       builder: (context) {
         final palette = context.palette;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: palette.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                _GroupAvatar(group: group, size: 52),
-                const SizedBox(height: 12),
-                Text(
-                  group.name,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${Fmt.count(group.memberCount, 'member')} • ${group.category}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: palette.textMuted,
-                      ),
-                ),
-                if (group.description.isNotEmpty) ...[
-                  const SizedBox(height: 14),
+        final size = MediaQuery.sizeOf(context);
+        final maxHeight = size.height * 0.82;
+
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                    width: 36,
+                    height: 4,
                     decoration: BoxDecoration(
-                      color: palette.elevated,
-                      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                      border: Border.all(color: palette.border),
-                    ),
-                    child: Text(
-                      group.description,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: palette.textSecondary,
-                            height: 1.45,
-                          ),
+                      color: palette.border,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                ],
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: Icon(
-                          group.isPinned
-                              ? Icons.push_pin_rounded
-                              : Icons.push_pin_outlined,
-                          size: 18,
+                  const SizedBox(height: 18),
+                  _GroupAvatar(group: group, size: 52),
+                  const SizedBox(height: 12),
+                  Text(
+                    group.name,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
                         ),
-                        label: Text(group.isPinned ? 'Unpin' : 'Pin Group'),
-                        onPressed: () async {
-                          Navigator.of(context).pop();
-                          await ref
-                              .read(chatRepositoryProvider)
-                              .setPinned(group.id, !group.isPinned);
-                          ref.invalidate(chatGroupsProvider);
-                        },
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${Fmt.count(group.memberCount, 'member')} • ${group.category}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: palette.textMuted,
+                        ),
+                  ),
+                  if (group.description.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Flexible(
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: palette.elevated,
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusSm),
+                          border: Border.all(color: palette.border),
+                        ),
+                        child: ClipRRect(
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusSm),
+                          child: Scrollbar(
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.all(12),
+                              child: SelectableText(
+                                group.description,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: palette.textSecondary,
+                                      height: 1.45,
+                                    ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: Icon(
+                            group.isPinned
+                                ? Icons.push_pin_rounded
+                                : Icons.push_pin_outlined,
+                            size: 18,
+                          ),
+                          label: Text(group.isPinned ? 'Unpin' : 'Pin Group'),
+                          onPressed: () async {
+                            Navigator.of(context).pop();
+                            await ref
+                                .read(chatRepositoryProvider)
+                                .setPinned(group.id, !group.isPinned);
+                            ref.invalidate(chatGroupsProvider);
+                          },
+                        ),
+                      ),
+                      if (group.isJoined) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.rose,
+                              side: BorderSide(
+                                color: AppColors.rose.withValues(alpha: 0.5),
+                              ),
+                            ),
+                            icon: const Icon(Icons.logout_rounded, size: 18),
+                            label: const Text('Leave Group'),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              _handleLeaveGroup(group);
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -523,7 +813,15 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final group = ref.watch(chatGroupProvider(widget.groupId));
+    final rawGroup = ref.watch(chatGroupProvider(widget.groupId));
+    final group = rawGroup == null
+        ? null
+        : (_joinedLocally && !rawGroup.isJoined
+            ? rawGroup.copyWith(
+                isJoined: true,
+                memberCount: rawGroup.memberCount + 1,
+              )
+            : rawGroup);
     final me = ref.watch(currentUserProvider);
     final palette = context.palette;
     final isDark = palette.isDark;
@@ -687,6 +985,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               isMe: message.userId == myId,
               myId: myId,
               onVote: (optionIndex) => _vote(message, optionIndex),
+              // Only their own, and only once it exists on the server — an
+              // optimistic copy has no id to edit or delete.
+              onEdit: message.userId == myId &&
+                      !message.id.startsWith('optimistic-')
+                  ? () => _editMessage(message)
+                  : null,
+              onDelete: message.userId == myId &&
+                      !message.id.startsWith('optimistic-')
+                  ? () => _deleteMessage(message)
+                  : null,
             ),
           ],
         );
@@ -846,6 +1154,64 @@ final chatSocketProvider =
 });
 
 /// Web-style date chip in the middle of the chat
+/// The "edit message" prompt.
+///
+/// A widget of its own purely so it can own its `TextEditingController` and
+/// dispose it in `dispose()` — that is, once the dialog's route has finished
+/// animating out and the field is genuinely gone.
+///
+/// The caller used to create the controller and dispose it as soon as
+/// `showDialog` resolved. `showDialog` resolves when the route is *popped*,
+/// not when it has left the screen, so the `TextField` was still mounted and
+/// still using a disposed controller for the length of the exit animation. That
+/// threw mid-teardown, which left the element tree half-unmounted and brought
+/// the whole page down on `'_dependents.isEmpty': is not true` — an assertion
+/// that names an inherited widget, several frames away from the real cause.
+class _EditMessageDialog extends StatefulWidget {
+  const _EditMessageDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_EditMessageDialog> createState() => _EditMessageDialogState();
+}
+
+class _EditMessageDialogState extends State<_EditMessageDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() => Navigator.of(context).pop(_controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit message'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 5,
+        minLines: 1,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _save(),
+        decoration: const InputDecoration(hintText: 'Your message'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+}
+
 class _WebDateChip extends StatelessWidget {
   const _WebDateChip({required this.date});
 
@@ -891,12 +1257,19 @@ class _WebMessageRow extends StatelessWidget {
     required this.isMe,
     required this.myId,
     required this.onVote,
+    this.onEdit,
+    this.onDelete,
   });
 
   final ChatMessage message;
   final bool isMe;
   final String? myId;
   final ValueChanged<int> onVote;
+
+  /// Set only for the student's own messages — theirs to correct or take
+  /// back. Null on anyone else's, which is what keeps the menu honest.
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   bool _isAdmin(String name) {
     final lower = name.toLowerCase();
@@ -914,15 +1287,88 @@ class _WebMessageRow extends StatelessWidget {
     return (parts.first.substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
   }
 
-  void _onLongPress(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: message.content));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Message copied'),
-        duration: Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
+  /// Long press opens what can be done with this message.
+  ///
+  /// Copy alone for anybody else's; the author also gets edit and delete. This
+  /// replaced a bare copy-to-clipboard, so copy stays the first item and is
+  /// still one press and one tap away.
+  Future<void> _onLongPress(BuildContext context) async {
+    void copy() {
+      Clipboard.setData(ClipboardData(text: message.content));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Message copied'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+
+    if (!isMe || (onEdit == null && onDelete == null)) {
+      copy();
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: context.palette.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded, size: 20),
+              title: const Text('Copy',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+              onTap: () => Navigator.of(sheetContext).pop('copy'),
+            ),
+            if (onEdit != null)
+              ListTile(
+                leading: const Icon(Icons.edit_rounded, size: 20),
+                title: Text(
+                  message.isPoll ? 'Edit poll' : 'Edit message',
+                  style:
+                      const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                subtitle: message.isPoll
+                    ? const Text('Votes already cast are kept',
+                        style: TextStyle(fontSize: 11))
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop('edit'),
+              ),
+            if (onDelete != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded,
+                    size: 20, color: AppColors.rose),
+                title: const Text(
+                  'Delete',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: AppColors.rose,
+                  ),
+                ),
+                onTap: () => Navigator.of(sheetContext).pop('delete'),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
+
+    if (!context.mounted) return;
+    switch (action) {
+      case 'copy':
+        copy();
+      case 'edit':
+        onEdit?.call();
+      case 'delete':
+        onDelete?.call();
+    }
   }
 
   @override

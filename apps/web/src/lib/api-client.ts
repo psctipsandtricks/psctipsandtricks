@@ -957,8 +957,34 @@ export const ApiClient = {
   }) => fetcher<AppUpdateConfig>('/app/update-config', { method: 'PATCH', body: JSON.stringify({ platform: 'android', ...payload }) }),
 
   // Community Chat
+  /* ── PDF marker highlights (shared with the mobile app) ───────────── */
+  getPdfHighlights: (documentKey: string) =>
+    fetcher<any[]>(`/pdf-highlights?documentKey=${encodeURIComponent(documentKey)}`),
+  createPdfHighlight: (payload: {
+    documentKey: string;
+    page: number;
+    points: number[];
+    color?: number;
+    width?: number;
+  }) => fetcher<any>('/pdf-highlights', { method: 'POST', body: JSON.stringify(payload) }),
+  erasePdfHighlights: (ids: string[]) =>
+    fetcher<{ deleted: number }>('/pdf-highlights/erase', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+
   getChatGroups: () => fetcher<ChatGroupWithUserState[]>('/chat/groups/mine'),
-  joinGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/join`, { method: 'POST' }),
+  joinGroup: (groupId: string, acceptedAgreement?: boolean) =>
+    fetcher(`/chat/groups/${groupId}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ acceptedAgreement: acceptedAgreement === true }),
+    }),
+  muteGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/mute`, { method: 'POST' }),
+  unmuteGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/mute`, { method: 'DELETE' }),
+  editChatMessage: (messageId: string, payload: { content?: string; metadata?: Record<string, any> }) =>
+    fetcher(`/chat/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteOwnChatMessage: (messageId: string) =>
+    fetcher(`/chat/messages/${messageId}/mine`, { method: 'DELETE' }),
   leaveGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/leave`, { method: 'POST' }),
   pinGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/pin`, { method: 'POST' }),
   unpinGroup: (groupId: string) => fetcher(`/chat/groups/${groupId}/pin`, { method: 'DELETE' }),
@@ -997,7 +1023,7 @@ export const ApiClient = {
       file,
       onProgress,
     ),
-  createChatGroup: (payload: { name: string; description: string; category: string; iconEmoji?: string; imageUrl?: string; coverGradient?: string }) =>
+  createChatGroup: (payload: { name: string; description: string; category: string; iconEmoji?: string; imageUrl?: string; coverGradient?: string; agreement?: string }) =>
     fetcher('/chat/groups', { method: 'POST', body: JSON.stringify(payload) }),
   updateChatGroup: (
     groupId: string,
@@ -1005,6 +1031,7 @@ export const ApiClient = {
       name: string;
       description: string;
       category: string;
+      agreement: string;
       iconEmoji: string;
       imageUrl: string;
       allowTextMessages: boolean;

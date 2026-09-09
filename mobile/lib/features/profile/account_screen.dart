@@ -14,6 +14,7 @@ import '../../core/widgets/app_image.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../shell/shell_scaffold.dart';
+import '../social/widgets/social_media_compact_card.dart';
 
 /// The "Me" tab: identity, everything that hangs off the account, and settings.
 class AccountScreen extends ConsumerWidget {
@@ -197,6 +198,9 @@ class AccountScreen extends ConsumerWidget {
 
             const SizedBox(height: 14),
             const _AppearanceCard(),
+
+            const SizedBox(height: 14),
+            const SocialMediaCompactCard(),
 
             const SizedBox(height: 14),
             GlassCard(

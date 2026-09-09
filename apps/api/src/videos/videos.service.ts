@@ -454,7 +454,7 @@ export class VideosService {
       file.mimetype,
     );
 
-    return this.prisma.video.update({
+    const updated = await this.prisma.video.update({
       where: { id: videoId },
       data: {
         pdfUrl: url,
@@ -462,6 +462,8 @@ export class VideosService {
         pdfSizeBytes: file.size,
       },
     });
+    await this.storageService.removeReplacedFile(video.pdfUrl, url, videoId);
+    return updated;
   }
 
   async removeVideoPdf(videoId: string) {

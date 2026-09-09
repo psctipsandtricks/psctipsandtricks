@@ -89,6 +89,9 @@ export interface DiscussionMessage {
   senderRole?: 'Admin' | 'Moderator' | 'Student';
   content: string;
   createdAt: string;
+  /** Set once the author has rewritten this message, so it can be marked
+   *  "edited" rather than silently changing under people who already read it. */
+  editedAt?: string | null;
   isPinned?: boolean;
   isAnnouncement?: boolean;
   attachments?: Attachment[];
@@ -117,6 +120,12 @@ export interface CommunityGroup {
   allowTextMessages: boolean;
   allowPolls: boolean;
   lastReadMessageId?: string | null;
+  /** This member has silenced the group's notifications. */
+  isMuted: boolean;
+  /** Join must show the agreement first. */
+  requiresAgreement: boolean;
+  /** The agreement's text, for the dialog Join opens. */
+  agreement?: string | null;
   lastMessageSnippet?: string;
   lastMessageTime?: string;
 }
@@ -138,6 +147,7 @@ export function mapMessage(m: any): DiscussionMessage {
     senderRole: ROLE_LABEL[m.senderRole] || 'Student',
     content: m.content,
     createdAt: m.createdAt,
+    editedAt: m.editedAt ?? null,
     isPinned: metadata.isPinned,
     isAnnouncement: metadata.isAnnouncement,
     attachments: metadata.attachments,
@@ -164,6 +174,9 @@ function mapGroup(g: ChatGroupWithUserState): CommunityGroup {
     allowTextMessages: g.allowTextMessages ?? true,
     allowPolls: g.allowPolls ?? true,
     lastReadMessageId: g.lastReadMessageId,
+    isMuted: g.isMuted ?? false,
+    requiresAgreement: g.requiresAgreement ?? false,
+    agreement: g.agreement ?? null,
     lastMessageSnippet: g.lastMessage?.content,
     lastMessageTime: g.lastMessage?.createdAt,
   };
@@ -328,12 +341,31 @@ export function useGroupRealtime(groupId: string | null) {
       qc.invalidateQueries({ queryKey: chatGroupsKey });
     };
 
+    // An author rewriting their own message has to reach everyone already
+    // reading the thread, not just the tab that made the edit.
+    const onMessageEdited = (payload: { groupId: string; message: any }) => {
+      if (payload.groupId !== groupId) return;
+      const edited = mapMessage(payload.message);
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) =>
+            page.map((m) => (m.id === edited.id ? edited : m)),
+          ),
+        };
+      });
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+    };
+
     s.on('newChatMessage', onNewMessage);
     s.on('messageMetadataUpdated', onMetadataUpdated);
+    s.on('messageEdited', onMessageEdited);
     s.on('messageDeleted', onMessageDeleted);
     return () => {
       s.off('newChatMessage', onNewMessage);
       s.off('messageMetadataUpdated', onMetadataUpdated);
+      s.off('messageEdited', onMessageEdited);
       s.off('messageDeleted', onMessageDeleted);
       s.off('connect', join);
     };
@@ -472,6 +504,60 @@ export function usePrefetchGroupMessages() {
 }
 
 /**
+ * Edits a message the caller wrote, or a poll they posted.
+ *
+ * Votes on a poll's options survive the edit — the server matches options by
+ * id — so fixing a typo in an option does not throw away everyone's answers.
+ */
+export function useEditMessage(groupId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      messageId,
+      content,
+      metadata,
+    }: {
+      messageId: string;
+      content?: string;
+      metadata?: Record<string, any>;
+    }) => ApiClient.editChatMessage(messageId, { content, metadata }),
+    onSuccess: (updated: any) => {
+      if (!groupId) return;
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
+        if (!old) return old;
+        const next = mapMessage(updated);
+        return {
+          ...old,
+          pages: old.pages.map((page) =>
+            page.map((m) => (m.id === next.id ? next : m)),
+          ),
+        };
+      });
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+    },
+  });
+}
+
+/** Takes back a message the caller wrote. Moderators may remove anyone's. */
+export function useDeleteOwnMessage(groupId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: string) => ApiClient.deleteOwnChatMessage(messageId),
+    onSuccess: (_res, messageId) => {
+      if (!groupId) return;
+      qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => page.filter((m) => m.id !== messageId)),
+        };
+      });
+      qc.invalidateQueries({ queryKey: chatGroupsKey });
+    },
+  });
+}
+
+/**
  * Shared optimistic patcher for the cached group list, so membership/pin
  * buttons flip on click instead of after a POST + refetch round trip.
  */
@@ -497,10 +583,51 @@ function useOptimisticGroupMutation<TVars extends string>(
   });
 }
 
+/**
+ * Joins a group, carrying the student's acceptance of its agreement.
+ *
+ * The server refuses a join that did not go through the dialog, so this is not
+ * merely a formality the UI could skip — accepting has to actually happen.
+ */
 export function useJoinGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, acceptedAgreement }: { groupId: string; acceptedAgreement?: boolean }) =>
+      ApiClient.joinGroup(groupId, acceptedAgreement),
+    onMutate: async ({ groupId }) => {
+      await qc.cancelQueries({ queryKey: chatGroupsKey });
+      const previous = qc.getQueryData<CommunityGroup[]>(chatGroupsKey);
+      qc.setQueryData<CommunityGroup[]>(chatGroupsKey, (old) =>
+        old?.map((g) =>
+          g.id === groupId ? { ...g, isJoined: true, memberCount: g.memberCount + 1 } : g,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_e, _v, ctx: any) => {
+      if (ctx?.previous) qc.setQueryData(chatGroupsKey, ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: chatGroupsKey }),
+  });
+}
+
+/**
+ * Silences or restores a group's notifications.
+ *
+ * Server-side rather than a browser setting, so muting here also mutes in the
+ * app — and so the notification is never sent rather than sent and hidden.
+ */
+export function useMuteGroup() {
   return useOptimisticGroupMutation(
-    (groupId: string) => ApiClient.joinGroup(groupId),
-    (g) => ({ ...g, isJoined: true, memberCount: g.memberCount + 1 }),
+    (groupId: string) => ApiClient.muteGroup(groupId),
+    (g) => ({ ...g, isMuted: true }),
+  );
+}
+
+export function useUnmuteGroup() {
+  return useOptimisticGroupMutation(
+    (groupId: string) => ApiClient.unmuteGroup(groupId),
+    (g) => ({ ...g, isMuted: false }),
   );
 }
 
@@ -694,6 +821,8 @@ export interface AdminGroup {
   isLocked: boolean;
   allowTextMessages: boolean;
   allowPolls: boolean;
+  /** Terms students must accept before joining. Blank means Join is immediate. */
+  agreement?: string | null;
   memberCount: number;
 }
 
@@ -734,6 +863,7 @@ function mapAdminGroup(g: any): AdminGroup {
     isLocked: g.isLocked,
     allowTextMessages: g.allowTextMessages ?? true,
     allowPolls: g.allowPolls ?? true,
+    agreement: g.agreement ?? null,
     memberCount: g._count?.members ?? 0,
   };
 }
@@ -748,7 +878,7 @@ export function useAdminGroups() {
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; description: string; category: string; iconEmoji?: string }) =>
+    mutationFn: (payload: { name: string; description: string; category: string; iconEmoji?: string; agreement?: string }) =>
       ApiClient.createChatGroup(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });
@@ -760,7 +890,7 @@ export function useCreateGroup() {
 export function useUpdateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ groupId, payload }: { groupId: string; payload: Partial<{ name: string; description: string; category: string; iconEmoji: string; imageUrl: string }> }) =>
+    mutationFn: ({ groupId, payload }: { groupId: string; payload: Partial<{ name: string; description: string; category: string; agreement: string; iconEmoji: string; imageUrl: string }> }) =>
       ApiClient.updateChatGroup(groupId, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['chat-groups-admin'] });

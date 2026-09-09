@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { BooksModule } from './books/books.module';
 import { QuizzesModule } from './quizzes/quizzes.module';
 import { OrdersModule } from './orders/orders.module';
+import { PdfHighlightsModule } from './pdf-highlights/pdf-highlights.module';
 import { AdminModule } from './admin/admin.module';
 import { ChatModule } from './chat/chat.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -38,6 +39,7 @@ import { AppUpdateModule } from './app-update/app-update.module';
     BooksModule,
     QuizzesModule,
     OrdersModule,
+    PdfHighlightsModule,
     AdminModule,
     ChatModule,
     NotificationsModule,

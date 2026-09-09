@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/providers/app_providers.dart';
 import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
@@ -26,6 +27,7 @@ import '../dashboard/dashboard_providers.dart';
 import '../notifications/notifications_screen.dart';
 import '../quizzes/widgets/premium_quiz_carousel.dart';
 import '../shell/shell_scaffold.dart';
+import '../social/widgets/social_media_section.dart';
 import '../../data/models/book.dart';
 import 'home_providers.dart';
 import 'widgets/home_book_carousel.dart';
@@ -62,6 +64,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.invalidate(premiumQuizzesProvider);
     ref.invalidate(activeAnnouncementsProvider);
     ref.invalidate(liveMockTestsProvider);
+    ref.invalidate(socialLinksProvider);
     if (ref.read(authControllerProvider).isAuthenticated) {
       ref.invalidate(dashboardProvider);
     }
@@ -181,7 +184,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       maxWidth: Responsive.maxContentWidth,
                       child: _FadeSlide(
                         animation: _entranceController,
-                        delay: 0.48,
+                        delay: 0.46,
+                        child: const SocialMediaSection(),
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 26)),
+                  SliverToBoxAdapter(
+                    child: Responsive.centered(
+                      maxWidth: Responsive.maxContentWidth,
+                      child: _FadeSlide(
+                        animation: _entranceController,
+                        delay: 0.50,
                         child: const _SupportBanner(),
                       ),
                     ),
@@ -244,7 +258,9 @@ class _HomeTopBar extends ConsumerWidget {
                   SizedBox(
                     height: 58,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: Responsive.horizontalPadding(context),
+                      ),
                       child: Row(
                         children: [
                           Expanded(child: _BrandRow(name: user?.name)),
@@ -557,6 +573,34 @@ class _ShortcutStripState extends State<_ShortcutStrip>
 
   @override
   Widget build(BuildContext context) {
+    final isTablet = Responsive.isTablet(context);
+
+    if (isTablet) {
+      final horizontalPad = Responsive.horizontalPadding(context);
+      return SizedBox(
+        height: _ShortcutStrip.height,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPad),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: List.generate(
+              _ShortcutStrip._items.length,
+              (index) => Expanded(
+                child: Center(
+                  child: _ShortcutButton(
+                    item: _ShortcutStrip._items[index],
+                    entrance: _entrance,
+                    idle: _idle,
+                    index: index,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return SizedBox(
       height: _ShortcutStrip.height,
       child: ListView.separated(
@@ -691,8 +735,13 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
         (ref.watch(liveMockTestsProvider).valueOrNull?.isNotEmpty ?? false);
     final badge = hasLiveMock ? 'LIVE' : null;
 
+    final isTablet = Responsive.isTablet(context);
+    final tileWidth = isTablet ? 86.0 : 68.0;
+    final podSize = isTablet ? 48.0 : 44.0;
+    final iconSize = isTablet ? 24.0 : 22.0;
+
     return SizedBox(
-      width: 68,
+      width: tileWidth,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -706,8 +755,8 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
               children: [
                 // Frosted Liquid Glass Pod for the Icon
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: podSize,
+                  height: podSize,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
@@ -717,7 +766,7 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
                         color.withValues(alpha: isDark ? 0.12 : 0.06),
                       ],
                     ),
-                    borderRadius: BorderRadius.circular(15),
+                    borderRadius: BorderRadius.circular(isTablet ? 16 : 15),
                     border: Border.all(
                       color: color.withValues(
                         alpha: isDark
@@ -743,7 +792,7 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
                     child: Icon(
                       widget.item.icon,
                       color: color,
-                      size: 22,
+                      size: iconSize,
                     ),
                   ),
                 ),
@@ -795,7 +844,7 @@ class _ShortcutButtonState extends ConsumerState<_ShortcutButton> {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w700,
-                  fontSize: 10.5,
+                  fontSize: isTablet ? 11.5 : 10.5,
                   letterSpacing: -0.1,
                   color: palette.textSecondary,
                 ),

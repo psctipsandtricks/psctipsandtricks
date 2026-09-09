@@ -52,8 +52,41 @@ class ChatRepository {
     return ChatMessage.fromJson(res);
   }
 
-  Future<void> join(String groupId) =>
-      _api.post<dynamic>('/chat/groups/$groupId/join');
+  /// Joins a group, carrying the student's acceptance of its agreement.
+  ///
+  /// The server refuses a join that did not go through the agreement dialog, so
+  /// this flag is the real gate rather than a courtesy the UI could skip.
+  Future<void> join(String groupId, {bool acceptedAgreement = false}) =>
+      _api.post<dynamic>(
+        '/chat/groups/$groupId/join',
+        body: {'acceptedAgreement': acceptedAgreement},
+      );
+
+  /// Silences or restores a group's notifications for this student.
+  Future<void> setMuted(String groupId, bool muted) => muted
+      ? _api.post<dynamic>('/chat/groups/$groupId/mute')
+      : _api.delete<dynamic>('/chat/groups/$groupId/mute');
+
+  /// Rewrites a message this student wrote. Votes on a poll's options survive:
+  /// the server matches options by id.
+  Future<ChatMessage> editMessage(
+    String messageId, {
+    String? content,
+    Map<String, dynamic>? metadata,
+  }) async {
+    final res = await _api.patch<Map<String, dynamic>>(
+      '/chat/messages/$messageId',
+      body: {
+        if (content != null) 'content': content,
+        if (metadata != null) 'metadata': metadata,
+      },
+    );
+    return ChatMessage.fromJson(res);
+  }
+
+  /// Takes back a message this student wrote.
+  Future<void> deleteOwnMessage(String messageId) =>
+      _api.delete<dynamic>('/chat/messages/$messageId/mine');
 
   Future<void> leave(String groupId) =>
       _api.post<dynamic>('/chat/groups/$groupId/leave');

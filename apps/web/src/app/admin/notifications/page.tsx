@@ -16,6 +16,11 @@ import {
   TableHead,
   TableCell,
   Pagination,
+  DatePicker,
+  TimePicker,
+  combineDateAndTime,
+  getMinMockTestTime,
+  todayLocalDateStr,
 } from '@psc/ui';
 import {
   AlertTriangle,
@@ -82,12 +87,31 @@ const notificationSchema = Yup.object({
     is: true,
     then: (schema) =>
       schema
-        .required('Please select a schedule date & time')
-        .test('is-future', 'Schedule date & time must be in the future', (val) => {
-          if (!val) return false;
-          return new Date(val).getTime() > Date.now();
+        .required('Please select a schedule date')
+        .test('not-past-date', 'Schedule date cannot be in the past', function (date) {
+          if (!date) return true;
+          return date >= todayLocalDateStr();
         }),
-    otherwise: (schema) => schema.optional().nullable(),
+    otherwise: (schema) => schema.notRequired(),
+  }),
+  scheduledTime: Yup.string().when('isScheduled', {
+    is: true,
+    then: (schema) =>
+      schema
+        .required('Please select a schedule time')
+        .test(
+          'at-least-1-min-future',
+          'Schedule date and time must be at least 1 minute after current time',
+          function (time) {
+            const date = (this.parent as any).scheduledDate;
+            if (!date || !time) return true;
+            const iso = combineDateAndTime(date, time);
+            if (!iso) return true;
+            const minAllowedTime = Date.now() + 60_000 - 5_000;
+            return new Date(iso).getTime() >= minAllowedTime;
+          },
+        ),
+    otherwise: (schema) => schema.notRequired(),
   }),
 });
 
@@ -165,14 +189,15 @@ export default function AdminNotificationsPage() {
       userId: '',
       isScheduled: false,
       scheduledDate: '',
+      scheduledTime: '',
     },
     validationSchema: notificationSchema,
     onSubmit: async (values, { resetForm }) => {
       setErrorMessage(null);
       try {
         const scheduledFor =
-          values.isScheduled && values.scheduledDate
-            ? new Date(values.scheduledDate).toISOString()
+          values.isScheduled && values.scheduledDate && values.scheduledTime
+            ? combineDateAndTime(values.scheduledDate, values.scheduledTime)
             : undefined;
 
         await ApiClient.sendNotification({
@@ -187,7 +212,7 @@ export default function AdminNotificationsPage() {
 
         if (scheduledFor) {
           showToast(
-            `Notification scheduled for ${new Date(values.scheduledDate).toLocaleString([], {
+            `Notification scheduled for ${new Date(scheduledFor).toLocaleString([], {
               dateStyle: 'medium',
               timeStyle: 'short',
             })}.`,
@@ -231,18 +256,21 @@ export default function AdminNotificationsPage() {
   const setSchedulePreset = (hoursFromNow: number) => {
     const d = new Date(Date.now() + hoursFromNow * 3600 * 1000);
     const pad = (n: number) => String(n).padStart(2, '0');
-    const str = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    formik.setFieldValue('scheduledDate', str);
+    const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    formik.setFieldValue('scheduledDate', dateStr, true);
+    formik.setFieldValue('scheduledTime', timeStr, true);
     formik.setFieldValue('isScheduled', true);
   };
 
   const setScheduleTomorrow = (hour24: number) => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
-    d.setHours(hour24, 0, 0, 0);
     const pad = (n: number) => String(n).padStart(2, '0');
-    const str = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    formik.setFieldValue('scheduledDate', str);
+    const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const timeStr = `${pad(hour24)}:00`;
+    formik.setFieldValue('scheduledDate', dateStr, true);
+    formik.setFieldValue('scheduledTime', timeStr, true);
     formik.setFieldValue('isScheduled', true);
   };
 
@@ -992,6 +1020,7 @@ export default function AdminNotificationsPage() {
                         onClick={() => {
                           formik.setFieldValue('isScheduled', false);
                           formik.setFieldValue('scheduledDate', '');
+                          formik.setFieldValue('scheduledTime', '');
                         }}
                         className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
                           !formik.values.isScheduled
@@ -1010,7 +1039,7 @@ export default function AdminNotificationsPage() {
                         type="button"
                         onClick={() => {
                           formik.setFieldValue('isScheduled', true);
-                          if (!formik.values.scheduledDate) {
+                          if (!formik.values.scheduledDate || !formik.values.scheduledTime) {
                             setSchedulePreset(1);
                           }
                         }}
@@ -1030,22 +1059,40 @@ export default function AdminNotificationsPage() {
 
                     {formik.values.isScheduled && (
                       <div className="pt-2 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-amber-500 shrink-0" />
-                          <input
-                            type="datetime-local"
-                            name="scheduledDate"
-                            min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
+                          <DatePicker
+                            label="Schedule Date"
                             value={formik.values.scheduledDate}
-                            onChange={formik.handleChange}
-                            onBlur={formik.handleBlur}
-                            className="flex-1 px-3.5 py-2 glass-input text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:ring-amber-500/50"
+                            onChange={(d) => {
+                              formik.setFieldValue('scheduledDate', d, true);
+                              formik.setFieldTouched('scheduledDate', true, false);
+                              if (!formik.values.scheduledTime) {
+                                const minT = getMinMockTestTime(d) || '10:00';
+                                formik.setFieldValue('scheduledTime', minT, true);
+                              }
+                            }}
+                            minDate={todayLocalDateStr()}
+                            error={
+                              formik.touched.scheduledDate && formik.errors.scheduledDate
+                                ? (formik.errors.scheduledDate as string)
+                                : undefined
+                            }
+                          />
+                          <TimePicker
+                            label="Schedule Time"
+                            value={formik.values.scheduledTime}
+                            onChange={(t) => {
+                              formik.setFieldValue('scheduledTime', t, true);
+                              formik.setFieldTouched('scheduledTime', true, false);
+                            }}
+                            minTime={getMinMockTestTime(formik.values.scheduledDate)}
+                            error={
+                              formik.touched.scheduledTime && formik.errors.scheduledTime
+                                ? (formik.errors.scheduledTime as string)
+                                : undefined
+                            }
                           />
                         </div>
-
-                        {formik.touched.scheduledDate && formik.errors.scheduledDate && (
-                          <p className="text-xs text-rose-500 font-semibold">{formik.errors.scheduledDate}</p>
-                        )}
 
                         {/* Quick presets */}
                         <div className="flex items-center gap-1.5 flex-wrap pt-1">

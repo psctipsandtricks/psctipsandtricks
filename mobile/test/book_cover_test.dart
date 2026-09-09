@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:psc_tips_tricks_mobile/core/theme/app_theme.dart';
 import 'package:psc_tips_tricks_mobile/core/widgets/app_image.dart';
 import 'package:psc_tips_tricks_mobile/data/models/book.dart';
 import 'package:psc_tips_tricks_mobile/features/books/widgets/book_card.dart';
+import 'package:psc_tips_tricks_mobile/features/home/home_providers.dart';
+import 'package:psc_tips_tricks_mobile/features/home/widgets/home_book_carousel.dart';
 
 void main() {
   group('Book Cover URL resolution', () {
@@ -125,6 +128,101 @@ void main() {
 
       final bookCover = tester.widget<BookCover>(bookCoverFinder);
       expect(bookCover.url, 'https://cdn.example.com/hero-cover-3-4.jpg');
+    });
+
+    testWidgets('HomeBookCarousel.artHeightFor uses 3:4 on phone and 16:9 on tablet', (tester) async {
+      // Phone view (width: 400, height: 800)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(400, 800)),
+            child: Builder(
+              builder: (context) {
+                final height = HomeBookCarousel.artHeightFor(context);
+                expect(height, closeTo(400 * (4 / 3) * 0.90, 0.01));
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Tablet view (width: 800, height: 1200)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: const MediaQueryData(size: Size(800, 1200)),
+            child: Builder(
+              builder: (context) {
+                final height = HomeBookCarousel.artHeightFor(context);
+                expect(height, closeTo(800 * (9 / 16), 0.01));
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+    });
+
+    testWidgets('HomeBookCarousel uses 3:4 hero cover on phone and 16:9 catalog cover on tablet', (tester) async {
+      const testBook = Book(
+        id: 'book-1',
+        title: 'Test Book',
+        author: 'Anto',
+        description: 'Test Description',
+        coverUrl: 'https://cdn.example.com/catalog-cover-16-9.jpg',
+        heroCoverUrl: 'https://cdn.example.com/hero-cover-3-4.jpg',
+        price: 1000,
+        discountPercent: 20,
+        finalPrice: 800,
+        category: 'General',
+        isPremium: true,
+        downloadCount: 10,
+      );
+
+      // 1. Phone View
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            featuredBooksProvider.overrideWith((ref) => Future.value([testBook])),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: const MediaQuery(
+              data: MediaQueryData(size: Size(400, 800)),
+              child: Scaffold(
+                body: HomeBookCarousel(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final phoneAppImages = tester.widgetList<AppImage>(find.byType(AppImage));
+      expect(phoneAppImages.any((img) => img.url == 'https://cdn.example.com/hero-cover-3-4.jpg'), isTrue);
+
+      // 2. Tablet View
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            featuredBooksProvider.overrideWith((ref) => Future.value([testBook])),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: const MediaQuery(
+              data: MediaQueryData(size: Size(800, 1200)),
+              child: Scaffold(
+                body: HomeBookCarousel(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tabletAppImages = tester.widgetList<AppImage>(find.byType(AppImage));
+      expect(tabletAppImages.any((img) => img.url == 'https://cdn.example.com/catalog-cover-16-9.jpg'), isTrue);
     });
   });
 }

@@ -40,14 +40,13 @@ class HomeBookCarousel extends ConsumerStatefulWidget {
   /// Dynamic artwork height calculation:
   /// - On phones: Shows 90% of the 3:4 portrait hero cover image
   ///   (full height = width * 4 / 3; 90% height = width * 4 / 3 * 0.90 = width * 1.20).
-  /// - On tablets: Constrained proportionally so the banner remains cinematic without
-  ///   over-stretching the viewport.
+  /// - On tablets: Uses a 16:9 aspect ratio matching the 16:9 catalog cover image.
   static double artHeightFor(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final width = size.width;
     if (Responsive.isTablet(context)) {
-      final tabletMax = math.min(size.height * 0.56, 560.0);
-      return math.max(440.0, tabletMax);
+      final effectiveWidth = math.min(width, Responsive.maxContentWidth);
+      return effectiveWidth * (9.0 / 16.0);
     }
     // Exactly 90% of 3:4 aspect ratio height:
     return width * (4.0 / 3.0) * 0.90;
@@ -275,7 +274,13 @@ class _HeroSlide extends StatelessWidget {
     final shift = clamped * width * 0.10;
     final scale = 1.0 + (clamped.abs() * 0.24).clamp(0.0, 0.36);
     final dim = (clamped.abs() * 0.45).clamp(0.0, 0.55);
-    final cover = book.effectiveHeroCoverUrl;
+    final isTablet = Responsive.isTablet(context);
+
+    // Tablet view hero carousel only: use 16:9 book cover image (`effectiveCatalogCoverUrl`).
+    // Mobile view hero carousel: keep existing 3:4 portrait book cover image (`effectiveHeroCoverUrl`).
+    final cover = isTablet
+        ? book.effectiveCatalogCoverUrl
+        : book.effectiveHeroCoverUrl;
 
     return GestureDetector(
       onTap: onTap,
@@ -290,8 +295,9 @@ class _HeroSlide extends StatelessWidget {
                 child: AppImage(
                   url: cover,
                   fit: BoxFit.cover,
-                  // Top-aligned so top 90% of the 3:4 portrait image is clearly shown.
-                  alignment: Alignment.topCenter,
+                  // Top-aligned on mobile so top 90% of the 3:4 portrait image is clearly shown;
+                  // centered on tablet for the 16:9 landscape image.
+                  alignment: isTablet ? Alignment.center : Alignment.topCenter,
                   fallbackIcon: Icons.menu_book_rounded,
                 ),
               ),

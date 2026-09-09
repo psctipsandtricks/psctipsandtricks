@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,6 +16,9 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/pdf_sync.dart';
 import '../../books/reader_audio_controller.dart';
+import '../annotations/pdf_annotation_layer.dart';
+import '../annotations/pdf_highlight.dart';
+import '../annotations/pdf_highlight_store.dart';
 import 'pdf_auto_scroll.dart';
 
 /// Where a document is up to — what a host needs to draw a page indicator.
@@ -35,6 +39,8 @@ class PdfDocumentView extends ConsumerStatefulWidget {
     this.initialPage,
     this.syncCues,
     this.onStateChanged,
+    this.annotationTool = PdfAnnotationTool.none,
+    this.userId,
   });
 
   final String url;
@@ -53,12 +59,20 @@ class PdfDocumentView extends ConsumerStatefulWidget {
 
   final ValueChanged<PdfViewState>? onStateChanged;
 
+  /// The marker or eraser the student is holding, if either.
+  final PdfAnnotationTool annotationTool;
+
+  /// Whose highlights to show. Null means nobody is signed in, so none are
+  /// loaded and none are saved — marks belong to a person, not a device.
+  final String? userId;
+
   @override
   ConsumerState<PdfDocumentView> createState() => PdfDocumentViewState();
 }
 
 /// Public so a host can hold a [GlobalKey] to it and call [syncNow].
-class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
+class PdfDocumentViewState extends ConsumerState<PdfDocumentView>
+    with SingleTickerProviderStateMixin {
   String? _localPath;
   Object? _error;
   double _downloadProgress = 0;
@@ -103,9 +117,15 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   /// then lose the student's place every time.
   String? _renderedDocument;
 
-  /// Steps the document towards the narration. Only alive while there is
-  /// something playing to follow.
-  Timer? _autoScrollTimer;
+  /// Eases the document towards the narration, one frame at a time.
+  ///
+  /// A vsync ticker rather than a repeating timer because this paints: nudging
+  /// the page on a 600ms beat moved it in visible hops of a few lines, which is
+  /// not how a document scrolls. Driven per frame it glides.
+  Ticker? _followTicker;
+
+  /// Timestamp of the previous tick, so the easing is frame-rate independent.
+  Duration _lastFollowTick = Duration.zero;
 
   /// A step is in flight. Every step reads the document's position, decides
   /// where to move it, and writes it back — all over a method channel, so two
@@ -126,10 +146,31 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   /// within a page; portrait fits the width and leaves the rest to scroll.
   bool _isLandscape = false;
 
-  /// How tall one page is drawn, and the viewport width that was measured at —
-  /// two platform calls, cached until something invalidates the answer.
-  double? _pageHeightPx;
-  double? _pageHeightForWidth;
+  /// A page's height divided by its width, in PDF points. One platform call
+  /// per document: the ratio does not change with zoom or rotation, so every
+  /// on-screen size is derived from it rather than asked for again.
+  double? _pageAspect;
+
+  /// The last zoom the viewer reported, from `onDraw`. Live, unlike a
+  /// `getScale()` result, which is a round trip old by the time it lands.
+  double _scale = 1;
+
+  /// Where the document currently sits behind the annotation layer, republished
+  /// on every `onDraw` — which the viewer emits on each scroll and zoom.
+  ///
+  /// A notifier rather than widget state, and the painter's own `repaint`
+  /// listenable: writing it repaints the marker layer directly, skipping the
+  /// build and layout passes a `setState` would schedule. That is a whole frame
+  /// of latency removed, and it is what stops the highlights visibly trailing
+  /// the page they are drawn on while it scrolls.
+  final _viewport = ValueNotifier<PdfViewport?>(null);
+
+  /// This student's marks on this document, oldest first.
+  List<PdfHighlight> _highlights = const [];
+
+  /// The store is held rather than read back in [dispose]: a stroke finished a
+  /// moment before leaving still has to reach disk, and `ref` is gone by then.
+  final _highlightStore = PdfHighlightStore();
 
   /// Keyed by the document rather than the book: one book can carry a different
   /// PDF per topic, and each should remember its own place.
@@ -139,6 +180,7 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   void initState() {
     super.initState();
     _prepare();
+    unawaited(_loadHighlights());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final audio = ref.read(readerAudioProvider);
@@ -165,15 +207,109 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
       _renderedDocument = null;
       _localPath = null;
       // Geometry belongs to the document that is going away.
-      _pageHeightPx = null;
-      _pageHeightForWidth = null;
+      _pageAspect = null;
+      _viewport.value = null;
+      _scale = 1;
+      _highlights = const [];
       _prepare();
+      unawaited(_loadHighlights());
+    } else if (oldWidget.userId != widget.userId) {
+      // A different student is looking at the same document — theirs are the
+      // only marks that may appear.
+      _highlights = const [];
+      unawaited(_loadHighlights());
+    }
+  }
+
+  /// Puts the student's marks on the page: the cached copy first so the page is
+  /// never blank while the network answers, then the server's, which is the
+  /// record and the thing the website reads too.
+  Future<void> _loadHighlights() async {
+    final userId = widget.userId;
+    if (userId == null || userId.isEmpty) return;
+    final url = widget.url;
+
+    bool stillWanted() =>
+        mounted && widget.url == url && widget.userId == userId;
+
+    final cached = await _highlightStore.load(userId, url);
+    if (!stillWanted()) return;
+    if (cached.isNotEmpty) setState(() => _highlights = cached);
+
+    try {
+      final fresh = await ref.read(pdfHighlightsRepositoryProvider).fetch(url);
+      if (!stillWanted()) return;
+      setState(() => _highlights = fresh);
+      unawaited(_highlightStore.save(userId, url, fresh));
+    } catch (_) {
+      // Offline, or the request failed. The cached marks are already on screen
+      // and stay there; new ones queue in the cache until the next load
+      // succeeds. Nothing here is worth interrupting a reader for.
+    }
+  }
+
+  /// Keeps the offline copy in step with what is on screen. Fire and forget:
+  /// nothing is waiting on the disk, and the stroke is already painted.
+  void _cacheHighlights() {
+    final userId = widget.userId;
+    if (userId == null || userId.isEmpty) return;
+    unawaited(_highlightStore.save(userId, widget.url, List.of(_highlights)));
+  }
+
+  /// The stroke appears the instant it is drawn and is saved behind it.
+  ///
+  /// The server assigns the id, so the local one is a placeholder swapped for
+  /// the real thing when the save lands — without that the eraser would later
+  /// quote an id the server has never heard of.
+  Future<void> _addHighlight(PdfHighlight highlight) async {
+    setState(() => _highlights = [..._highlights, highlight]);
+    _cacheHighlights();
+
+    final url = widget.url;
+    try {
+      final saved = await ref
+          .read(pdfHighlightsRepositoryProvider)
+          .create(url, highlight);
+      if (saved == null || !mounted || widget.url != url) return;
+      setState(() {
+        _highlights = [
+          for (final h in _highlights) h.id == highlight.id ? saved : h,
+        ];
+      });
+      _cacheHighlights();
+    } catch (_) {
+      // The mark stays on the page and in the cache. It is not on the website
+      // until it syncs, which the next successful load will not undo — the
+      // cached copy is merged in ahead of the fetch.
+    }
+  }
+
+  Future<void> _eraseHighlights(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    setState(() {
+      _highlights = [
+        for (final h in _highlights)
+          if (!ids.contains(h.id)) h,
+      ];
+    });
+    _cacheHighlights();
+
+    try {
+      await ref.read(pdfHighlightsRepositoryProvider).erase(ids.toList());
+    } catch (_) {
+      // Gone locally, still on the server. A later load will bring it back
+      // rather than silently losing the erase — which is the safer way round
+      // for something that cannot be undone.
     }
   }
 
   @override
   void dispose() {
-    _stopAutoScroll();
+    // Stopped before disposing: a ticker still scheduled asserts on teardown.
+    _followTicker
+      ?..stop()
+      ..dispose();
+    _viewport.dispose();
     _audio?.playing.removeListener(_onPlayingChanged);
     _audio?.position.removeListener(_onPositionChanged);
     super.dispose();
@@ -249,56 +385,96 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   /// shows up as the flickering it is meant to prevent. One deliberate step
   /// every [kPdfStepInterval] is both smoother to watch and far cheaper.
   void _startAutoScroll() {
-    if (_autoScrollTimer != null) return;
-    _autoScrollTimer = Timer.periodic(kPdfStepInterval, (_) {
-      if (!mounted) return;
-      unawaited(_syncToAudio());
-    });
+    _followTicker ??= createTicker(_onFollowTick);
+    if (_followTicker!.isTicking) return;
+    _lastFollowTick = Duration.zero;
+    _followTicker!.start();
   }
 
   void _stopAutoScroll() {
-    _autoScrollTimer?.cancel();
-    _autoScrollTimer = null;
+    _followTicker?.stop();
   }
 
-  /// Measures how tall one page is drawn, so a point part-way down it can be
-  /// turned into a scroll offset.
+  void _onFollowTick(Duration elapsed) {
+    if (!mounted) return;
+    // The first frame after starting has no previous tick to measure against.
+    final since = elapsed - _lastFollowTick;
+    _lastFollowTick = elapsed;
+    if (since <= Duration.zero) return;
+    unawaited(_syncToAudio(elapsed: since));
+  }
+
+  /// Places the annotation layer before the student has scrolled.
   ///
-  /// Cached until the document, the viewport or the zoom changes: it costs two
-  /// platform calls, and it is the same answer every step in between.
-  Future<double?> _pageHeightOnScreen() async {
+  /// `onDraw` only fires once the document moves, so without this a page opened
+  /// and read without scrolling would show no highlights at all until the first
+  /// swipe.
+  Future<void> _seedViewport() async {
     final pdf = _pdf;
-    if (pdf == null) return null;
+    if (pdf == null) return;
+    final width = _viewportSize?.width ?? 0;
+    if (width <= 0) return;
 
-    final viewportWidth = _viewportSize?.width ?? 0;
-    if (viewportWidth <= 0) return null;
-
-    final cached = _pageHeightPx;
-    if (cached != null && _pageHeightForWidth == viewportWidth) return cached;
+    final aspect = await _ensurePageAspect();
+    if (aspect == null || !mounted || _pdf == null) return;
 
     try {
-      final size = await pdf.getCurrentPageSize();
-      final zoom = await pdf.getScale();
-      final height = pdfPageHeightOnScreen(
-        pageWidthPoints: size.width,
-        pageHeightPoints: size.height,
-        viewportWidthPx: viewportWidth,
-        zoom: zoom,
+      final position = await pdf.getPosition();
+      final scale = await pdf.getScale();
+      if (!mounted) return;
+      _scale = scale <= 0 ? 1 : scale;
+      final pageWidth = width * _scale;
+      _viewport.value = PdfViewport(
+        offset: position,
+        scale: _scale,
+        pageHeight: pageWidth * aspect,
+        pageWidth: pageWidth,
       );
-      _pageHeightPx = height;
-      _pageHeightForWidth = viewportWidth;
-      return height;
+    } catch (_) {
+      // Not ready yet. The first `onDraw` will place the layer instead.
+    }
+  }
+
+  /// The page's aspect ratio, asked for once per document.
+  Future<double?> _ensurePageAspect() async {
+    final cached = _pageAspect;
+    if (cached != null) return cached;
+
+    final pdf = _pdf;
+    if (pdf == null) return null;
+    try {
+      final size = await pdf.getCurrentPageSize();
+      if (size.width <= 0 || size.height <= 0) return null;
+      return _pageAspect = size.height / size.width;
     } catch (_) {
       // The native view is not ready, or reported something unusable. Page
-      // turns need no geometry, so the caller simply falls back to those.
+      // turns need no geometry, so the caller falls back to those.
       return null;
     }
   }
 
+  /// How tall one page is drawn right now, at the current width and zoom.
+  Future<double?> _pageHeightOnScreen() async {
+    final viewportWidth = _viewportSize?.width ?? 0;
+    if (viewportWidth <= 0) return null;
+    final aspect = await _ensurePageAspect();
+    if (aspect == null) return null;
+    return pdfPageHeightOnScreen(
+      pageWidthPoints: 1,
+      pageHeightPoints: aspect,
+      viewportWidthPx: viewportWidth,
+      zoom: _scale,
+    );
+  }
+
   /// [seeking] marks a deliberate jump — it may move the document backwards,
   /// and it overrides the stand-down that a manual swipe would otherwise get.
-  Future<void> _syncToAudio({bool seeking = false}) async {
+  Future<void> _syncToAudio({bool seeking = false, Duration? elapsed}) async {
     if (!mounted || _pdf == null) return;
+    // A page that walks itself down while somebody is drawing on it is
+    // unusable: the stroke lands somewhere the student was not pointing. The
+    // chase resumes the moment they put the tool down.
+    if (widget.annotationTool != PdfAnnotationTool.none) return;
     if (!ref.read(autoScrollProvider)) return;
     if (!seeking && !ref.read(readerAudioProvider).playing.value) return;
 
@@ -308,7 +484,7 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
     }
     _stepping = true;
     try {
-      await _step(seeking: seeking);
+      await _step(seeking: seeking, elapsed: elapsed);
     } finally {
       _stepping = false;
     }
@@ -319,7 +495,7 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   }
 
   /// One move of the chase, run under [_syncToAudio]'s re-entrancy guard.
-  Future<void> _step({required bool seeking}) async {
+  Future<void> _step({required bool seeking, Duration? elapsed}) async {
     final target = _scrollTarget();
     if (target == null) return;
 
@@ -353,14 +529,15 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
       pageCount: _pageCount,
     );
 
-    double current;
-    try {
-      current = (await _pdf!.getPosition()).dy;
-    } catch (_) {
+    // Read from the last `onDraw` rather than asking the platform: `onDraw`
+    // already arrives on every frame the document moves, and a `getPosition`
+    // per frame would double the channel traffic to learn something we were
+    // just told. A frame-stale value is harmless here — the easing converges.
+    final current = _viewport.value?.offset.dy;
+    if (current == null) {
       await _turnToPage(target.page, seeking: seeking);
       return;
     }
-    if (!mounted || _pdf == null) return;
 
     // Too far to creep: a seek, a topic just opened part-way through its clip,
     // or the student swiped away and the stand-down has expired. Turn the page
@@ -370,7 +547,15 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
       return;
     }
 
-    final next = pdfNextScrollOffset(current: current, target: wanted);
+    final next = pdfNextScrollOffset(
+      current: current,
+      target: wanted,
+      // A seek has no previous frame to measure from and should arrive at once
+      // rather than easing in from wherever the page happened to be.
+      elapsed: seeking
+          ? const Duration(milliseconds: 1000)
+          : (elapsed ?? const Duration(microseconds: 16667)),
+    );
     if (next == null) {
       _needsFirstSync = false;
       return;
@@ -507,10 +692,12 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
         if (_viewportSize != size || _isLandscape != isLandscape) {
           _viewportSize = size;
           _isLandscape = isLandscape;
-          // A page is fitted to the width; a different width is a different
-          // page height.
-          _pageHeightPx = null;
-          _pageHeightForWidth = null;
+          // A page is fitted to the width, so a different width redraws every
+          // page at a different size — and the annotation layer's transform
+          // with it.
+          _viewport.value = null;
+          WidgetsBinding.instance
+              .addPostFrameCallback((_) => unawaited(_seedViewport()));
         }
         return _buildViewer(isLandscape: isLandscape, isDark: isDark, bgColor: bgColor);
       },
@@ -524,7 +711,32 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
   }) {
     return Container(
       color: bgColor,
-      child: PDFView(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _pdfView(isLandscape: isLandscape, isDark: isDark, bgColor: bgColor),
+          // Above the native view, which is the only place a Flutter surface
+          // can draw on top of one. Transparent to touches until the student
+          // picks up a tool.
+          PdfAnnotationLayer(
+            tool: widget.annotationTool,
+            viewport: _viewport,
+            pageCount: _pageCount,
+            highlights: _highlights,
+            onHighlightAdded: (h) => unawaited(_addHighlight(h)),
+            onHighlightsErased: (ids) => unawaited(_eraseHighlights(ids)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pdfView({
+    required bool isLandscape,
+    required bool isDark,
+    required Color bgColor,
+  }) {
+    return PDFView(
         key: ValueKey('$_localPath-$isLandscape-$isDark'),
         filePath: _localPath!,
         enableSwipe: true,
@@ -546,6 +758,7 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
           _renderedDocument = _localPath;
           setState(() => _pageCount = pages ?? 0);
           _publish();
+          unawaited(_seedViewport());
           if (isFirstRender) _syncToAudio(seeking: true);
         },
         onPageChanged: (page, total) {
@@ -566,7 +779,35 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView> {
         onPageError: (page, e) {
           debugPrint('PDFView error on page $page: $e');
         },
-      ),
+        // Emitted on every scroll and zoom, which is what lets the marker layer
+        // stay glued to the page rather than floating over it. The offsets are
+        // negative going down on both platforms.
+        onDraw: (xOffset, yOffset, scale) {
+          if (!mounted) return;
+          _scale = scale <= 0 ? 1 : scale;
+          final width = _viewportSize?.width ?? 0;
+          final aspect = _pageAspect;
+          if (width <= 0 || aspect == null) {
+            // The aspect arrives one platform call after the first render;
+            // ask for it now so the next frame can place the strokes.
+            unawaited(_ensurePageAspect());
+            return;
+          }
+          final pageWidth = width * _scale;
+          final next = PdfViewport(
+            offset: Offset(xOffset, yOffset),
+            scale: _scale,
+            pageHeight: pageWidth * aspect,
+            pageWidth: pageWidth,
+          );
+          final previous = _viewport.value;
+          if (previous?.offset == next.offset && previous?.scale == next.scale) {
+            return;
+          }
+          // Written straight to the notifier: the marker layer listens to it and
+          // repaints on the spot, in the same frame the scroll was reported.
+          _viewport.value = next;
+        },
     );
   }
 }

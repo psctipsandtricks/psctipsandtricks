@@ -175,6 +175,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('messageMetadataUpdated', { messageId, metadata });
   }
 
+  /** Tells every connected client to redraw a message its author rewrote. */
+  broadcastMessageEdited(groupId: string, message: unknown) {
+    this.server.to(`group:${groupId}`).emit('messageEdited', { groupId, message });
+  }
+
   /** Tells every connected client to drop a deleted message from their thread. */
   broadcastMessageDeleted(groupId: string, messageId: string) {
     this.server.emit('messageDeleted', { groupId, messageId });

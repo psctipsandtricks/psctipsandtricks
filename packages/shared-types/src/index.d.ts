@@ -758,6 +758,11 @@ export interface ChatGroup {
     allowTextMessages: boolean;
     /** Admin switch: when false, students cannot post polls in this group. */
     allowPolls: boolean;
+    /**
+     * Terms a student must accept before joining, written by an admin. Blank or
+     * null means Join is immediate, which is how a group behaves by default.
+     */
+    agreement?: string | null;
     type: string;
     createdAt: string;
 }
@@ -765,6 +770,10 @@ export interface ChatGroupWithUserState extends ChatGroup {
     memberCount: number;
     isJoined: boolean;
     isPinned: boolean;
+    /** This member has silenced the group's notifications. */
+    isMuted: boolean;
+    /** Whether Join must show the agreement first — `agreement` is non-blank. */
+    requiresAgreement: boolean;
     unreadCount: number;
     lastReadMessageId?: string | null;
     lastMessage?: ChatMessage | null;

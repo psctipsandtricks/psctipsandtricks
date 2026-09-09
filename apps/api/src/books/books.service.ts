@@ -252,18 +252,24 @@ export class BooksService {
   }
 
   async uploadCover(id: string, file: Express.Multer.File) {
-    await this.findOne(id);
+    const book = await this.findOne(id);
     const url = await this.storageService.upload(
       'book-covers',
       `${id}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.book.update({ where: { id }, data: { coverUrl: url } });
+    const updated = await this.prisma.book.update({
+      where: { id },
+      data: { coverUrl: url },
+    });
+    // Only now that the replacement is stored and the record points at it.
+    await this.storageService.removeReplacedFile(book.coverUrl, url, id);
+    return updated;
   }
 
   async uploadHeroCover(id: string, file: Express.Multer.File) {
-    await this.findOne(id);
+    const book = await this.findOne(id);
     if (!file) throw new BadRequestException('No file was uploaded');
     const url = await this.storageService.upload(
       'book-covers',
@@ -271,7 +277,12 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.book.update({ where: { id }, data: { heroCoverUrl: url } });
+    const updated = await this.prisma.book.update({
+      where: { id },
+      data: { heroCoverUrl: url },
+    });
+    await this.storageService.removeReplacedFile(book.heroCoverUrl, url, id);
+    return updated;
   }
 
   async removeHeroCover(id: string) {
@@ -283,7 +294,7 @@ export class BooksService {
   }
 
   async uploadPreviewPdf(id: string, file: Express.Multer.File) {
-    await this.findOne(id);
+    const book = await this.findOne(id);
     if (!file) throw new BadRequestException('No file was uploaded');
     if (file.mimetype !== 'application/pdf') {
       throw new BadRequestException('Only PDF files can be uploaded');
@@ -296,7 +307,7 @@ export class BooksService {
       file.mimetype,
     );
 
-    return this.prisma.book.update({
+    const updated = await this.prisma.book.update({
       where: { id },
       data: {
         previewPdfUrl: url,
@@ -304,6 +315,8 @@ export class BooksService {
         previewPdfSizeBytes: file.size,
       },
     });
+    await this.storageService.removeReplacedFile(book.previewPdfUrl, url, id);
+    return updated;
   }
 
   async removePreviewPdf(id: string) {
@@ -319,7 +332,7 @@ export class BooksService {
   }
 
   async uploadPreviewAudio(id: string, file: Express.Multer.File) {
-    await this.findOne(id);
+    const book = await this.findOne(id);
     if (!file) throw new BadRequestException('No file was uploaded');
     const allowedMimes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/ogg', 'audio/webm'];
     if (!file.mimetype.startsWith('audio/') && !allowedMimes.includes(file.mimetype)) {
@@ -333,7 +346,7 @@ export class BooksService {
       file.mimetype,
     );
 
-    return this.prisma.book.update({
+    const updated = await this.prisma.book.update({
       where: { id },
       data: {
         previewAudioUrl: url,
@@ -341,6 +354,8 @@ export class BooksService {
         previewAudioSizeBytes: file.size,
       },
     });
+    await this.storageService.removeReplacedFile(book.previewAudioUrl, url, id);
+    return updated;
   }
 
   async removePreviewAudio(id: string) {
@@ -453,10 +468,12 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.chapter.update({
+    const updated = await this.prisma.chapter.update({
       where: { id: chapterId },
       data: { audioUrl: url },
     });
+    await this.storageService.removeReplacedFile(chapter.audioUrl, url, chapterId);
+    return updated;
   }
 
   async uploadChapterPdf(chapterId: string, file: Express.Multer.File) {
@@ -467,10 +484,12 @@ export class BooksService {
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.chapter.update({
+    const updated = await this.prisma.chapter.update({
       where: { id: chapterId },
       data: { pdfUrl: url },
     });
+    await this.storageService.removeReplacedFile(chapter.pdfUrl, url, chapterId);
+    return updated;
   }
 
   // --- Topics ---
@@ -557,28 +576,35 @@ export class BooksService {
   }
 
   async uploadTopicAudio(topicId: string, file: Express.Multer.File) {
-    await this.findTopic(topicId);
+    const topic = await this.findTopic(topicId);
     const url = await this.storageService.upload(
       'topic-audio',
       `${topicId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.topic.update({
+    const updated = await this.prisma.topic.update({
       where: { id: topicId },
       data: { audioUrl: url },
     });
+    await this.storageService.removeReplacedFile(topic.audioUrl, url, topicId);
+    return updated;
   }
 
   async uploadTopicPdf(topicId: string, file: Express.Multer.File) {
-    await this.findTopic(topicId);
+    const topic = await this.findTopic(topicId);
     const url = await this.storageService.upload(
       'topic-pdfs',
       `${topicId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.topic.update({ where: { id: topicId }, data: { pdfUrl: url } });
+    const updated = await this.prisma.topic.update({
+      where: { id: topicId },
+      data: { pdfUrl: url },
+    });
+    await this.storageService.removeReplacedFile(topic.pdfUrl, url, topicId);
+    return updated;
   }
 
   async listSubtopics(topicId: string, actor?: AccessActor | null) {
@@ -646,27 +672,34 @@ export class BooksService {
   }
 
   async uploadSubtopicAudio(subtopicId: string, file: Express.Multer.File) {
-    await this.findSubtopic(subtopicId);
+    const subtopic = await this.findSubtopic(subtopicId);
     const url = await this.storageService.upload(
       'subtopic-audio',
       `${subtopicId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.subtopic.update({
+    const updated = await this.prisma.subtopic.update({
       where: { id: subtopicId },
       data: { audioUrl: url },
     });
+    await this.storageService.removeReplacedFile(subtopic.audioUrl, url, subtopicId);
+    return updated;
   }
 
   async uploadSubtopicPdf(subtopicId: string, file: Express.Multer.File) {
-    await this.findSubtopic(subtopicId);
+    const subtopic = await this.findSubtopic(subtopicId);
     const url = await this.storageService.upload(
       'subtopic-pdfs',
       `${subtopicId}/${Date.now()}-${file.originalname}`,
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.subtopic.update({ where: { id: subtopicId }, data: { pdfUrl: url } });
+    const updated = await this.prisma.subtopic.update({
+      where: { id: subtopicId },
+      data: { pdfUrl: url },
+    });
+    await this.storageService.removeReplacedFile(subtopic.pdfUrl, url, subtopicId);
+    return updated;
   }
 }

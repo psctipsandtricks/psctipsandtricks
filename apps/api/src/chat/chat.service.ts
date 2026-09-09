@@ -93,10 +93,113 @@ export class ChatService {
     return !!permission?.manageChat;
   }
 
-  async deleteMessage(id: string) {
+  /**
+   * Removes a message. Its author may always take back their own; a moderator
+   * may remove anyone's.
+   *
+   * [actor] is optional only for the legacy admin route, which has already
+   * proved moderator rights through its guards. Every other caller passes one,
+   * and passing none means "trusted caller" rather than "no check" — which is
+   * why it is spelled out here rather than left to the reader.
+   */
+  async deleteMessage(id: string, actor?: { id: string; role: UserRole }) {
     const message = await this.prisma.chatMessage.findUnique({ where: { id } });
     if (!message) throw new NotFoundException('Message not found');
+
+    if (actor) {
+      const isAuthor = message.userId === actor.id;
+      if (!isAuthor && !(await this.canModerate(actor.id, actor.role))) {
+        throw new ForbiddenException('You can only delete your own messages');
+      }
+    }
     return this.prisma.chatMessage.delete({ where: { id } });
+  }
+
+  /**
+   * Rewrites a message's own content — its text, or a poll's question and
+   * options. Only the author, and only their own.
+   *
+   * Deliberately not open to moderators: a moderator putting words in a
+   * student's mouth under that student's name is a different and worse power
+   * than removing the message, which they already have.
+   *
+   * Editing a poll leaves the votes alone. Options are matched by id, so
+   * correcting a typo in an option keeps the votes cast for it; an option that
+   * is removed takes its votes with it, and a new one starts at zero.
+   */
+  async editMessage(
+    id: string,
+    actor: { id: string },
+    dto: { content?: string; metadata?: Record<string, any> },
+  ) {
+    const message = await this.prisma.chatMessage.findUnique({ where: { id } });
+    if (!message) throw new NotFoundException('Message not found');
+    if (message.userId !== actor.id) {
+      throw new ForbiddenException('You can only edit your own messages');
+    }
+    if (message.groupId) {
+      const group = await this.prisma.chatGroup.findUnique({
+        where: { id: message.groupId },
+        select: { isLocked: true },
+      });
+      if (group?.isLocked) {
+        throw new BadRequestException('This group is locked by an admin');
+      }
+      await this.assertNotBlocked(message.groupId, actor.id);
+    }
+
+    const existing = (message.metadata as Record<string, any> | null) ?? {};
+    let metadata = existing;
+
+    if (dto.metadata?.poll) {
+      const currentPoll = (existing.poll as Record<string, any> | undefined) ?? {};
+      const currentOptions: any[] = Array.isArray(currentPoll.options)
+        ? currentPoll.options
+        : [];
+      const votesById = new Map<string, { votes: number; votedUserIds: string[] }>(
+        currentOptions.map((o: any) => [
+          String(o?.id),
+          {
+            votes: Number(o?.votes) || 0,
+            votedUserIds: Array.isArray(o?.votedUserIds) ? o.votedUserIds : [],
+          },
+        ]),
+      );
+
+      const nextOptions = (dto.metadata.poll.options as any[] | undefined) ?? [];
+      const merged = nextOptions.map((o: any) => {
+        const kept = votesById.get(String(o?.id));
+        return {
+          ...o,
+          votes: kept?.votes ?? 0,
+          votedUserIds: kept?.votedUserIds ?? [],
+        };
+      });
+
+      metadata = {
+        ...existing,
+        poll: {
+          ...currentPoll,
+          ...dto.metadata.poll,
+          options: merged,
+          totalVotes: merged.reduce(
+            (sum, o: any) => sum + (o.votedUserIds?.length || o.votes || 0),
+            0,
+          ),
+        },
+      };
+    } else if (dto.metadata) {
+      metadata = { ...existing, ...dto.metadata };
+    }
+
+    return this.prisma.chatMessage.update({
+      where: { id },
+      data: {
+        ...(dto.content !== undefined ? { content: dto.content } : {}),
+        ...(metadata !== existing ? { metadata } : {}),
+        editedAt: new Date(),
+      },
+    });
   }
 
   async listGroups() {
@@ -123,7 +226,13 @@ export class ChatService {
       file.buffer,
       file.mimetype,
     );
-    return this.prisma.chatGroup.update({ where: { id }, data: { imageUrl: url } });
+    const updated = await this.prisma.chatGroup.update({
+      where: { id },
+      data: { imageUrl: url },
+    });
+    // Only now that the replacement is stored and the record points at it.
+    await this.storageService.removeReplacedFile(group.imageUrl, url, id);
+    return updated;
   }
 
   /** Stores a chat message attachment (PDF, Excel, Word, Image, Doc) uploaded by Admin. */
@@ -183,13 +292,34 @@ export class ChatService {
     return !!membership && !membership.isBlocked;
   }
 
-  /** Who a group notification should reach — active members only, same rule as `isMember`. */
+  /**
+   * Who a group notification should reach — active, unmuted members.
+   *
+   * Muting is honoured here, at the point of sending, rather than by hiding a
+   * notification the client was told about: a muted group should cost a student
+   * nothing, not arrive and be swallowed.
+   */
   async getActiveMemberUserIds(groupId: string): Promise<string[]> {
     const members = await this.prisma.chatGroupMember.findMany({
-      where: { groupId, isBlocked: false },
+      where: { groupId, isBlocked: false, isMuted: false },
       select: { userId: true },
     });
     return members.map((m) => m.userId);
+  }
+
+  /** Silences or restores this group's notifications for one member. */
+  async setMuted(groupId: string, userId: string, muted: boolean) {
+    const membership = await this.prisma.chatGroupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+    });
+    if (!membership) {
+      throw new BadRequestException('Join this group before muting it');
+    }
+    await this.prisma.chatGroupMember.update({
+      where: { groupId_userId: { groupId, userId } },
+      data: { isMuted: muted },
+    });
+    return { groupId, isMuted: muted };
   }
 
   async isBlocked(groupId: string, userId: string): Promise<boolean> {
@@ -217,7 +347,10 @@ export class ChatService {
         : { isLocked: false, members: { none: { userId, isBlocked: true } } },
       include: {
         _count: { select: { members: { where: { isBlocked: false } } } },
-        members: { where: { userId, isBlocked: false }, select: { id: true } },
+        members: {
+          where: { userId, isBlocked: false },
+          select: { id: true, isMuted: true },
+        },
         pins: { where: { userId }, select: { id: true } },
         reads: { where: { userId }, select: { lastReadAt: true, lastReadMessageId: true } },
       },
@@ -249,6 +382,10 @@ export class ChatService {
         ...groupFields,
         memberCount: g._count.members,
         isJoined,
+        isMuted: members[0]?.isMuted ?? false,
+        /// Whether Join has to show the agreement first. The text itself is on
+        /// `agreement`; this saves every client re-deriving "is it blank".
+        requiresAgreement: !!g.agreement?.trim(),
         isPinned: pins.length > 0,
         unreadCount: isJoined ? unreadByGroup.get(g.id) ?? 0 : 0,
         lastReadMessageId: readRecord?.lastReadMessageId || null,
@@ -368,14 +505,35 @@ export class ChatService {
     }
   }
 
-  async joinGroup(groupId: string, userId: string) {
+  /**
+   * Adds a student to a group, after they have accepted its agreement.
+   *
+   * The check is here rather than only in the clients because "you agreed to
+   * this" has to mean something: a join that never went through the dialog is
+   * refused outright, and the moment of acceptance is written down.
+   *
+   * A group with no agreement joins immediately, which is how every group
+   * behaved before this existed.
+   */
+  async joinGroup(groupId: string, userId: string, acceptedAgreement = false) {
     const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Chat group not found');
     await this.assertNotBlocked(groupId, userId);
+
+    const requiresAgreement = !!group.agreement?.trim();
+    if (requiresAgreement && !acceptedAgreement) {
+      throw new BadRequestException(
+        'Accept the group agreement before joining this group',
+      );
+    }
+
+    const acceptedAt = requiresAgreement ? new Date() : null;
     return this.prisma.chatGroupMember.upsert({
       where: { groupId_userId: { groupId, userId } },
-      create: { groupId, userId },
-      update: {},
+      create: { groupId, userId, agreementAcceptedAt: acceptedAt },
+      // Rejoining re-accepts: the agreement may have been rewritten since, so
+      // the stored date has to be when they last agreed, not the first time.
+      update: requiresAgreement ? { agreementAcceptedAt: acceptedAt } : {},
     });
   }
 

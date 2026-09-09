@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/api_client.dart';
 import '../storage/token_store.dart';
+import '../../data/models/social_links.dart';
 import '../../data/repositories/app_update_repository.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/books_repository.dart';
@@ -12,7 +13,9 @@ import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/mock_tests_repository.dart';
 import '../../data/repositories/notifications_repository.dart';
 import '../../data/repositories/orders_repository.dart';
+import '../../data/repositories/pdf_highlights_repository.dart';
 import '../../data/repositories/quizzes_repository.dart';
+import '../../data/repositories/social_links_repository.dart';
 
 /// Overridden in `main()` once the plugin has initialised, so every read is
 /// synchronous from then on.
@@ -56,8 +59,20 @@ final ordersRepositoryProvider = Provider<OrdersRepository>(
 final notificationsRepositoryProvider = Provider<NotificationsRepository>(
     (ref) => NotificationsRepository(ref.watch(apiClientProvider)));
 
+final pdfHighlightsRepositoryProvider = Provider<PdfHighlightsRepository>(
+    (ref) => PdfHighlightsRepository(ref.watch(apiClientProvider)));
+
 final chatRepositoryProvider =
     Provider<ChatRepository>((ref) => ChatRepository(ref.watch(apiClientProvider)));
 
 final appUpdateRepositoryProvider = Provider<AppUpdateRepository>(
     (ref) => AppUpdateRepository(ref.watch(apiClientProvider)));
+
+final socialLinksRepositoryProvider = Provider<SocialLinksRepository>(
+    (ref) => SocialLinksRepository(ref.watch(apiClientProvider)));
+
+final socialLinksProvider = FutureProvider<SocialLinks>((ref) async {
+  final repo = ref.watch(socialLinksRepositoryProvider);
+  return repo.fetchSocialLinks();
+});
+

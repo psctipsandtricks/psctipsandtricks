@@ -14,6 +14,8 @@ import { UpdateChatGroupDto } from './dto/update-chat-group.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { MarkReadDto } from './dto/mark-read.dto';
 import { UpdateMessageMetadataDto } from './dto/update-message-metadata.dto';
+import { EditMessageDto } from './dto/edit-message.dto';
+import { JoinGroupDto } from './dto/join-group.dto';
 
 const MANAGE_CHAT_GUARDS = [JwtAuthGuard, RolesGuard, PermissionsGuard];
 
@@ -110,12 +112,35 @@ export class ChatController {
     return group;
   }
 
-  @ApiOperation({ summary: 'Join a chat group' })
+  @ApiOperation({
+    summary:
+      "Join a chat group. Groups with an agreement require `acceptedAgreement`.",
+  })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('groups/:id/join')
-  async joinGroup(@Request() req: any, @Param('id') id: string) {
-    return this.chatService.joinGroup(id, req.user.id);
+  async joinGroup(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() dto?: JoinGroupDto,
+  ) {
+    return this.chatService.joinGroup(id, req.user.id, dto?.acceptedAgreement === true);
+  }
+
+  @ApiOperation({ summary: "Mute this group's notifications for the caller" })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('groups/:id/mute')
+  async muteGroup(@Request() req: any, @Param('id') id: string) {
+    return this.chatService.setMuted(id, req.user.id, true);
+  }
+
+  @ApiOperation({ summary: 'Unmute a group for the caller' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('groups/:id/mute')
+  async unmuteGroup(@Request() req: any, @Param('id') id: string) {
+    return this.chatService.setMuted(id, req.user.id, false);
   }
 
   @ApiOperation({ summary: 'Leave a chat group' })
@@ -192,6 +217,29 @@ export class ChatController {
     const res = await this.chatService.updateMessageMetadata(id, req.user.id, dto.metadata);
     this.chatGateway.broadcastMetadataUpdate(id, dto.metadata);
     return res;
+  }
+
+  @ApiOperation({ summary: 'Edit your own message or poll' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('messages/:id')
+  async editMessage(@Request() req: any, @Param('id') id: string, @Body() dto: EditMessageDto) {
+    const message = await this.chatService.editMessage(id, { id: req.user.id }, dto);
+    if (message.groupId) this.chatGateway.broadcastMessageEdited(message.groupId, message);
+    return message;
+  }
+
+  @ApiOperation({ summary: 'Delete your own message (moderators may delete anyone\'s)' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('messages/:id/mine')
+  async deleteOwnMessage(@Request() req: any, @Param('id') id: string) {
+    const deleted = await this.chatService.deleteMessage(id, {
+      id: req.user.id,
+      role: req.user.role,
+    });
+    if (deleted.groupId) this.chatGateway.broadcastMessageDeleted(deleted.groupId, id);
+    return deleted;
   }
 
   @ApiOperation({ summary: 'List a group\'s members, searchable + paginated (Admin / Staff with manage_chat)' })

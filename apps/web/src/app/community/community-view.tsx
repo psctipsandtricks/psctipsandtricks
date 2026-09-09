@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, ConfirmDialog, useFileDrop } from '@psc/ui';
 import {
@@ -41,6 +41,8 @@ import {
   MoreVertical,
   Eye,
   Maximize2,
+  ShieldCheck,
+  Pencil,
 } from 'lucide-react';
 import {
   useChatGroups,
@@ -52,6 +54,11 @@ import {
   usePrefetchGroupMessages,
   useJoinGroup,
   useLeaveGroup,
+  useMuteGroup,
+  useUnmuteGroup,
+  useEditMessage,
+  useDeleteOwnMessage,
+  type CommunityGroup,
   usePinGroup,
   useUnpinGroup,
   useSendMessage,
@@ -180,33 +187,19 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     size?: string;
   } | null>(null);
 
-  // Mute / Unmute Group Notifications State (Persisted per User)
-  const [mutedGroupIds, setMutedGroupIds] = useState<string[]>(() => {
-    if (typeof window === 'undefined' || !user?.id) return [];
-    try {
-      const saved = localStorage.getItem(`psc_muted_groups_${user.id}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const toggleMuteGroup = (groupId: string, e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    setMutedGroupIds((prev) => {
-      const isMuted = prev.includes(groupId);
-      const next = isMuted ? prev.filter((id) => id !== groupId) : [...prev, groupId];
-      try {
-        if (user?.id) {
-          localStorage.setItem(`psc_muted_groups_${user.id}`, JSON.stringify(next));
-        }
-      } catch {}
-      return next;
-    });
-  };
+  /**
+   * Which groups this student has silenced.
+   *
+   * Read off the group list rather than from `localStorage`, which is where it
+   * used to live: a per-browser setting could not agree with the phone, and it
+   * only hid notifications the server had already sent. The flag is now on the
+   * membership, so muting here mutes everywhere and the notification is never
+   * sent at all.
+   */
+  const mutedGroupIds = useMemo(
+    () => groups.filter((g) => g.isMuted).map((g) => g.id),
+    [groups],
+  );
 
   // Close header menu on click outside or group change
   useEffect(() => {
@@ -293,6 +286,11 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
   const joinMutation = useJoinGroup();
   const leaveMutation = useLeaveGroup();
+  const muteMutation = useMuteGroup();
+  const unmuteMutation = useUnmuteGroup();
+
+  /** The group whose agreement is on screen, waiting to be accepted. */
+  const [agreementFor, setAgreementFor] = useState<CommunityGroup | null>(null);
   const pinMutation = usePinGroup();
   const unpinMutation = useUnpinGroup();
   const sendMutation = useSendMessage(
@@ -302,6 +300,14 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   const markReadMutation = useMarkRead(selectedGroupId || '');
   const metadataMutation = useUpdateMessageMetadata(selectedGroupId || '');
   const deleteMessageMutation = useDeleteMessage(selectedGroupId || '');
+  const deleteOwnMessageMutation = useDeleteOwnMessage(selectedGroupId);
+  const editMessageMutation = useEditMessage(selectedGroupId);
+
+  /** Which endpoint the pending delete should use — see `handleDeleteMessage`. */
+  const [deletingAsAuthor, setDeletingAsAuthor] = useState(false);
+
+  /** The message being rewritten, if any. Null means the composer is composing. */
+  const [editingMessage, setEditingMessage] = useState<DiscussionMessage | null>(null);
 
   /* Background Attachment Uploader Helper */
   const updateAttachmentProgressInCache = useCallback(
@@ -685,23 +691,65 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     }
   };
 
+  /**
+   * Leaving is immediate; joining a group with an agreement stops here and
+   * opens it. The membership is only created once the student has accepted —
+   * and the server enforces that too, so this dialog is the real gate rather
+   * than a courtesy.
+   */
   const handleToggleJoin = async (groupId: string, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
     const group = groups.find((g) => g.id === groupId);
+
+    if (!group?.isJoined && group?.requiresAgreement) {
+      setAgreementFor(group);
+      return;
+    }
+
     setJoiningGroupId(groupId);
     try {
       if (group?.isJoined) {
         await leaveMutation.mutateAsync(groupId);
       } else {
-        await joinMutation.mutateAsync(groupId);
+        await joinMutation.mutateAsync({ groupId });
       }
     } catch (err: any) {
       alert(err?.message || 'Failed to update membership');
     } finally {
       setJoiningGroupId(null);
+    }
+  };
+
+  /** Accepting in the dialog is what actually creates the membership. */
+  const handleAcceptAgreement = async () => {
+    const group = agreementFor;
+    if (!group) return;
+    setJoiningGroupId(group.id);
+    try {
+      await joinMutation.mutateAsync({ groupId: group.id, acceptedAgreement: true });
+      setAgreementFor(null);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to join this group');
+    } finally {
+      setJoiningGroupId(null);
+    }
+  };
+
+  const handleToggleMute = async (groupId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    try {
+      if (group.isMuted) await unmuteMutation.mutateAsync(groupId);
+      else await muteMutation.mutateAsync(groupId);
+    } catch (err: any) {
+      setPinToast(err?.message || 'Could not change notifications for this group');
     }
   };
 
@@ -893,6 +941,20 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     if (!selectedGroup || !isUserMember || isLockedForUser || !selectedGroupId) return;
 
     const msgContent = newMessage.trim();
+
+    // Rewriting rather than sending: the composer is loaded with an existing
+    // message, so this submit replaces its text instead of posting a new one.
+    if (editingMessage) {
+      const target = editingMessage;
+      setEditingMessage(null);
+      setNewMessage('');
+      editMessageMutation.mutate(
+        { messageId: target.id, content: msgContent },
+        { onError: (err: any) => alert(err?.message || 'Could not save your changes') },
+      );
+      return;
+    }
+
     const attachmentsToSend = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
 
     setNewMessage('');
@@ -951,6 +1013,34 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     setCorrectOptionId('opt-1');
     setShowPollComposer(false);
 
+    // Editing an existing poll rather than posting a new one. Options keep the
+    // ids they already had wherever the author left them alone, which is how
+    // the votes cast for them survive — the server matches on id.
+    if (editingMessage) {
+      const target = editingMessage;
+      setEditingMessage(null);
+      editMessageMutation.mutate(
+        {
+          messageId: target.id,
+          content: question,
+          metadata: {
+            poll: {
+              question,
+              options: validOptions.map((opt, idx) => ({
+                // An option the author added has no id yet; give it a fresh one
+                // so it starts at zero rather than inheriting someone's votes.
+                id: /^opt-\d+$/.test(opt.id) ? opt.id : `opt-new-${idx + 1}`,
+                text: opt.text.trim(),
+              })),
+              correctOptionId,
+            },
+          },
+        },
+        { onError: (err: any) => alert(err?.message || 'Could not save your changes') },
+      );
+      return;
+    }
+
     sendMutation.mutate({
       content: question,
       metadata: pollMetadata,
@@ -972,22 +1062,57 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     }
   };
 
-  /* Admin/Staff Moderation: Delete Any Message From Any Group */
-  const handleDeleteMessage = (messageId: string) => {
+  /**
+   * Deleting a message: an author taking back their own, or a moderator
+   * removing anyone's. Both confirm first, since neither can be undone.
+   *
+   * The two go through different endpoints — the author's is scoped to
+   * messages they wrote, so it cannot be turned into moderation by anyone who
+   * finds it.
+   */
+  const handleDeleteMessage = (messageId: string, asAuthor = false) => {
     if (messageId.startsWith('optimistic-')) return;
     deleteMessageMutation.reset();
+    deleteOwnMessageMutation.reset();
     setDeleteTargetMsgId(messageId);
+    setDeletingAsAuthor(asAuthor);
   };
 
   const handleConfirmDeleteMessage = () => {
     if (!deleteTargetMsgId) return;
-    deleteMessageMutation.mutate(deleteTargetMsgId, {
+    const mutation = deletingAsAuthor ? deleteOwnMessageMutation : deleteMessageMutation;
+    mutation.mutate(deleteTargetMsgId as any, {
       onError: (err: any) => alert(err?.message || 'Failed to delete message'),
       onSettled: () => {
         setDeleteTargetMsgId(null);
-        deleteMessageMutation.reset();
+        setDeletingAsAuthor(false);
+        mutation.reset();
       },
     });
+  };
+
+  /**
+   * Loads a message the author wrote back into whichever composer made it —
+   * the text box, or the poll builder with its question and options.
+   */
+  const beginEditingMessage = (msg: DiscussionMessage) => {
+    if (msg.id.startsWith('optimistic-')) return;
+    setEditingMessage(msg);
+    if (msg.poll) {
+      setPollQuestion(msg.poll.question);
+      setPollOptions(msg.poll.options.map((o) => ({ id: o.id, text: o.text })));
+      setCorrectOptionId(msg.poll.correctOptionId || msg.poll.options[0]?.id || 'opt-1');
+      setShowPollComposer(true);
+    } else {
+      setNewMessage(msg.content);
+      messageInputRef.current?.focus();
+    }
+  };
+
+  const cancelEditingMessage = () => {
+    setEditingMessage(null);
+    setNewMessage('');
+    setShowPollComposer(false);
   };
 
   /* Strictly 1 Emoji Reaction Per User Per Message */
@@ -1201,7 +1326,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     <button
                       type="button"
                       onClick={(e) => {
-                        toggleMuteGroup(group.id, e);
+                        handleToggleMute(group.id, e);
                         setOpenRowMenuGroupId(null);
                       }}
                       className="w-full px-3.5 py-2 text-left text-xs font-bold flex items-center space-x-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-200 cursor-pointer"
@@ -1551,6 +1676,61 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
         </div>
       )}
 
+      {/* ════ GROUP AGREEMENT — shown before Join adds anyone ════ */}
+      {agreementFor && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="group-agreement-title"
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#0b1329] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-start gap-3 shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+                <ShieldCheck className="w-4.5 h-4.5" />
+              </div>
+              <div className="min-w-0">
+                <h3
+                  id="group-agreement-title"
+                  className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug"
+                >
+                  Group Agreement
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                  {agreementFor.name}
+                </p>
+              </div>
+            </div>
+
+            {/* The admin's text, verbatim — `whitespace-pre-wrap` so the line
+                breaks and bullets they typed survive. */}
+            <div className="px-5 py-4 overflow-y-auto">
+              <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                {agreementFor.agreement}
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 flex items-center justify-end gap-2.5 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAgreementFor(null)}
+                disabled={joiningGroupId === agreementFor.id}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleAcceptAgreement}
+                disabled={joiningGroupId === agreementFor.id}
+              >
+                {joiningGroupId === agreementFor.id ? 'Joining…' : 'Accept & Join'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-1 h-full overflow-hidden border-t border-slate-200/80 dark:border-slate-800/80">
         {/* ════ LEFT SIDEBAR ════ */}
         <div
@@ -1699,7 +1879,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       <button
                         type="button"
                         onClick={(e) => {
-                          toggleMuteGroup(selectedGroup.id, e);
+                          handleToggleMute(selectedGroup.id, e);
                           setShowGroupMenu(false);
                         }}
                         className="w-full px-3.5 py-2 text-left text-xs font-bold flex items-center space-x-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-700 dark:text-slate-200 cursor-pointer"
@@ -1860,6 +2040,11 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                             )}
                             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                               {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {msg.editedAt && (
+                                <span className="ml-1 opacity-70" title="This message was edited by its author">
+                                  · edited
+                                </span>
+                              )}
                             </span>
                             {isMe &&
                               (msg.sendFailed ? (
@@ -2225,13 +2410,29 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                               <Reply className="w-3.5 h-3.5" />
                             </button>
 
-                            {/* Moderation: admins can remove any message from any group */}
-                            {isAdmin && !msg.id.startsWith('optimistic-') && (
+                            {/* The author's own message: theirs to correct or
+                                take back. A poll opens the poll composer with
+                                its question and options loaded; votes already
+                                cast survive the edit. */}
+                            {isMe && !msg.id.startsWith('optimistic-') && (
                               <button
                                 type="button"
-                                onClick={() => handleDeleteMessage(msg.id)}
+                                onClick={() => beginEditingMessage(msg)}
+                                className="p-1 text-slate-400 hover:text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                title={msg.poll ? 'Edit poll' : 'Edit message'}
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Authors may take back their own; admins may
+                                remove anyone's. */}
+                            {(isMe || isAdmin) && !msg.id.startsWith('optimistic-') && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMessage(msg.id, isMe)}
                                 className="p-1 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                title="Delete message"
+                                title={isMe ? 'Delete your message' : 'Delete message'}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -2270,6 +2471,29 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     <span className="px-3 py-1.5 rounded-xl bg-cyan-600 text-white text-xs font-black shadow-lg">
                       Drop files to attach
                     </span>
+                  </div>
+                )}
+                {editingMessage && (
+                  <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between text-xs font-semibold text-amber-800 dark:text-amber-300">
+                    <div className="flex items-center space-x-2 truncate">
+                      <Pencil className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="font-bold text-amber-500 text-[11px]">
+                        Editing your {editingMessage.poll ? 'poll' : 'message'}
+                      </span>
+                      {!editingMessage.poll && (
+                        <span className="truncate text-slate-700 dark:text-slate-300 text-[11px]">
+                          {editingMessage.content}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={cancelEditingMessage}
+                      className="p-1 hover:text-rose-500 transition-colors cursor-pointer"
+                      title="Cancel editing"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 )}
                 {replyingTo && (
