@@ -350,7 +350,7 @@ class _BrandRow extends StatelessWidget {
           height: 40,
           padding: const EdgeInsets.all(1.5),
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(AppTheme.radiusSm),
             border: Border.all(
               color: const Color(0xFF38BDF8).withValues(alpha: 0.40),
               width: 1.2,
@@ -363,7 +363,8 @@ class _BrandRow extends StatelessWidget {
               ),
             ],
           ),
-          child: ClipOval(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppTheme.radiusSm - 1.5),
             child: Image.asset(
               'assets/icon/app_logo.png',
               fit: BoxFit.contain,

@@ -106,6 +106,16 @@ export default function QuizQuestionsStudioPage() {
   const quizId = params?.id as string;
 
   const [loading, setLoading] = useState(true);
+
+  /**
+   * Whether this quiz's existing questions actually arrived.
+   *
+   * Saving replaces the whole question set — the API deletes every row and
+   * recreates from the list sent — so the list held here has to be the real
+   * one. If the load failed, it is empty for the wrong reason, and saving
+   * would delete every question the quiz already had.
+   */
+  const [questionsLoaded, setQuestionsLoaded] = useState(false);
   const [quiz, setQuiz] = useState<any>(null);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
 
@@ -165,10 +175,32 @@ export default function QuizQuestionsStudioPage() {
       setLoading(true);
       const data = await ApiClient.getQuizById(quizId);
       setQuiz(data);
+
+      // A paid quiz comes back with its questions stripped unless the caller is
+      // allowed to read them. That used to happen to admins, and an empty list
+      // for *that* reason is the dangerous one: it looks like a quiz with no
+      // questions, and saving on top of it replaces the ones that are really
+      // there. Treat a withheld list as "not loaded" rather than as empty.
+      // Withheld questions come back as an empty array, not a missing field, so
+      // the tell is an empty list on a quiz that says it has some.
+      const returned = Array.isArray(data?.questions) ? data.questions.length : 0;
+      const withheld = returned === 0 && (data?.totalQuestions ?? 0) > 0;
+      if (withheld) {
+        setQuestionsLoaded(false);
+        setPageError(
+          `This quiz says it has ${data?.totalQuestions} question(s) but none were returned, so they cannot be edited here yet — saving now would replace them. Reload the page; if it persists, this quiz's questions are being withheld from your account.`,
+        );
+        return;
+      }
+
       setQuestions(mapApiQuestionsToLocal(data.questions || []));
+      setQuestionsLoaded(true);
     } catch (err: any) {
       console.error('Failed to load quiz:', err);
-      setPageError(err.message || 'Failed to load quiz details.');
+      setQuestionsLoaded(false);
+      setPageError(
+        `${err.message || 'Failed to load quiz details.'} Adding a question is disabled until this loads — saving now would replace the questions this quiz already has.`,
+      );
     } finally {
       setLoading(false);
     }
@@ -270,6 +302,16 @@ export default function QuizQuestionsStudioPage() {
 
   // Persist Updated Questions List to Backend API
   const saveQuestionsToBackend = async (updatedQuestionsList: QuizQuestion[]) => {
+    // Refuse to write a list we cannot vouch for. Every save replaces the
+    // quiz's entire question set, so saving on top of a failed load would
+    // silently delete everything that was already there.
+    if (!questionsLoaded) {
+      setPageError(
+        'This quiz\'s existing questions could not be loaded, so nothing can be saved yet — that would replace them. Reload the page and try again.',
+      );
+      return false;
+    }
+
     // Optimistic update: the table reflects the change the instant the admin
     // saves, rather than waiting on the network round-trip. Previously the
     // list only updated once the PUT resolved — and was then immediately
@@ -646,6 +688,15 @@ export default function QuizQuestionsStudioPage() {
               variant="gold"
               className="font-bold text-xs shadow-md shadow-cyan-500/20 flex items-center space-x-1.5 cursor-pointer px-4 py-2.5"
               onClick={handleOpenCreateModal}
+              // Greyed out until we know what this quiz already contains — see
+              // `questionsLoaded`. Adding on top of a failed load would replace
+              // the existing questions rather than join them.
+              disabled={!questionsLoaded}
+              title={
+                questionsLoaded
+                  ? undefined
+                  : 'Existing questions could not be loaded — reload the page before adding'
+              }
             >
               <Plus className="w-4 h-4" />
               <span>Add Question</span>

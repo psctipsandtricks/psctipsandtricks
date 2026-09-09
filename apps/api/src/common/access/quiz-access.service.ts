@@ -49,8 +49,22 @@ export class QuizAccessService {
     return actor?.role === UserRole.ADMIN || actor?.role === UserRole.STAFF;
   }
 
-  /** True when the user holds a settled payment for this specific quiz. */
+  /**
+   * True when the user holds a settled payment for this specific quiz — or is
+   * staff, who need to read and manage paid content without buying it.
+   *
+   * The staff branch mirrors `BookAccessService.hasPurchased`. Its absence here
+   * meant an admin opening a paid quiz was treated as a student who had not
+   * paid: the questions were stripped from the response, so the admin panel
+   * showed the quiz as empty.
+   */
   async hasPurchased(userId: string, quizId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (this.isStaff(user ? { id: userId, role: user.role } : null)) return true;
+
     const paidOrder = await this.prisma.order.findFirst({
       where: {
         userId,
@@ -62,9 +76,23 @@ export class QuizAccessService {
     return !!paidOrder;
   }
 
-  /** Every quiz this user has settled payment for — one query for list routes. */
+  /**
+   * Every quiz this user has settled payment for — one query for list routes.
+   *
+   * `hasAllAccess` is the staff shortcut: they hold no orders but may read
+   * everything, so the caller must honour it rather than only the id set.
+   */
   async getPurchasedQuizIds(userId?: string | null): Promise<{ quizIds: Set<string>; hasAllAccess: boolean }> {
     if (!userId) return { quizIds: new Set(), hasAllAccess: false };
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (this.isStaff(user ? { id: userId, role: user.role } : null)) {
+      return { quizIds: new Set(), hasAllAccess: true };
+    }
+
     const orders = await this.prisma.order.findMany({
       where: {
         userId,
@@ -86,7 +114,7 @@ export class QuizAccessService {
     actor: AccessActor | null | undefined,
     quizzes: T[],
   ): Promise<(T & { access: QuizAccessState })[]> {
-    const { quizIds: purchased } = await this.getPurchasedQuizIds(actor?.id);
+    const { quizIds: purchased, hasAllAccess } = await this.getPurchasedQuizIds(actor?.id);
 
     return quizzes.map((quiz) => {
       const originalPrice = quiz.price ?? 0;
@@ -100,6 +128,15 @@ export class QuizAccessService {
         access = { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
       } else if (!actor?.id) {
         access = { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
+      } else if (hasAllAccess) {
+        access = {
+          isPaid: true,
+          hasAccess: true,
+          price: effectivePrice,
+          originalPrice,
+          discountPercent,
+          reason: 'STAFF',
+        };
       } else {
         const bought = purchased.has(quiz.id);
         access = {
@@ -128,6 +165,13 @@ export class QuizAccessService {
 
     if (!this.isPaidQuiz(quiz)) {
       return { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
+    }
+    // Staff before the paywall, not after it: an admin has to see a paid quiz's
+    // questions to edit them at all. Without this the answer key was stripped
+    // from the response and the admin panel showed the quiz as questionless —
+    // which then let a save replace the questions it could not see.
+    if (this.isStaff(actor)) {
+      return { isPaid: true, hasAccess: true, price: effectivePrice, originalPrice, discountPercent, reason: 'STAFF' };
     }
     if (!actor?.id) {
       return { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };

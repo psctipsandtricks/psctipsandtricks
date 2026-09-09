@@ -2,7 +2,7 @@
   <defs>
     <!-- Text Paths for Circular Arcs -->
     <path id="wmTopArc" d="M 52,250 A 198,198 0 1,1 448,250" fill="none" />
-    <path id="wmBottomArc" d="M 448,250 A 198,198 0 0,1 52,250" fill="none" />
+    <path id="wmBottomArc" d="M 40,250 A 210,210 0 0,0 460,250" fill="none" />
   </defs>
 
   <!-- Semi-transparent Outer Ring -->
