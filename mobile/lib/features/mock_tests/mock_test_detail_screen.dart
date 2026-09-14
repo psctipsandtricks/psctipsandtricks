@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +20,7 @@ import '../../data/models/mock_test.dart';
 import '../../data/models/quiz.dart';
 import '../checkout/purchase_sheet.dart';
 import '../home/home_providers.dart';
+import '../quizzes/widgets/quiz_result_sheet.dart';
 import 'mock_tests_providers.dart';
 
 /// One scheduled mock test: the details, the join action while it is live, and
@@ -124,17 +127,26 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
                 child: _Header(mock: mock),
               ),
               const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _Action(
-                  mock: mock,
-                  busy: _joining,
-                  buying: _buying,
-                  onJoin: () => _join(mock),
-                  onBuy: () => _buy(mock),
+              // A paper already sat has nothing left to join — the server
+              // refuses a second submission — so the rank list takes the slot
+              // the join button would have had. Same swap the website makes.
+              if (!mockTestSubmitted(ref, mock))
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _Action(
+                    mock: mock,
+                    busy: _joining,
+                    buying: _buying,
+                    onJoin: () => _join(mock),
+                    onBuy: () => _buy(mock),
+                  ),
                 ),
-              ),
-              if (mock.status == MockTestStatus.completed) ...[
+              if (mockTestSubmitted(ref, mock))
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _MyRankList(mock: mock),
+                )
+              else if (mock.status == MockTestStatus.completed) ...[
                 const SizedBox(height: 26),
                 const SectionHeader(
                   title: 'Rank list',
@@ -183,9 +195,9 @@ class _Header extends StatelessWidget {
                   )
                 else
                   const AppBadge(
-                    'UNLOCKED',
+                    'PURCHASED',
                     color: AppColors.emerald,
-                    icon: Icons.lock_open_rounded,
+                    icon: Icons.check_circle_rounded,
                   ),
               ],
               const Spacer(),
@@ -341,15 +353,15 @@ class _Action extends ConsumerWidget {
 
     final isLocked = mock.isLocked;
 
-    // If the student has not purchased the Mock Test, show a Buy Now button.
+    // If the mock test is locked (unpurchased), show a Buy Now button.
     if (isLocked) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           GradientButton(
-            label: 'Buy Now • ${Fmt.price(mock.price)}',
-            icon: Icons.shopping_bag_rounded,
-            gradient: AppColors.brandGradient,
+            label: 'Unlock for ${Fmt.price(mock.price)}',
+            icon: Icons.lock_rounded,
+            gradient: AppColors.goldGradient,
             isLoading: buying,
             onPressed: buying ? null : onBuy,
           ),
@@ -422,11 +434,283 @@ class _Action extends ConsumerWidget {
         );
       case MockTestStatus.completed:
         return OutlinedButton.icon(
-          onPressed: () => context.push(AppRoutes.quizAttempt(mock.quizId)),
-          icon: const Icon(Icons.replay_rounded, size: 18),
-          label: const Text('Practise this paper'),
+          onPressed: isLocked
+              ? onBuy
+              : () => context.push(AppRoutes.quizAttempt(mock.quizId, mockTestId: mock.id)),
+          icon: Icon(
+              isLocked ? Icons.lock_rounded : Icons.replay_rounded,
+              size: 18),
+          label: Text(isLocked
+              ? 'Unlock to practise (${Fmt.price(mock.price)})'
+              : 'Practise this paper'),
         );
     }
+  }
+}
+
+/// The student's own standing in a mock test they have submitted.
+///
+/// The rank list a student is shown is their row and no one else's — the same
+/// shape the website's rank list page has, where the full board is fetched but
+/// filtered down to the signed-in user before it is drawn. While the test is
+/// still running that row moves as other people submit, so it re-reads the
+/// board on a timer and says so; once the window closes the numbers are final
+/// and the timer stops.
+class _MyRankList extends ConsumerStatefulWidget {
+  const _MyRankList({required this.mock});
+
+  final MockTest mock;
+
+  @override
+  ConsumerState<_MyRankList> createState() => _MyRankListState();
+}
+
+class _MyRankListState extends ConsumerState<_MyRankList> {
+  /// Matches the website's `LEADERBOARD_POLL_MS`, so a rank moves at the same
+  /// pace on both.
+  static const _pollInterval = Duration(seconds: 4);
+
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncPoll();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MyRankList old) {
+    super.didUpdateWidget(old);
+    // The test finishing mid-view is exactly when the timer should stop.
+    if (old.mock.status != widget.mock.status) _syncPoll();
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  void _syncPoll() {
+    _poll?.cancel();
+    if (widget.mock.status == MockTestStatus.completed) return;
+    _poll = Timer.periodic(_pollInterval, (_) {
+      if (!mounted) return;
+      ref.invalidate(mockLeaderboardProvider(widget.mock.id));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mock = widget.mock;
+    final isFinal = mock.status == MockTestStatus.completed;
+    final me = ref.watch(currentUserProvider);
+    final board = ref.watch(mockLeaderboardProvider(mock.id)).valueOrNull;
+
+    // The board is the live source — its rank is recomputed on read, so it
+    // moves the moment someone else overtakes. The row carried on the mock
+    // test itself is the fallback: it is written by the background recompute,
+    // and it is all there is for a student ranked past the board's cut-off.
+    final mine = board?.where((e) => e.userId == me?.id).firstOrNull;
+    final rank = mine?.rank ?? mock.myRank;
+    final score = mine?.score ?? mock.myScore;
+    final totalMarks = mine?.totalMarks ?? mock.quiz?.totalMarks;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.leaderboard_rounded,
+                size: 17, color: AppColors.cyan),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                isFinal ? 'Final rank list' : 'Live rank list',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ),
+            AppBadge(
+              isFinal ? 'FINAL' : 'UPDATING',
+              color: isFinal ? AppColors.emerald : AppColors.rose,
+              filled: !isFinal,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: MockStatTile(
+                icon: Icons.military_tech_outlined,
+                label: 'Your score',
+                value: score == null ? '—' : Fmt.marks(score),
+                accent: AppColors.cyan,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: MockStatTile(
+                icon: Icons.emoji_events_rounded,
+                label: 'Your rank',
+                // Null between submitting and the rank recompute landing —
+                // "Pending" says that honestly rather than inventing a #1.
+                value: rank == null ? 'Pending' : '#$rank',
+                accent: AppColors.emerald,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Only once there is a real rank to show. `MockRankRow` reads anything at
+        // or under 3 as a podium finish and draws a trophy for it, so handing
+        // it a placeholder while the recompute is still running would award
+        // the student a medal they have not earned.
+        if (rank != null)
+          MockRankRow(
+            entry: LeaderboardEntry(
+              rank: rank,
+              userId: me?.id ?? '',
+              userName: mine?.userName ?? me?.name ?? 'You',
+              score: score ?? 0,
+              avatarUrl: mine?.avatarUrl ?? me?.avatarUrl,
+              totalMarks: totalMarks,
+              timeTakenSeconds: mine?.timeTakenSeconds,
+            ),
+            isMe: true,
+          )
+        else
+          GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 14),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.cyan,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Text(
+                    'Your answers are in. Your place on the rank list is being '
+                    'worked out.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.palette.textSecondary,
+                          height: 1.35,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 10),
+        Text(
+          isFinal
+              ? 'This is where you finished. Only your own row is shown.'
+              : 'Your rank moves as other aspirants submit. Only your own row '
+                  'is shown.',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: context.palette.textMuted,
+                height: 1.4,
+              ),
+        ),
+        if (mock.quiz != null && mock.quiz!.questions.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: () {
+              final quiz = mock.quiz!;
+              final rules = quiz.negativeMarking;
+              final sc = score ?? mock.myScore ?? 0.0;
+              final tm = totalMarks ?? quiz.totalMarks;
+              final res = QuizResult(
+                score: sc,
+                positiveMarks: sc,
+                negativeMarks: 0,
+                totalMarks: tm,
+                correct: 0,
+                wrong: 0,
+                unattempted: 0,
+                timeTakenSeconds: 0,
+                attemptNumber: 1,
+                negativeMarking: rules,
+                passingMarks: quiz.passingMarks,
+              );
+              showQuizResultSheet(
+                context,
+                quiz: quiz,
+                result: res,
+                questions: quiz.questions,
+                answers: const {},
+                mockTestId: mock.id,
+              );
+            },
+            icon: const Icon(Icons.fact_check_outlined, size: 18),
+            label: const Text('View solutions & answers'),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// One of the two numbers above the rank row.
+class MockStatTile extends StatelessWidget {
+  const MockStatTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.accent,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 13, color: accent),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: palette.textSecondary,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          FittedBox(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -472,7 +756,7 @@ class _Leaderboard extends ConsumerWidget {
             for (final entry in entries)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 9),
-                child: _RankRow(
+                child: MockRankRow(
                   entry: entry,
                   isMe: entry.userId == me?.id,
                 ),
@@ -484,8 +768,8 @@ class _Leaderboard extends ConsumerWidget {
   }
 }
 
-class _RankRow extends StatelessWidget {
-  const _RankRow({required this.entry, required this.isMe});
+class MockRankRow extends StatelessWidget {
+  const MockRankRow({super.key, required this.entry, required this.isMe});
 
   final LeaderboardEntry entry;
   final bool isMe;

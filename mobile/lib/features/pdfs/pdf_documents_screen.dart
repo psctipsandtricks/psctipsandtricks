@@ -39,7 +39,12 @@ class PdfDocumentsScreen extends ConsumerWidget {
           value: contentAsync,
           onRetry: () => ref.invalidate(pdfFolderContentProvider(examId)),
           data: (content) {
-            if (content.isEmpty) {
+            final subfolders =
+                content.subfolders.where((f) => f.hasContent).toList();
+            final directDocuments =
+                content.documents.where((d) => d.isReadable).toList();
+
+            if (subfolders.isEmpty && directDocuments.isEmpty) {
               return ListView(
                 children: const [
                   SizedBox(height: 60),
@@ -51,9 +56,6 @@ class PdfDocumentsScreen extends ConsumerWidget {
                 ],
               );
             }
-
-            final subfolders = content.subfolders;
-            final directDocuments = content.documents.where((d) => d.isReadable).toList();
 
             return Responsive.centered(
               maxWidth: Responsive.maxContentWidth,

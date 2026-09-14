@@ -6,6 +6,8 @@ import { CreateMockTestDto } from './dto/create-mock-test.dto';
 import { SubmitQuizDto } from '../quizzes/dto/submit-quiz.dto';
 import { AccessActor, QuizAccessService, QuizAccessState } from '../common/access/quiz-access.service';
 import { computeFinalScore } from '../common/scoring';
+import { SyncService } from '../sync/sync.service';
+import { ChatGateway } from '../chat/chat.gateway';
 
 @Injectable()
 export class MockTestsService {
@@ -15,32 +17,83 @@ export class MockTestsService {
     private prisma: PrismaService,
     private queueService: SupabaseQueueService,
     private quizAccess: QuizAccessService,
+    private syncService: SyncService,
+    private chatGateway: ChatGateway,
   ) {}
 
   async create(dto: CreateMockTestDto, createdById: string) {
     const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId } });
     if (!quiz) throw new NotFoundException('Quiz not found');
 
+    const now = new Date();
     const scheduledAt = new Date(dto.scheduledAt);
     const endsAt = dto.endsAt
       ? new Date(dto.endsAt)
       : new Date(scheduledAt.getTime() + 24 * 60 * 60 * 1000);
 
-    return this.prisma.mockTest.create({
-      data: {
-        title: dto.title,
-        quizId: dto.quizId,
-        scheduledAt,
-        endsAt,
-        createdById,
-      },
+    const status = now >= endsAt
+      ? MockTestStatus.COMPLETED
+      : scheduledAt <= now
+      ? MockTestStatus.LIVE
+      : MockTestStatus.UPCOMING;
+
+    const [mockTest] = await this.prisma.$transaction([
+      this.prisma.mockTest.create({
+        data: {
+          title: dto.title,
+          quizId: dto.quizId,
+          scheduledAt,
+          endsAt,
+          status,
+          createdById,
+        },
+        include: {
+          quiz: {
+            select: {
+              id: true,
+              title: true,
+              durationMinutes: true,
+              totalMarks: true,
+              totalQuestions: true,
+              accessType: true,
+              isPremium: true,
+              price: true,
+            },
+          },
+          _count: { select: { participants: true } },
+        },
+      }),
+      this.prisma.quiz.update({
+        where: { id: dto.quizId },
+        data: { isLiveMock: true },
+      }),
+    ]);
+
+    this.syncService.emitEvent({
+      domain: 'mockTests',
+      action: 'create',
+      timestamp: Date.now(),
+      data: mockTest,
     });
+    this.chatGateway.broadcastMockTestCreated(mockTest);
+
+    return mockTest;
   }
 
   async remove(id: string) {
     const existing = await this.prisma.mockTest.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Mock test not found');
-    return this.prisma.mockTest.delete({ where: { id } });
+    const res = await this.prisma.mockTest.delete({ where: { id } });
+
+    this.syncService.emitEvent({
+      domain: 'mockTests',
+      action: 'delete',
+      timestamp: Date.now(),
+      data: { id },
+    });
+    this.chatGateway.broadcastMockTestDeleted(id);
+
+    return res;
   }
 
   async update(id: string, dto: Partial<CreateMockTestDto> & { status?: MockTestStatus }) {
@@ -56,12 +109,50 @@ export class MockTestsService {
     }
     if (dto.scheduledAt !== undefined) data.scheduledAt = new Date(dto.scheduledAt);
     if (dto.endsAt !== undefined) data.endsAt = dto.endsAt ? new Date(dto.endsAt) : null;
-    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.status !== undefined) {
+      data.status = dto.status;
+    } else if (data.scheduledAt || data.endsAt) {
+      const sch = (data.scheduledAt as Date) || existing.scheduledAt;
+      const end = (data.endsAt as Date) || existing.endsAt || new Date(sch.getTime() + 24 * 60 * 60 * 1000);
+      const now = new Date();
+      if (now >= end) {
+        data.status = MockTestStatus.COMPLETED;
+      } else if (sch <= now) {
+        data.status = MockTestStatus.LIVE;
+      } else {
+        data.status = MockTestStatus.UPCOMING;
+      }
+    }
 
-    return this.prisma.mockTest.update({
+    const updated = await this.prisma.mockTest.update({
       where: { id },
       data,
+      include: {
+        quiz: {
+          select: {
+            id: true,
+            title: true,
+            durationMinutes: true,
+            totalMarks: true,
+            totalQuestions: true,
+            accessType: true,
+            isPremium: true,
+            price: true,
+          },
+        },
+        _count: { select: { participants: true } },
+      },
     });
+
+    this.syncService.emitEvent({
+      domain: 'mockTests',
+      action: 'update',
+      timestamp: Date.now(),
+      data: updated,
+    });
+    this.chatGateway.broadcastMockTestUpdated(updated);
+
+    return updated;
   }
 
   async findAll(
@@ -114,7 +205,20 @@ export class MockTestsService {
     // The listing must reflect purchase state up front — otherwise a premium
     // mock test's card reads "Join & Start" exactly like a free one, and the
     // paywall only shows up after the student has already clicked through.
-    const { quizIds: purchased } = await this.quizAccess.getPurchasedQuizIds(actor?.id);
+    const { quizIds: purchased, hasAllAccess } = await this.quizAccess.getPurchasedQuizIds(actor?.id);
+
+    // ...and this student's own standing in each one, for the same reason: a
+    // card that cannot tell "not started" from "already submitted" has to
+    // offer "Join now" to someone who has finished, and the join is then
+    // refused by the server. One extra indexed read covers the whole page.
+    // Empty for a signed-out caller, who has no attempts by definition.
+    const myParticipation = actor?.id
+      ? await this.prisma.mockTestParticipant.findMany({
+          where: { userId: actor.id, mockTestId: { in: mockTests.map((mt) => mt.id) } },
+          select: { mockTestId: true, submittedAt: true, score: true, rank: true },
+        })
+      : [];
+    const mine = new Map(myParticipation.map((p) => [p.mockTestId, p]));
 
     const data = mockTests.map((mt) => {
       const price = mt.quiz?.price ?? 0;
@@ -129,10 +233,23 @@ export class MockTestsService {
         access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED' };
       } else {
         const bought = purchased.has(mt.quizId);
-        access = { isPaid: true, hasAccess: bought, price, reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED' };
+        access = {
+          isPaid: true,
+          hasAccess: bought,
+          price,
+          reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+        };
       }
 
-      return { ...mt, access };
+      const participant = mine.get(mt.id);
+      return {
+        ...mt,
+        access,
+        joined: !!participant,
+        submitted: !!participant?.submittedAt,
+        myScore: participant?.score ?? null,
+        myRank: participant?.rank ?? null,
+      };
     });
 
     return meta ? { data, ...meta } : data;
@@ -161,11 +278,23 @@ export class MockTestsService {
 
     // The questions carry the answer key, so they only ship to callers who are
     // entitled. `access` tells the client whether to show the paywall.
-    const access = await this.quizAccess.getAccessState(actor, mockTest.quiz);
+    const quizPayload = mockTest.quiz ? { ...mockTest.quiz, isLiveMock: true } : null;
+    const access = await this.quizAccess.getAccessState(actor, quizPayload);
+
+    // The caller's own row, lifted out of `participants` so a client does not
+    // have to search a list of strangers for itself. Mirrors `myParticipant`
+    // in `mock-tests/[id]/page.tsx`, which is what decides between the taking
+    // view and the rank list there.
+    const participant = actor?.id ? mockTest.participants.find((p) => p.userId === actor.id) : undefined;
+
     return {
       ...mockTest,
       quiz: this.quizAccess.stripQuestionsIfLocked(mockTest.quiz, access),
       access,
+      joined: !!participant,
+      submitted: !!participant?.submittedAt,
+      myScore: participant?.score ?? null,
+      myRank: participant?.rank ?? null,
     };
   }
 
@@ -182,7 +311,8 @@ export class MockTestsService {
     if (!mockTest) throw new NotFoundException('Mock test not found');
 
     // A premium mock test cannot be entered without a settled payment.
-    await this.quizAccess.assertCanAttempt(actor, mockTest.quiz);
+    const quizPayload = mockTest.quiz ? { ...mockTest.quiz, isLiveMock: true } : null;
+    await this.quizAccess.assertCanAttempt(actor, quizPayload);
 
     const now = new Date();
     const endsAt = mockTest.endsAt ? new Date(mockTest.endsAt) : new Date(mockTest.scheduledAt.getTime() + 24 * 60 * 60 * 1000);
@@ -214,7 +344,8 @@ export class MockTestsService {
 
     // Re-checked here as well as on join: a refund or reversal between the two
     // must not leave a scoring path open.
-    await this.quizAccess.assertCanAttempt(actor, mockTest.quiz);
+    const submitQuizPayload = mockTest.quiz ? { ...mockTest.quiz, isLiveMock: true } : null;
+    await this.quizAccess.assertCanAttempt(actor, submitQuizPayload);
 
     const participant = await this.prisma.mockTestParticipant.findUnique({
       where: { mockTestId_userId: { mockTestId, userId } },

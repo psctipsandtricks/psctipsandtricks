@@ -171,6 +171,9 @@ class LiquidGlass extends StatelessWidget {
     if (margin != null) {
       pane = Padding(padding: margin!, child: pane);
     }
+    if (isCardScale) {
+      pane = RepaintBoundary(child: pane);
+    }
     return pane;
   }
 }

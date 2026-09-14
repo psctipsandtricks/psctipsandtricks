@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,7 @@ import 'core/config/app_config.dart';
 import 'core/providers/theme_controller.dart';
 import 'core/push/push_service.dart';
 import 'core/router/app_router.dart';
+import 'core/sync/content_sync_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/update/app_update_controller.dart';
 import 'core/widgets/app_launch_splash.dart';
@@ -32,6 +35,7 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
     // launch-from-tray message is routed.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(pushServiceProvider).start();
+      ref.read(contentSyncServiceProvider).start();
       // Fire-and-forget: the controller itself decides what, if anything, to
       // show — nothing here waits on it, so a slow or unreachable backend
       // never holds up the splash or the first frame of real content.
@@ -81,6 +85,7 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ref.watch(themeControllerProvider),
+      scrollBehavior: const AppScrollBehavior(),
       builder: (context, child) {
         // Pin text scaling to a sane band: the quiz option cards and the
         // reader's chapter rail break apart past ~1.3x.
@@ -108,4 +113,36 @@ class _PscStudentAppState extends ConsumerState<PscStudentApp>
       },
     );
   }
+}
+
+/// App-wide scroll behavior providing fluid inertia physics across platforms
+/// and eliminating Android stretch overscroll jitter.
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(
+      parent: AlwaysScrollableScrollPhysics(),
+    );
+  }
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    // When using BouncingScrollPhysics, the bounce handles edge resistance.
+    // Suppress StretchingOverscrollIndicator to avoid jitter and vibration on Android.
+    return child;
+  }
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
 }

@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseQueueService } from '../queue/queue.service';
 import { MockTestStatus } from '@prisma/client';
+import { SyncService } from '../sync/sync.service';
+import { ChatGateway } from '../chat/chat.gateway';
 
 const TICK_INTERVAL_MS = 15_000;
 
@@ -20,6 +22,8 @@ export class MockTestSchedulerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private prisma: PrismaService,
     private queueService: SupabaseQueueService,
+    private syncService: SyncService,
+    private chatGateway: ChatGateway,
   ) {}
 
   onModuleInit() {
@@ -40,10 +44,19 @@ export class MockTestSchedulerService implements OnModuleInit, OnModuleDestroy {
     try {
       const now = new Date();
 
-      await this.prisma.mockTest.updateMany({
+      const transitionResult = await this.prisma.mockTest.updateMany({
         where: { status: MockTestStatus.UPCOMING, scheduledAt: { lte: now } },
         data: { status: MockTestStatus.LIVE },
       });
+
+      if (transitionResult.count > 0) {
+        this.syncService.emitEvent({
+          domain: 'mockTests',
+          action: 'statusChange',
+          timestamp: Date.now(),
+        });
+        this.chatGateway.broadcastContentSync('mockTests');
+      }
 
       const liveTests = await this.prisma.mockTest.findMany({
         where: { status: MockTestStatus.LIVE },

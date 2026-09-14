@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:psc_tips_tricks_mobile/core/network/api_client.dart';
 import 'package:psc_tips_tricks_mobile/core/providers/app_providers.dart';
+import 'package:psc_tips_tricks_mobile/core/providers/auth_controller.dart';
 import 'package:psc_tips_tricks_mobile/core/storage/token_store.dart';
 import 'package:psc_tips_tricks_mobile/data/models/quiz.dart';
 import 'package:psc_tips_tricks_mobile/data/repositories/quizzes_repository.dart';
@@ -100,7 +101,10 @@ void main() {
   ProviderContainer boot() {
     repo = _FakeQuizzes();
     final container = ProviderContainer(
-      overrides: [quizzesRepositoryProvider.overrideWith((ref) => repo)],
+      overrides: [
+        quizzesRepositoryProvider.overrideWith((ref) => repo),
+        currentUserProvider.overrideWith((ref) => null),
+      ],
     );
     addTearDown(container.dispose);
     return container;

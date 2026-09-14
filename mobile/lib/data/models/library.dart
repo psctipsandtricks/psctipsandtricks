@@ -35,6 +35,9 @@ class LibraryFolder {
   bool get hasSubfolders => chapterCount > 0;
   bool get hasDirectItems => directItemCount > 0;
 
+  /// Whether this folder contains any videos or PDFs (total / recursive count).
+  bool get hasContent => itemCount > 0 || directItemCount > 0;
+
   factory LibraryFolder.fromJson(Map<String, dynamic> json) {
     final title = J.str(json['title'] ?? json['name']);
     final parentId = J.strOrNull(json['parentId'] ?? json['examId']);
@@ -80,7 +83,9 @@ class VideoFolderContent {
   factory VideoFolderContent.fromJson(Map<String, dynamic> json) =>
       VideoFolderContent(
         folder: LibraryFolder.fromJson(json),
-        subfolders: J.list(json['children'], LibraryFolder.fromJson),
+        subfolders: J.list(json['children'], LibraryFolder.fromJson)
+            .where((f) => f.hasContent)
+            .toList(),
         videos: J.list(json['videos'], VideoItem.fromJson),
       );
 }
@@ -102,7 +107,9 @@ class PdfFolderContent {
   factory PdfFolderContent.fromJson(Map<String, dynamic> json) =>
       PdfFolderContent(
         folder: LibraryFolder.fromJson(json),
-        subfolders: J.list(json['children'], LibraryFolder.fromJson),
+        subfolders: J.list(json['children'], LibraryFolder.fromJson)
+            .where((f) => f.hasContent)
+            .toList(),
         documents: J.list(json['documents'], PdfDocument.fromJson),
       );
 }

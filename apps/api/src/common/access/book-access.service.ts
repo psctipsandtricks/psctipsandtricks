@@ -157,6 +157,9 @@ export class BookAccessService {
     if (!actor?.id) {
       return { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED', subscription: null };
     }
+    if (this.isStaff(actor)) {
+      return { isPaid: true, hasAccess: true, price, reason: 'STAFF', subscription: null };
+    }
 
     const now = new Date();
 
@@ -238,6 +241,8 @@ export class BookAccessService {
         access = { isPaid: false, hasAccess: true, price: 0, reason: 'FREE', subscription: null };
       } else if (!actor?.id) {
         access = { isPaid: true, hasAccess: false, price, reason: 'LOGIN_REQUIRED', subscription: null };
+      } else if (this.isStaff(actor)) {
+        access = { isPaid: true, hasAccess: true, price, reason: 'STAFF', subscription: null };
       } else {
         const order = userOrdersMap.get(book.id);
         if (!order) {

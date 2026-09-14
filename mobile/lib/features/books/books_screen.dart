@@ -146,6 +146,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
               return Responsive.centered(
                 maxWidth: Responsive.maxContentWidth,
                 child: GridView.builder(
+                  cacheExtent: 600,
                   padding: EdgeInsets.fromLTRB(
                     Responsive.horizontalPadding(context),
                     8,
@@ -171,6 +172,7 @@ class _BooksScreenState extends ConsumerState<BooksScreen> {
             }
 
             return ListView.separated(
+              cacheExtent: 600,
               padding: const EdgeInsets.fromLTRB(
                   16, 8, 16, 24 + ShellScaffold.dockExtent),
               itemCount: books.length,

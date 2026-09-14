@@ -18,7 +18,7 @@ export function MainWrapper({ children }: { children: React.ReactNode }) {
       // `position: sticky` for the reader's sidebar and header — they would
       // stick to this box instead of the viewport, i.e. not at all. Clip holds
       // back the horizontal scrollbar without creating a scrollport.
-      <main className="flex-1 w-full max-w-[1700px] mx-auto px-2 sm:px-4 lg:px-6 py-2 sm:py-4 relative overflow-x-clip">
+      <main className="flex-1 w-full max-w-[1700px] mx-auto px-2 sm:px-4 lg:px-6 py-0 relative overflow-x-clip">
         {children}
       </main>
     );

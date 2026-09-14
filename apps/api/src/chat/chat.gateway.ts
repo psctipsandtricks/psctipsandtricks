@@ -46,9 +46,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       (client.handshake.headers?.authorization?.toString().replace('Bearer ', '') ?? '');
 
     if (!token) {
-      this.logger.warn(`Rejected unauthenticated socket connection: ${client.id}`);
-      client.emit('error', { message: 'Authentication required' });
-      client.disconnect(true);
+      client.join('public');
+      this.logger.log(`Guest client connected to public socket: ${client.id}`);
       return;
     }
 
@@ -61,16 +60,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new Error('Invalid user');
       }
       this.socketUsers.set(client.id, { userId: user.id, userName: user.name, role: user.role });
-      // A personal room per user (independent of which group rooms they've
-      // joined) is how group-scoped notifications reach exactly this user's
-      // connections — including a second open tab — without broadcasting to
-      // every connected socket regardless of membership.
       client.join(`user:${user.id}`);
+      client.join('public');
       this.logger.log(`Client connected: ${client.id} (${user.name})`);
     } catch {
-      this.logger.warn(`Rejected socket with invalid token: ${client.id}`);
-      client.emit('error', { message: 'Invalid or expired token' });
-      client.disconnect(true);
+      client.join('public');
+      this.logger.log(`Guest client connected to public socket: ${client.id}`);
     }
   }
 
@@ -227,5 +222,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Method called from API to broadcast scheduled mock-test rank updates
   broadcastMockTestRankUpdate(mockTestId: string, leaderboard: any[]) {
     this.server.to(`mocktest_${mockTestId}`).emit('liveMockRankUpdate', leaderboard);
+  }
+
+  broadcastContentSync(domain: string, data?: unknown) {
+    this.server?.emit('contentSync', { domain, data });
+  }
+
+  broadcastMockTestCreated(mockTest: unknown) {
+    this.server?.emit('mockTestCreated', { mockTest });
+    this.broadcastContentSync('mockTests', mockTest);
+  }
+
+  broadcastMockTestUpdated(mockTest: unknown) {
+    this.server?.emit('mockTestUpdated', { mockTest });
+    this.broadcastContentSync('mockTests', mockTest);
+  }
+
+  broadcastMockTestDeleted(id: string) {
+    this.server?.emit('mockTestDeleted', { id });
+    this.broadcastContentSync('mockTests', { id });
   }
 }

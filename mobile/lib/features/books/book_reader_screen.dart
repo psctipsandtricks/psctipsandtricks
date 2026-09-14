@@ -808,6 +808,21 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   }
 
   void _navigateBack() {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      _scaffoldKey.currentState?.closeDrawer();
+      return;
+    }
+    _scrollTicker?.stop();
+    _audioResumeTimer?.cancel();
+    if (_audio != null) {
+      _recordAudioResume();
+      unawaited(_audio!.stop());
+    }
+    restorePortraitOnly();
+    if (_immersive) unawaited(exitImmersiveReading());
+    _saveTimer?.cancel();
+    _flushProgress();
+
     try {
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -1384,6 +1399,7 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
       builder: (context, documentChild) {
         final bottomOffset = _expandAnimation.value * 76.0;
         final bottomMargin = bottomInset > 0 ? bottomInset + 8 : 16.0;
+        final cornerBottom = (bottomInset > 0 ? bottomInset : 0.0) + 20.0 + bottomOffset;
 
         // Rebuilt on the loaded clip, not read once: moving to a topic with no
         // narration stops the player a frame after this build, and a strip that
@@ -1457,14 +1473,14 @@ class _DocumentReaderState extends ConsumerState<_DocumentReader>
                 if (!widget.isOffline)
                   Positioned(
                     left: 20,
-                    bottom: 20 + bottomOffset,
+                    bottom: cornerBottom,
                     child: _ReaderDownloadCorner(bookId: widget.bookId),
                   ),
 
                 // Bottom right: Book/Chapter icon, and Audio button below it!
                 Positioned(
                   right: 20,
-                  bottom: 20 + bottomOffset,
+                  bottom: cornerBottom,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,

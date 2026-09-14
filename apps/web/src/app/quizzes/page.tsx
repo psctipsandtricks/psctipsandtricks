@@ -1535,10 +1535,17 @@ function MockTestCard({
               )}
 
               {mockTest.access?.isPaid ? (
-                <Badge variant="gold" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
-                  <Lock className="w-3 h-3" />
-                  <span>₹{mockTest.access?.price ?? 0} Premium</span>
-                </Badge>
+                mockTest.access?.hasAccess ? (
+                  <Badge variant="success" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>Purchased</span>
+                  </Badge>
+                ) : (
+                  <Badge variant="gold" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
+                    <Lock className="w-3 h-3" />
+                    <span>₹{mockTest.access?.price ?? 0} Premium</span>
+                  </Badge>
+                )
               ) : (
                 <Badge variant="success" className="text-xs font-black flex items-center gap-1 px-2.5 py-0.5">
                   <Unlock className="w-3 h-3" />

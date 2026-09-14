@@ -359,9 +359,9 @@ class _MockCard extends StatelessWidget {
                   )
                 else
                   const AppBadge(
-                    'UNLOCKED',
+                    'PURCHASED',
                     color: AppColors.emerald,
-                    icon: Icons.lock_open_rounded,
+                    icon: Icons.check_circle_rounded,
                   ),
               ],
             ),

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.view.WindowManager
@@ -33,6 +34,11 @@ class MainActivity : AudioServiceActivity() {
     // being recreated (a "don't keep activities" device, or a system-initiated
     // restore) with the reader still on the stack.
     private var secureRequested = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableHighRefreshRate()
+    }
 
     // A save request parked while the WRITE_EXTERNAL_STORAGE prompt is up
     // (Android 9 and below only — 10+ needs no permission for MediaStore).
@@ -229,6 +235,7 @@ class MainActivity : AudioServiceActivity() {
         // Re-assert after a recreation: the flag lives on the window, not the
         // process, so a new window comes up without it.
         applySecureFlag()
+        enableHighRefreshRate()
     }
 
     // Method-channel calls and lifecycle callbacks both arrive on the UI
@@ -238,6 +245,32 @@ class MainActivity : AudioServiceActivity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    // ── High refresh rate ────────────────────────────────────────────────
+    // Unlocks 90Hz, 120Hz, or higher display modes on modern Android devices.
+    // By default, Flutter windows can remain locked to 60Hz unless the activity
+    // explicitly requests the preferred display mode from the window manager.
+    private fun enableHighRefreshRate() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val win = window ?: return
+            val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            } ?: return
+
+            val modes = disp.supportedModes ?: return
+            val bestMode = modes.maxByOrNull { it.refreshRate }
+            if (bestMode != null && bestMode.refreshRate > 60f) {
+                val params = win.attributes
+                if (params.preferredDisplayModeId != bestMode.modeId) {
+                    params.preferredDisplayModeId = bestMode.modeId
+                    win.attributes = params
+                }
+            }
         }
     }
 

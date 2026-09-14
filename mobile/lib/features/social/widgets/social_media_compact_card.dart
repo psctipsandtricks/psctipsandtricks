@@ -11,12 +11,13 @@ import '../../../data/models/social_links.dart';
 import 'social_icons.dart';
 import 'social_media_section.dart';
 
-/// A sleek, compact card for the Account ("Me") screen showcasing quick links
-/// to all official PSC Tips & Tricks social platforms.
+/// A sleek, compact card for the Account ("Me") screen showcasing PSC Tips & Tricks
+/// official community and social platforms.
 class SocialMediaCompactCard extends ConsumerWidget {
   const SocialMediaCompactCard({super.key});
 
-  static Future<void> _openUrl(BuildContext context, String url, String title) async {
+  static Future<void> _openUrl(
+      BuildContext context, String url, String title) async {
     HapticFeedback.lightImpact();
     final uri = Uri.parse(url);
     try {
@@ -28,13 +29,17 @@ class SocialMediaCompactCard extends ConsumerWidget {
         await launchUrl(uri, mode: LaunchMode.platformDefault);
       }
     } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not open $title link'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      try {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not open $title link'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       }
     }
   }
@@ -147,7 +152,7 @@ class SocialMediaCompactCard extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
 
-          // Horizontal list of interactive platform badges
+          // Horizontal list of interactive platform buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

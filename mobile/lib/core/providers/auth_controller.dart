@@ -111,7 +111,7 @@ class AuthController extends StateNotifier<AuthState> {
   /// was replaced without a clean sign-out.
   Future<void> _applySignIn(User user) async {
     final previousId = state.user?.id;
-    if (previousId != null && previousId != user.id) {
+    if (previousId != user.id) {
       await clearAccountScopedState(_ref);
     }
     if (!mounted) return;

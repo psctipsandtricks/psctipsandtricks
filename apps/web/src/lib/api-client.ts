@@ -732,7 +732,12 @@ export const ApiClient = {
     fetcher<{ total?: number }>(
       `/quizzes?publishedOnly=true&access=${access}&page=1&limit=1`,
     ).then((res) => res?.total ?? 0),
-  getQuizById: (id: string) => fetcher<Quiz>(`/quizzes/${id}`),
+  getQuizById: (id: string) => {
+    if (isAdminContext()) {
+      return fetcher<Quiz>(`/quizzes/admin/studio/${id}`).catch(() => fetcher<Quiz>(`/quizzes/${id}`));
+    }
+    return fetcher<Quiz>(`/quizzes/${id}`);
+  },
   createQuiz: (payload: any) =>
     fetcher<any>('/quizzes', { method: 'POST', body: JSON.stringify(payload) }),
   updateQuiz: (id: string, payload: any) =>

@@ -1,5 +1,6 @@
 import '../../core/utils/json.dart';
 import 'book.dart' show AccessState;
+export 'book.dart' show AccessState, AccessReason;
 import 'quiz.dart';
 
 enum MockTestStatus { upcoming, live, completed }
@@ -28,6 +29,8 @@ class MockTest {
     this.participantCount = 0,
     this.joined = false,
     this.submitted = false,
+    this.myScore,
+    this.myRank,
   });
 
   final String id;
@@ -44,8 +47,17 @@ class MockTest {
   final AccessState? access;
 
   final int participantCount;
+
+  /// This student took a seat in the test. Both come from the server's view of
+  /// their own participant row, so a card can tell "never opened" from
+  /// "half-way through" from "finished" without guessing.
   final bool joined;
   final bool submitted;
+
+  /// Their standing, once they have submitted. `myRank` is null for the moment
+  /// between submitting and the background recompute landing.
+  final double? myScore;
+  final int? myRank;
 
   bool get isLive => status == MockTestStatus.live;
   bool get isUpcoming => status == MockTestStatus.upcoming;
@@ -76,6 +88,8 @@ class MockTest {
         participantCount: J.intVal(json['participantCount']),
         joined: J.boolVal(json['joined']),
         submitted: J.boolVal(json['submitted']),
+        myScore: J.dblOrNull(json['myScore']),
+        myRank: J.intOrNull(json['myRank']),
       );
 }
 

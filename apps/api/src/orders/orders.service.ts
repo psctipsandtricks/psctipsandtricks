@@ -30,6 +30,27 @@ function withAccessStatus<T extends { status: string; validTill: Date | null; cr
   }));
 }
 
+/**
+ * One end of the admin table's date filter.
+ *
+ * The admin panel sends full ISO instants built from *its* midnight, because the
+ * table renders every order's date in the admin's timezone: reading a bare
+ * "YYYY-MM-DD" as UTC midnight here would drop each order placed between local
+ * midnight and UTC midnight from the very day it is displayed under, and pull in
+ * the same slice of the following day. Bare dates are still honoured, as the
+ * whole UTC day, for any caller that has no timezone to offer.
+ */
+function rangeBoundary(value: string | undefined, edge: 'start' | 'end'): Date | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if (edge === 'start') parsed.setUTCHours(0, 0, 0, 0);
+    else parsed.setUTCHours(23, 59, 59, 999);
+  }
+  return parsed;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -49,6 +70,18 @@ export class OrdersService {
 
       const isPaidQuiz = quiz.accessType === 'PAID' || quiz.isPremium || (quiz.price ?? 0) > 0;
       if (!isPaidQuiz) throw new BadRequestException('This quiz is free — no payment is needed.');
+
+      const existingSuccessOrder = await this.prisma.order.findFirst({
+        where: {
+          userId,
+          status: 'SUCCESS',
+          quizId: data.quizId,
+        },
+        select: { id: true },
+      });
+      if (existingSuccessOrder) {
+        throw new ConflictException('You have already purchased this quiz / mock test.');
+      }
 
       amount = (quiz.finalPrice && quiz.finalPrice > 0) ? quiz.finalPrice : (quiz.price ?? 0);
     } else if (data.bookId) {
@@ -129,6 +162,26 @@ export class OrdersService {
     return subscriptionExpiryFrom(duration);
   }
 
+  /**
+   * The instant an order was purchased, from whatever the admin form sent.
+   *
+   * The web form sends a full ISO instant built from the date *and* time the
+   * admin picked, which needs no interpretation. A bare "YYYY-MM-DD" parses to
+   * midnight UTC, which lands on the previous day in timezones behind it, so
+   * those are nudged to noon to keep the recorded day stable either way.
+   */
+  private resolvePurchaseDate(dateInput?: string): Date {
+    if (!dateInput) return new Date();
+    const parsed = new Date(dateInput);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('Invalid purchaseDate / orderDate.');
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+      parsed.setUTCHours(12, 0, 0, 0);
+    }
+    return parsed;
+  }
+
   /** Grants a book/quiz to a user without going through Razorpay — for support/testing use, admin- or manageOrders-staff-only. */
   async createManualOrder(grantedByUserId: string, dto: CreateManualOrderDto) {
     if (!dto.bookId && !dto.quizId) {
@@ -140,6 +193,13 @@ export class OrdersService {
 
     const targetUser = await this.prisma.user.findUnique({ where: { id: dto.userId } });
     if (!targetUser) throw new NotFoundException('User not found');
+
+    // Resolved before the subscription window is worked out: a grant that is
+    // backdated to when the student actually paid has to expire a month (or a
+    // year) from *that* day, not from the day the admin got round to entering it.
+    const purchasedAt = this.resolvePurchaseDate(
+      dto.purchaseDate || dto.orderDate || dto.createdAt,
+    );
 
     let amount = dto.amount;
     let validTill: Date | null = null;
@@ -153,7 +213,7 @@ export class OrdersService {
       if (amount === undefined) amount = book.finalPrice ?? book.price ?? 0;
       if (book.subscriptionType === 'SUBSCRIPTION') {
         accessType = 'SUBSCRIPTION';
-        validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
+        validTill = subscriptionExpiryFrom(book.subscriptionDuration, purchasedAt);
       }
     } else if (dto.quizId) {
       const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId }, select: { price: true, finalPrice: true } });
@@ -179,21 +239,6 @@ export class OrdersService {
       throw new ConflictException(
         'This product has already been purchased and is currently active for this user.',
       );
-    }
-
-    let purchasedAt = new Date();
-    const dateInput = dto.purchaseDate || dto.orderDate || dto.createdAt;
-    if (dateInput) {
-      const parsed = new Date(dateInput);
-      if (Number.isNaN(parsed.getTime())) {
-        throw new BadRequestException('Invalid purchaseDate / orderDate.');
-      }
-      // A date-only string ("YYYY-MM-DD") parses to midnight UTC; nudge it to
-      // noon so the recorded day is stable across timezones.
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
-        parsed.setUTCHours(12, 0, 0, 0);
-      }
-      purchasedAt = parsed;
     }
 
     const notePart = dto.note ? `_${dto.note.slice(0, 60).replace(/\s+/g, '_')}` : '';
@@ -341,15 +386,12 @@ export class OrdersService {
     }
 
     if (query?.startDate || query?.endDate) {
-      where.createdAt = {};
-      if (query.startDate) {
-        where.createdAt.gte = new Date(query.startDate);
-      }
-      if (query.endDate) {
-        const end = new Date(query.endDate);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
-      }
+      const gte = rangeBoundary(query.startDate, 'start');
+      const lte = rangeBoundary(query.endDate, 'end');
+      where.createdAt = {
+        ...(gte ? { gte } : {}),
+        ...(lte ? { lte } : {}),
+      };
     }
 
     if (query?.search && query.search.trim()) {
@@ -467,23 +509,26 @@ export class OrdersService {
       createdAt?: string;
     },
   ) {
-    const existing = await this.prisma.order.findUnique({ where: { id } });
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+      include: { book: { select: { subscriptionType: true, subscriptionDuration: true } } },
+    });
     if (!existing) {
       throw new NotFoundException(`Order with ID ${id} not found`);
     }
 
-    let createdAt: Date | undefined;
     const dateInput = dto.purchaseDate || dto.orderDate || dto.createdAt;
-    if (dateInput) {
-      const parsed = new Date(dateInput);
-      if (Number.isNaN(parsed.getTime())) {
-        throw new BadRequestException('Invalid order / purchase date.');
-      }
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
-        parsed.setUTCHours(12, 0, 0, 0);
-      }
-      createdAt = parsed;
-    }
+    const createdAt = dateInput ? this.resolvePurchaseDate(dateInput) : undefined;
+
+    // Moving the purchase date has to move the window that purchase bought.
+    // `validTill` is what every access check reads, so leaving it behind would
+    // show the admin one order date while the student's subscription still runs
+    // from the old one.
+    const status = dto.status !== undefined ? dto.status : existing.status;
+    const validTill =
+      createdAt !== undefined && existing.book?.subscriptionType === 'SUBSCRIPTION'
+        ? subscriptionExpiryFrom(existing.book.subscriptionDuration, createdAt)
+        : undefined;
 
     const updated = await this.prisma.order.update({
       where: { id },
@@ -492,7 +537,12 @@ export class OrdersService {
         ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
         ...(dto.razorpayPaymentId !== undefined ? { razorpayPaymentId: dto.razorpayPaymentId } : {}),
-        ...(createdAt !== undefined ? { createdAt, paidAt: createdAt } : {}),
+        // `paidAt` only moves for an order that actually settled — re-dating a
+        // failed or pending one must not leave a payment timestamp behind.
+        ...(createdAt !== undefined
+          ? { createdAt, ...(status === 'SUCCESS' ? { paidAt: createdAt } : {}) }
+          : {}),
+        ...(validTill !== undefined ? { validTill } : {}),
       },
       include: {
         user: { select: { name: true, email: true, phoneNumber: true, avatarUrl: true } },

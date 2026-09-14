@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Shield,
   LayoutDashboard,
+  Bell,
 } from 'lucide-react';
 
 export interface NavbarProps {
@@ -139,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onFocus={() => onPrefetch?.('/')}
             onTouchStart={() => onPrefetch?.('/')}
             onClick={(e: React.MouseEvent<HTMLAnchorElement>) => onNavigate?.('/', e)}
-            className="flex items-center space-x-2 sm:space-x-2.5 font-black text-sm sm:text-base md:text-xl tracking-tight group cursor-pointer active:scale-95 transition-transform duration-150 shrink-0"
+            className="flex items-center space-x-1.5 sm:space-x-2.5 font-black text-xs min-[360px]:text-sm sm:text-base md:text-xl tracking-tight group cursor-pointer active:scale-95 transition-transform duration-150 shrink-0 min-w-0"
           >
             {logo ? (
               logo
@@ -177,8 +178,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
         </div>
 
-        <div className="flex items-center space-x-3">
-          {actions}
+        <div className="flex items-center space-x-1.5 sm:space-x-3 shrink-0">
+          {actions ? (
+            <div className="hidden md:flex items-center">
+              {actions}
+            </div>
+          ) : null}
 
           {/* Hydration-safe Single-click Theme Toggle Button */}
           <button
@@ -336,6 +341,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </LinkTag>
 
                     <LinkTag
+                      href="/notifications"
+                      prefetch={linkComponent ? true : undefined}
+                      onMouseEnter={() => onPrefetch?.('/notifications')}
+                      onFocus={() => onPrefetch?.('/notifications')}
+                      onTouchStart={() => onPrefetch?.('/notifications')}
+                      onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                        setDropdownOpen(false);
+                        onNavigate?.('/notifications', e);
+                      }}
+                      className="group flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-cyan-500/10 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all cursor-pointer active:scale-98"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-500 dark:text-cyan-400 group-hover:bg-cyan-500 group-hover:text-white transition-all shrink-0">
+                          <Bell className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="text-left">
+                          <div className="font-bold leading-none">Notifications</div>
+                          <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal mt-0.5">Updates, alerts & messages</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                    </LinkTag>
+
+                    <LinkTag
                       href="/orders"
                       prefetch={linkComponent ? true : undefined}
                       onMouseEnter={() => onPrefetch?.('/orders')}
@@ -474,34 +503,46 @@ export const Navbar: React.FC<NavbarProps> = ({
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl px-4 py-4 space-y-2 animate-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
           {user && (
-            <div className="p-3 rounded-2xl bg-slate-100/90 dark:bg-[#0c1630] border border-slate-200 dark:border-[#1e2e56] mb-3 flex items-center gap-3">
-              {user.avatarUrl && !avatarError ? (
-                <img
-                  src={user.avatarUrl}
-                  alt={user.name}
-                  className="w-10 h-10 rounded-xl object-cover ring-2 ring-cyan-500/30 shrink-0"
-                  onError={() => setAvatarError(true)}
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-md shadow-cyan-500/25 shrink-0">
-                  {getInitials(user.name)}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-black text-slate-900 dark:text-white truncate">
-                  {user.name}
-                </p>
-                {user.email && (
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                    {user.email}
-                  </p>
+            <div className="p-3 rounded-2xl bg-slate-100/90 dark:bg-[#0c1630] border border-slate-200 dark:border-[#1e2e56] mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {user.avatarUrl && !avatarError ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className="w-10 h-10 rounded-xl object-cover ring-2 ring-cyan-500/30 shrink-0"
+                    onError={() => setAvatarError(true)}
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-md shadow-cyan-500/25 shrink-0">
+                    {getInitials(user.name)}
+                  </div>
                 )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                    {user.name}
+                  </p>
+                  {user.email && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {user.email}
+                    </p>
+                  )}
+                </div>
               </div>
-              {user.role && user.role !== 'STUDENT' && (
-                <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 shrink-0">
-                  {user.role}
-                </span>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {user.role && user.role !== 'STUDENT' && (
+                  <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 shrink-0">
+                    {user.role}
+                  </span>
+                )}
+                {actions}
+              </div>
+            </div>
+          )}
+
+          {!user && actions && (
+            <div className="p-3 rounded-2xl bg-slate-100/90 dark:bg-[#0c1630] border border-slate-200 dark:border-[#1e2e56] mb-3 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Notifications</span>
+              {actions}
             </div>
           )}
 
@@ -530,6 +571,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {user && (
             <div className="pt-2 border-t border-slate-200 dark:border-[#1e2e56] space-y-1">
+              <LinkTag
+                href="/notifications"
+                prefetch={linkComponent ? true : undefined}
+                onMouseEnter={() => onPrefetch?.('/notifications')}
+                onFocus={() => onPrefetch?.('/notifications')}
+                onTouchStart={() => onPrefetch?.('/notifications')}
+                onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                  setMobileMenuOpen(false);
+                  onNavigate?.('/notifications', e);
+                }}
+                className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#091124] transition-all cursor-pointer"
+              >
+                <Bell className="w-4 h-4 text-cyan-500" />
+                <span>Notifications</span>
+              </LinkTag>
+
               <LinkTag
                 href="/profile"
                 prefetch={linkComponent ? true : undefined}

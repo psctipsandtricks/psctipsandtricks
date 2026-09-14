@@ -10,7 +10,6 @@ import {
   Lock,
   CheckCircle2,
   AlertCircle,
-  FlaskConical,
   ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../auth-provider';
@@ -139,11 +138,6 @@ function CheckoutFormContent() {
   const finalPrice = appliedCoupon ? Math.max(0, Math.round(basePrice - discountAmount)) : basePrice;
 
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TOgmxfbeSFUgys';
-  const isDemoMode =
-    !process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
-    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID.includes('sample_key') ||
-    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID.includes('your_key') ||
-    process.env.NEXT_PUBLIC_RAZORPAY_MODE === 'test';
 
   const handleRazorpayPayment = async () => {
     setIsProcessing(true);
@@ -292,17 +286,6 @@ function CheckoutFormContent() {
       </h1>
 
       <Card className="space-y-6 glass-panel p-6">
-        {/* Test / Demo Mode Indicator */}
-        {isDemoMode && (
-          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-amber-500 shrink-0" />
-              <span><strong>Razorpay Test Mode:</strong> Uses official Razorpay Test Checkout popup.</span>
-            </div>
-            <Badge variant="gold">TEST MODE</Badge>
-          </div>
-        )}
-
         <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-800 pb-4">
           <div>
             <CardTitle className="text-lg font-bold text-slate-900 dark:text-white">{item.title}</CardTitle>

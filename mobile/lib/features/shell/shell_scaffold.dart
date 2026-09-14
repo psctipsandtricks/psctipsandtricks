@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/providers/connectivity_provider.dart';
+import '../../core/sync/content_sync_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_glass.dart';
 import '../../core/theme/app_theme.dart';
@@ -37,7 +38,11 @@ class ShellScaffold extends ConsumerStatefulWidget {
   ConsumerState<ShellScaffold> createState() => _ShellScaffoldState();
 }
 
-class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
+class _ShellScaffoldState extends ConsumerState<ShellScaffold>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _tabTransitionController;
+  late final Animation<double> _tabTransitionAnimation;
+
   static const _destinations = <_TabSpec>[
     _TabSpec('Home', Icons.home_outlined, Icons.home_rounded),
     _TabSpec('Books', Icons.menu_book_outlined, Icons.menu_book_rounded),
@@ -48,12 +53,35 @@ class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _tabTransitionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+      value: 1.0,
+    );
+    _tabTransitionAnimation = CurvedAnimation(
+      parent: _tabTransitionController,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
   void didUpdateWidget(covariant ShellScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.navigationShell.currentIndex !=
         widget.navigationShell.currentIndex) {
-      _resetQuizModuleState();
+      _tabTransitionController.forward(from: 0.0);
+      ref
+          .read(contentSyncServiceProvider)
+          .syncOnTabSwitch(widget.navigationShell.currentIndex);
     }
+  }
+
+  @override
+  void dispose() {
+    _tabTransitionController.dispose();
+    super.dispose();
   }
 
   void _resetQuizModuleState() {
@@ -105,10 +133,14 @@ class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
     }
 
     HapticFeedback.selectionClick();
-    if (index == 2 || widget.navigationShell.currentIndex == 2) {
-      _resetQuizModuleState();
+    final isCurrentTab = index == widget.navigationShell.currentIndex;
+    if (isCurrentTab) {
+      if (index == 2) {
+        _resetQuizModuleState();
+      }
+      ref.read(contentSyncServiceProvider).syncOnTabSwitch(index);
     }
-    widget.navigationShell.goBranch(index, initialLocation: true);
+    widget.navigationShell.goBranch(index, initialLocation: isCurrentTab);
   }
 
   /// Handles the Android system Back button (and predictive-back gesture) when
@@ -155,7 +187,7 @@ class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
     }
 
     if (widget.navigationShell.currentIndex != 0) {
-      widget.navigationShell.goBranch(0, initialLocation: true);
+      widget.navigationShell.goBranch(0, initialLocation: false);
       return;
     }
 
@@ -181,18 +213,26 @@ class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
         // The dock floats: content runs to the bottom of the screen and is seen
         // through the glass.
         extendBody: true,
-        body: widget.navigationShell,
+        body: RepaintBoundary(
+          child: still
+              ? widget.navigationShell
+              : FadeTransition(
+                  opacity: _tabTransitionAnimation,
+                  child: widget.navigationShell,
+                ),
+        ),
         bottomNavigationBar: isOffline
             ? null
             : SafeArea(
                 top: false,
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 620),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                      child: LiquidGlass(
+                child: RepaintBoundary(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 620),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                        child: LiquidGlass(
                         borderRadius: BorderRadius.circular(30),
                         blurSigma: AppGlass.blurBar,
                         intensity: 1.1,
@@ -275,6 +315,7 @@ class _ShellScaffoldState extends ConsumerState<ShellScaffold> {
                     ),
                   ),
                 ),
+              ),
               ),
       ),
     );

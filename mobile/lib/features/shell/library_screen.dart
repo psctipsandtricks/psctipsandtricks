@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/providers/connectivity_provider.dart';
 import '../../core/router/app_router.dart';
+import '../../core/sync/content_sync_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -36,6 +37,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     vsync: this,
     initialIndex: widget.initialIndex.clamp(0, 2),
   );
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs.addListener(() {
+      if (!_tabs.indexIsChanging && (_tabs.index == 1 || _tabs.index == 2)) {
+        ref.read(contentSyncServiceProvider).syncNow();
+      }
+    });
+  }
 
   @override
   void didUpdateWidget(covariant LibraryScreen oldWidget) {
@@ -390,7 +401,9 @@ class _ExamGrid extends ConsumerWidget {
       child: AsyncView(
         value: examsAsync,
         onRetry: () => ref.invalidate(provider),
-        data: (exams) {
+        loading: const _ExamGridSkeleton(),
+        data: (rawExams) {
+          final exams = rawExams.where((e) => e.hasContent).toList();
           if (exams.isEmpty) {
             return ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
@@ -448,6 +461,7 @@ class _ExamGrid extends ConsumerWidget {
             return Responsive.centered(
               maxWidth: Responsive.maxContentWidth,
               child: GridView.builder(
+                cacheExtent: 600,
                 padding: EdgeInsets.fromLTRB(
                   Responsive.horizontalPadding(context),
                   16,
@@ -473,6 +487,7 @@ class _ExamGrid extends ConsumerWidget {
           }
 
           return ListView.separated(
+            cacheExtent: 600,
             padding: const EdgeInsets.fromLTRB(
                 16, 16, 16, 24 + ShellScaffold.dockExtent),
             itemCount: exams.length,
@@ -617,6 +632,88 @@ class _ExamCard extends StatelessWidget {
               Icons.chevron_right_rounded,
               color: palette.textMuted,
               size: 18,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExamGridSkeleton extends StatelessWidget {
+  const _ExamGridSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    if (Responsive.isTablet(context)) {
+      final cols = Responsive.gridColumns(
+        context,
+        tabletPortrait: 2,
+        tabletLandscape: 3,
+      );
+      return Responsive.centered(
+        maxWidth: Responsive.maxContentWidth,
+        child: GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+            Responsive.horizontalPadding(context),
+            16,
+            Responsive.horizontalPadding(context),
+            24 + ShellScaffold.dockExtent,
+          ),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            mainAxisExtent: 104,
+          ),
+          itemCount: 6,
+          itemBuilder: (_, __) => const _ExamCardSkeleton(),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+          16, 16, 16, 24 + ShellScaffold.dockExtent),
+      itemCount: 6,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (_, __) => const _ExamCardSkeleton(),
+    );
+  }
+}
+
+class _ExamCardSkeleton extends StatelessWidget {
+  const _ExamCardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return const GlassCard(
+      padding: EdgeInsets.all(14),
+      child: Row(
+        children: [
+          SkeletonBox(
+            width: 48,
+            height: 48,
+            radius: AppTheme.radiusMd,
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SkeletonBox(height: 16, width: 180),
+                SizedBox(height: 8),
+                Row(
+                  children: [
+                    SkeletonBox(width: 68, height: 16, radius: 4),
+                    SizedBox(width: 8),
+                    SkeletonBox(width: 60, height: 16, radius: 4),
+                  ],
+                ),
+              ],
             ),
           ),
         ],

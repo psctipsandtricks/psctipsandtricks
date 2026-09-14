@@ -140,6 +140,27 @@ function getDefaultEndDateTime(releaseDateStr?: string, releaseTimeStr?: string)
   };
 }
 
+/**
+ * "2026-09-11" + "17:55" → "Sep 11, 2026 at 5:55 PM". Built from the form's own
+ * date and time strings rather than an ISO round-trip, so what is shown is
+ * exactly what the two pickers hold.
+ */
+function formatDateTimeLabel(dateStr: string, timeStr: string): string {
+  if (!dateStr) return '';
+  const iso = combineDateAndTime(dateStr, timeStr);
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d.getTime())) return dateStr;
+  return `${d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })} at ${d.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })}`;
+}
+
 interface QuizFormValues {
   title: string;
   releaseDate: string;
@@ -915,6 +936,37 @@ export default function AdminFolderQuizzesPage() {
       }
     },
   });
+
+  /**
+   * A live mock test's paper must not turn up in the folders while the session
+   * is still running — someone who has not sat it could practise the very
+   * questions the rank list is being built from. So the release moment is not
+   * the admin's to choose here: it *is* the end of the session, and it follows
+   * every edit to the closing window rather than being copied once.
+   *
+   * The corresponding relaxation is on the server, which lets the students
+   * actually in the session open the paper even though it is unreleased.
+   */
+  useEffect(() => {
+    if (!formik.values.isLive) return;
+    if (!isReleaseScheduled) setIsReleaseScheduled(true);
+    const { mockTestEndDate, mockTestEndTime, releaseDate, releaseTime } = formik.values;
+    if (!mockTestEndDate) return;
+    if (releaseDate !== mockTestEndDate) {
+      formik.setFieldValue('releaseDate', mockTestEndDate);
+    }
+    if (releaseTime !== mockTestEndTime) {
+      formik.setFieldValue('releaseTime', mockTestEndTime);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    formik.values.isLive,
+    formik.values.mockTestEndDate,
+    formik.values.mockTestEndTime,
+    formik.values.releaseDate,
+    formik.values.releaseTime,
+    isReleaseScheduled,
+  ]);
 
   const handleImageFile = async (file?: File | null) => {
     if (!file) return;
@@ -2232,6 +2284,37 @@ export default function AdminFolderQuizzesPage() {
               <span>Release Timing</span>
             </label>
 
+            {formik.values.isLive ? (
+              /* Not the admin's to choose while this is a live mock test: the
+                 paper has to stay out of the folders until the session it
+                 belongs to has closed, so the release moment is the closing
+                 window's end and follows every edit to it. */
+              <div className="rounded-xl border border-rose-500/40 bg-rose-500/5 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span className="text-xs font-extrabold text-rose-600 dark:text-rose-400">
+                    Scheduled by the live session
+                  </span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                  This quiz publishes to the folders when the live mock test closes, so nobody can
+                  practise the paper while the rank list is still moving. Students in the session can
+                  still open it for the whole window.
+                </p>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <Clock className="w-3.5 h-3.5 shrink-0 text-cyan-500" />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {formik.values.mockTestEndDate
+                      ? `Releases ${formatDateTimeLabel(
+                          formik.values.mockTestEndDate,
+                          formik.values.mockTestEndTime,
+                        )}`
+                      : 'Set the End Date & Time below'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+            <>
             {/* Timing Mode Buttons */}
             <div className="grid grid-cols-2 gap-2 pt-0.5">
               <button
@@ -2299,6 +2382,8 @@ export default function AdminFolderQuizzesPage() {
                 />
               </div>
             )}
+            </>
+            )}
           </div>
 
           {/* Live Mock Test */}
@@ -2315,11 +2400,22 @@ export default function AdminFolderQuizzesPage() {
                   if (!formik.values.mockTestTitle) {
                     formik.setFieldValue('mockTestTitle', formik.values.title);
                   }
+                  const baseDate =
+                    formik.values.mockTestDate || formik.values.releaseDate || todayLocalDateStr();
+                  const baseTime =
+                    formik.values.mockTestTime ||
+                    formik.values.releaseTime ||
+                    getMinMockTestTime(baseDate) ||
+                    '10:00';
                   if (!formik.values.mockTestDate) {
-                    const baseDate = formik.values.releaseDate || todayLocalDateStr();
-                    const baseTime = formik.values.releaseTime || getMinMockTestTime(baseDate) || '10:00';
                     formik.setFieldValue('mockTestDate', baseDate);
                     formik.setFieldValue('mockTestTime', baseTime);
+                  }
+                  // The closing window is what the quiz's release is pinned to,
+                  // so it can never be left blank while this is on — otherwise
+                  // there is no release moment to derive and the quiz would
+                  // publish immediately, mid-session.
+                  if (!formik.values.mockTestEndDate || !formik.values.mockTestEndTime) {
                     const endDefault = getDefaultEndDateTime(baseDate, baseTime);
                     formik.setFieldValue('mockTestEndDate', endDefault.endDate);
                     formik.setFieldValue('mockTestEndTime', endDefault.endTime);

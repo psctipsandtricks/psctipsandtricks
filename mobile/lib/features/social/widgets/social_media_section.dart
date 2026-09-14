@@ -44,6 +44,70 @@ class SocialMediaSection extends ConsumerWidget {
   final bool showHeader;
   final EdgeInsetsGeometry padding;
 
+  static Future<void> _openUrl(
+      BuildContext context, String url, String title) async {
+    HapticFeedback.lightImpact();
+    final uri = Uri.parse(url);
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
+    } catch (_) {
+      try {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not open $title link'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  static void _copyUrl(BuildContext context, String url, String title) {
+    HapticFeedback.mediumImpact();
+    Clipboard.setData(ClipboardData(text: url));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: AppColors.cyan.withValues(alpha: 0.4),
+            width: 1,
+          ),
+        ),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded,
+                color: AppColors.cyan, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$title link copied to clipboard',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   static List<_SocialCardData> _buildCards(SocialLinks links) {
     final list = <_SocialCardData>[];
 
@@ -170,65 +234,6 @@ class SocialMediaSection extends ConsumerWidget {
     return list;
   }
 
-  static Future<void> _openUrl(BuildContext context, String url, String title) async {
-    HapticFeedback.lightImpact();
-    final uri = Uri.parse(url);
-    try {
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched) {
-        await launchUrl(uri, mode: LaunchMode.platformDefault);
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not open $title link'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  static void _copyUrl(BuildContext context, String url, String title) {
-    HapticFeedback.mediumImpact();
-    Clipboard.setData(ClipboardData(text: url));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFF0F172A),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(
-            color: AppColors.cyan.withValues(alpha: 0.4),
-            width: 1,
-          ),
-        ),
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded,
-                color: AppColors.cyan, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                '$title link copied to clipboard',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final socialAsync = ref.watch(socialLinksProvider);
@@ -253,7 +258,7 @@ class SocialMediaSection extends ConsumerWidget {
             const SizedBox(height: 14),
           ],
 
-          // Grid of modern platform cards
+          // Grid of modern platform cards (display-only info)
           LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth > 580;
@@ -294,17 +299,16 @@ class _SocialCardItem extends StatelessWidget {
   const _SocialCardItem({
     required this.card,
     required this.onTap,
-    required this.onLongPress,
+    this.onLongPress,
   });
 
   final _SocialCardData card;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-
     return GlassCard(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -316,7 +320,7 @@ class _SocialCardItem extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Top Row: Brand Icon with vibrant gradient tile + External Arrow
+          // Top Row: Brand Icon with vibrant gradient tile + External Badge
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [

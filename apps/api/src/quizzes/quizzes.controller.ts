@@ -127,6 +127,16 @@ export class QuizzesController {
     return this.quizzesService.moveQuizToPosition(id, dto.position);
   }
 
+  @ApiOperation({ summary: 'Get full quiz details for editing in admin studio (Admin / Staff)' })
+  @ApiBearerAuth()
+  @UseGuards(...MANAGE_QUIZZES_GUARDS)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @RequirePermissions('manageQuizzes')
+  @Get('admin/studio/:id')
+  async getAdminStudioQuiz(@Param('id') id: string) {
+    return this.quizzesService.getAdminQuiz(id);
+  }
+
   @ApiOperation({ summary: 'Get quiz details by ID with questions' })
   @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')

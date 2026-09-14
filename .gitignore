@@ -59,3 +59,5 @@ mobile/ios/Flutter/Flutter.podspec
 mobile/ios/DerivedData/
 mobile/android/.gradle
 mobile/android/local.properties
+mobile/scratch/
+mobile/current_screen.png

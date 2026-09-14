@@ -137,6 +137,8 @@ class _HomeBookCarouselState extends ConsumerState<HomeBookCarousel> {
     final artHeight = HomeBookCarousel.artHeightFor(context);
 
     return booksAsync.when(
+      skipLoadingOnRefresh: true,
+      skipLoadingOnReload: true,
       loading: () => _HeroSkeleton(
         artHeight: artHeight + widget.topOverlay,
       ),

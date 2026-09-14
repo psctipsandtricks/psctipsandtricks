@@ -14,6 +14,38 @@ import { computeFinalScore } from '../common/scoring';
 
 const CURATOR: AccessActor = { id: '', role: 'ADMIN' as any };
 
+/** The shape of a mock test row this rule needs; anything else is ignored. */
+export interface LiveMockWindow {
+  scheduledAt: Date;
+  endsAt: Date | null;
+  status: string;
+}
+
+/**
+ * Whether a live mock test's window is open at [now] — the rule that decides
+ * whether an unreleased quiz is still reachable by the students sitting it.
+ *
+ * Split out from the query so it can be pinned by `npm run check:live-mock`:
+ * getting the boundaries wrong either locks a room full of students out of a
+ * paper mid-exam, or leaves it reachable after the session it belongs to has
+ * closed.
+ */
+export function isLiveMockSessionOpen(
+  session: LiveMockWindow | null | undefined,
+  now: Date,
+): boolean {
+  if (!session) return false;
+  // The processor marks a session COMPLETED as it closes; trust that over the
+  // clock, since it is what the rest of the app reads.
+  if (session.status === 'COMPLETED') return false;
+  if (now < session.scheduledAt) return false;
+  // Same 24-hour default the mock test service applies when no explicit end
+  // was set, so both agree on when an open-ended session stops.
+  const endsAt =
+    session.endsAt ?? new Date(session.scheduledAt.getTime() + 24 * 60 * 60 * 1000);
+  return now < endsAt;
+}
+
 /**
  * How far into the past a submitted release date may fall before it is
  * rejected. Covers the seconds between an admin picking "now" and the request
@@ -87,6 +119,32 @@ export class QuizzesService {
     const releaseAt = new Date(quiz.releaseDate).getTime();
     if (isNaN(releaseAt)) return false;
     return releaseAt > Date.now();
+  }
+
+  /**
+   * Whether this quiz is the paper behind a live mock test whose window is
+   * open right now.
+   *
+   * A live mock test's paper is deliberately held back from the catalog until
+   * the session closes — the admin form pins its release moment to the
+   * session's end, so it cannot be practised by someone who has not sat it
+   * while the rank list is still moving. But the students *in* the session
+   * have to be able to open it, and they reach it by quiz id like any other
+   * paper. So an unreleased quiz stays reachable one-up for exactly as long as
+   * its own session runs, and goes back to being unreachable the moment the
+   * window shuts — by which time its release moment has passed anyway.
+   *
+   * Only consulted once a quiz is already known to be awaiting release, so the
+   * ordinary path never pays for this query.
+   */
+  private async hasOpenLiveMockSession(quizId: string): Promise<boolean> {
+    const now = new Date();
+    const session = await this.prisma.mockTest.findFirst({
+      where: { quizId, scheduledAt: { lte: now } },
+      orderBy: { scheduledAt: 'desc' },
+      select: { scheduledAt: true, endsAt: true, status: true },
+    });
+    return isLiveMockSessionOpen(session, now);
   }
 
   /**
@@ -206,6 +264,11 @@ export class QuizzesService {
           where,
           include: {
             questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+            mockTests: {
+              select: { id: true, status: true, scheduledAt: true },
+              orderBy: { scheduledAt: 'desc' },
+              take: 1,
+            },
             _count: { select: { questions: true, submissions: true } },
           },
           skip,
@@ -228,6 +291,11 @@ export class QuizzesService {
       where,
       include: {
         questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        mockTests: {
+          select: { id: true, status: true, scheduledAt: true },
+          orderBy: { scheduledAt: 'desc' },
+          take: 1,
+        },
         _count: { select: { questions: true, submissions: true } },
       },
       orderBy,
@@ -243,7 +311,14 @@ export class QuizzesService {
   async findOne(id: string, actor?: AccessActor | null) {
     const quiz = await this.prisma.quiz.findUnique({
       where: { id },
-      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+      include: {
+        questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
+        mockTests: {
+          select: { id: true, status: true, scheduledAt: true },
+          orderBy: { scheduledAt: 'desc' },
+          take: 1,
+        },
+      },
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
 
@@ -256,15 +331,31 @@ export class QuizzesService {
     }
 
     // Same treatment for a quiz whose release moment has not arrived: 404 so a
-    // direct link can't be used to jump the schedule.
-    if (this.isAwaitingRelease(quiz, actor)) {
+    // direct link can't be used to jump the schedule. The exception is a live
+    // mock test in progress — its paper is unreleased precisely *because* the
+    // session is still running, and the students sitting it need to open it.
+    if (this.isAwaitingRelease(quiz, actor) && !(await this.hasOpenLiveMockSession(quiz.id))) {
       throw new NotFoundException('Quiz not found');
     }
 
     // Questions hold the answer key, so a paid quiz is described but not
     // revealed until the caller has paid for it.
     const access = await this.quizAccess.getAccessState(actor, quiz);
-    return { ...this.quizAccess.stripQuestionsIfLocked(quiz, access), access };
+    const mockTestId = quiz.mockTests?.[0]?.id ?? null;
+    return { ...this.quizAccess.stripQuestionsIfLocked(quiz, access), mockTestId, access };
+  }
+
+  /**
+   * For the Admin Question Studio to load questions for editing.
+   * Guarded by JwtAuthGuard, RolesGuard, and PermissionsGuard(manageQuizzes).
+   */
+  async getAdminQuiz(id: string) {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { id },
+      include: { questions: { orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] } },
+    });
+    if (!quiz) throw new NotFoundException('Quiz not found');
+    return quiz;
   }
 
   private static resolveFinalPrice(price: number, discountPercent: number) {
@@ -447,8 +538,12 @@ export class QuizzesService {
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
     if (quiz.questions.length === 0) throw new NotFoundException('Quiz not found');
-    // A scheduled quiz cannot be started early, even by someone holding the id.
-    if (this.isAwaitingRelease(quiz, actor)) throw new NotFoundException('Quiz not found');
+    // A scheduled quiz cannot be started early, even by someone holding the id
+    // — unless it is the paper of a live mock test that is running right now,
+    // which is held back from the catalog for the length of its own session.
+    if (this.isAwaitingRelease(quiz, actor) && !(await this.hasOpenLiveMockSession(quiz.id))) {
+      throw new NotFoundException('Quiz not found');
+    }
 
     // A premium quiz cannot be started without a settled payment.
     await this.quizAccess.assertCanAttempt(actor, quiz);

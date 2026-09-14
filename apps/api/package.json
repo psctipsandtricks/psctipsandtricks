@@ -14,7 +14,9 @@
     "db:seed": "ts-node prisma/seed.ts",
     "check:streak": "ts-node src/analytics/study-streak.check.ts",
     "check:attempts": "ts-node src/quizzes/attempt-counting.check.ts",
-    "check:grants": "ts-node src/orders/active-grant.check.ts"
+    "check:grants": "ts-node src/orders/active-grant.check.ts",
+    "check:order-dates": "ts-node src/orders/order-date.check.ts",
+    "check:live-mock": "ts-node src/quizzes/live-mock-release.check.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.3",

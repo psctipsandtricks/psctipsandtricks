@@ -100,6 +100,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               // Clear of the bar, so the spinner is not caught behind it.
               edgeOffset: _HomeTopBar.extentFor(context),
               child: CustomScrollView(
+                cacheExtent: 800,
                 physics: const BouncingScrollPhysics(
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
@@ -210,7 +211,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               top: 0,
               left: 0,
               right: 0,
-              child: _HomeTopBar(),
+              child: RepaintBoundary(
+                child: _HomeTopBar(),
+              ),
             ),
           ],
         ),
@@ -301,7 +304,9 @@ class _FadeSlide extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (MediaQuery.disableAnimationsOf(context)) return child;
+    if (MediaQuery.disableAnimationsOf(context) || animation.isCompleted) {
+      return child;
+    }
 
     final end = (delay + _duration).clamp(0.0, 1.0);
     final curved = CurvedAnimation(

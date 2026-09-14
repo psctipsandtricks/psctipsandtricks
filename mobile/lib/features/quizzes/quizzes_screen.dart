@@ -70,7 +70,7 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
 
   void _openQuiz(Quiz quiz) {
     final signedIn = ref.read(authControllerProvider).isAuthenticated;
-    final target = AppRoutes.quizAttempt(quiz.id);
+    final target = AppRoutes.quizAttempt(quiz.id, mockTestId: quiz.mockTestId);
     if (!signedIn && quiz.isPaid) {
       context.push('${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}');
       return;
@@ -209,6 +209,7 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
                 return Responsive.centered(
                   maxWidth: Responsive.maxContentWidth,
                   child: ListView.separated(
+                    cacheExtent: 600,
                     padding: EdgeInsets.fromLTRB(
                       Responsive.horizontalPadding(context),
                       8,
@@ -366,6 +367,7 @@ class _QuizzesScreenState extends ConsumerState<QuizzesScreen> {
               return Responsive.centered(
                 maxWidth: Responsive.maxContentWidth,
                 child: ListView(
+                  cacheExtent: 600,
                   padding: EdgeInsets.fromLTRB(
                     Responsive.horizontalPadding(context),
                     8,

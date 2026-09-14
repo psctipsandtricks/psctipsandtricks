@@ -40,7 +40,11 @@ class VideoListScreen extends ConsumerWidget {
           value: contentAsync,
           onRetry: () => ref.invalidate(videoFolderContentProvider(examId)),
           data: (content) {
-            if (content.isEmpty) {
+            final subfolders =
+                content.subfolders.where((f) => f.hasContent).toList();
+            final directVideos = content.videos;
+
+            if (subfolders.isEmpty && directVideos.isEmpty) {
               return ListView(
                 children: const [
                   SizedBox(height: 60),
@@ -52,9 +56,6 @@ class VideoListScreen extends ConsumerWidget {
                 ],
               );
             }
-
-            final subfolders = content.subfolders;
-            final directVideos = content.videos;
 
             return Responsive.centered(
               maxWidth: Responsive.maxContentWidth,

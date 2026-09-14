@@ -27,8 +27,9 @@ class AppGlass {
   static bool blurEnabled = true;
 
   /// The same, scoped to list-scale surfaces (cards, tiles, chips). Bars and
-  /// sheets keep their blur even when this is off.
-  static bool cardBlurEnabled = true;
+  /// sheets keep their blur even when this is off. Disabled by default to ensure
+  /// silky smooth 60fps/120fps scrolling across all devices.
+  static bool cardBlurEnabled = false;
 
   /// Glass reads as glass partly because it pushes colour, not only because it
   /// is soft — the backdrop is saturated to 1.28 before it is blurred.

@@ -117,6 +117,7 @@ class Quiz {
     this.imageUrl,
     this.access,
     this.questions = const [],
+    this.mockTestId,
     this.createdAt,
     this.releaseDate,
     this.isActive = true,
@@ -129,6 +130,7 @@ class Quiz {
   final String? folderName;
   final String? accessType;
   final String? imageUrl;
+  final String? mockTestId;
   final int totalQuestions;
   final int durationMinutes;
   final bool isLiveMock;
@@ -170,6 +172,12 @@ class Quiz {
         folderName: J.strOrNull(json['folderName']),
         accessType: J.strOrNull(json['accessType']),
         imageUrl: J.strOrNull(json['imageUrl']) ?? J.strOrNull(json['image']),
+        mockTestId: J.strOrNull(json['mockTestId']) ??
+            ((json['mockTests'] is List &&
+                    (json['mockTests'] as List).isNotEmpty &&
+                    (json['mockTests'] as List).first is Map)
+                ? J.strOrNull((json['mockTests'] as List).first['id'])
+                : null),
         totalQuestions: J.intVal(json['totalQuestions']),
         durationMinutes: J.intVal(json['durationMinutes'], 15),
         isLiveMock: J.boolVal(json['isLiveMock']),

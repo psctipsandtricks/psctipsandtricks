@@ -77,4 +77,30 @@ void main() {
     expect(mock.isPaid, isTrue);
     expect(mock.price, 199);
   });
+
+  test('a staff user with unpurchased access is recognized with staff reason', () {
+    final mock = MockTest.fromJson(payload({
+      'isPaid': true,
+      'hasAccess': true,
+      'price': 199,
+      'reason': 'STAFF',
+    }));
+
+    expect(mock.isPaid, isTrue);
+    expect(mock.isLocked, isFalse);
+    expect(mock.access!.reason, AccessReason.staff);
+  });
+
+  test('a staff user with a settled purchase is recognized as purchased', () {
+    final mock = MockTest.fromJson(payload({
+      'isPaid': true,
+      'hasAccess': true,
+      'price': 199,
+      'reason': 'PURCHASED',
+    }));
+
+    expect(mock.isPaid, isTrue);
+    expect(mock.isLocked, isFalse);
+    expect(mock.access!.reason, AccessReason.purchased);
+  });
 }

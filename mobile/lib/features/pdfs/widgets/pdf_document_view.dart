@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/providers/app_providers.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../data/models/pdf_sync.dart';
@@ -656,21 +657,35 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.cyan.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.picture_as_pdf_rounded,
+                color: AppColors.cyan,
+                size: 30,
+              ),
+            ),
+            const SizedBox(height: 18),
             SizedBox(
-              width: 46,
-              height: 46,
+              width: 36,
+              height: 36,
               child: CircularProgressIndicator(
                 value: _downloadProgress > 0 ? _downloadProgress : null,
                 strokeWidth: 3,
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             Text(
               _downloadProgress > 0
                   ? 'Loading document… ${(_downloadProgress * 100).round()}%'
-                  : 'Loading document…',
+                  : 'Preparing document…',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: context.palette.textSecondary,
+                    fontWeight: FontWeight.w600,
                   ),
             ),
           ],
@@ -715,6 +730,46 @@ class PdfDocumentViewState extends ConsumerState<PdfDocumentView>
         fit: StackFit.expand,
         children: [
           _pdfView(isLandscape: isLandscape, isDark: isDark, bgColor: bgColor),
+          // Cover unrendered native surface while PDFView initializes pages
+          if (_pageCount == 0)
+            Positioned.fill(
+              child: Container(
+                color: bgColor,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyan.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          color: AppColors.cyan,
+                          size: 30,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Preparing document…',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: context.palette.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           // Above the native view, which is the only place a Flutter surface
           // can draw on top of one. Transparent to touches until the student
           // picks up a tool.

@@ -25,7 +25,9 @@ class LibraryRepository {
     } catch (_) {}
 
     // Fallback: fetch subfolders and direct videos separately
-    final subfolders = await fetchVideoChapters(folderId);
+    final subfolders = (await fetchVideoChapters(folderId))
+        .where((e) => e.hasContent)
+        .toList();
     final videos = await fetchVideos(folderId);
     return VideoFolderContent(
       folder: LibraryFolder(id: folderId, title: '', orderIndex: 0),
@@ -61,7 +63,9 @@ class LibraryRepository {
     } catch (_) {}
 
     // Fallback: fetch subfolders and direct documents separately
-    final subfolders = await fetchPdfChapters(folderId);
+    final subfolders = (await fetchPdfChapters(folderId))
+        .where((e) => e.hasContent)
+        .toList();
     final documents = await fetchDocuments(folderId);
     return PdfFolderContent(
       folder: LibraryFolder(id: folderId, title: '', orderIndex: 0),
@@ -86,6 +90,7 @@ class LibraryRepository {
     return J.rows(res)
         .whereType<Map>()
         .map((e) => LibraryFolder.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.hasContent)
         .toList();
   }
 }

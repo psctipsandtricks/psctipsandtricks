@@ -11,6 +11,7 @@ export interface PaywallableQuiz {
   discountPercent?: number | null;
   finalPrice?: number | null;
   title?: string | null;
+  isLiveMock?: boolean | null;
 }
 
 /** What the caller is allowed to do with a quiz, and why. */
@@ -49,22 +50,8 @@ export class QuizAccessService {
     return actor?.role === UserRole.ADMIN || actor?.role === UserRole.STAFF;
   }
 
-  /**
-   * True when the user holds a settled payment for this specific quiz — or is
-   * staff, who need to read and manage paid content without buying it.
-   *
-   * The staff branch mirrors `BookAccessService.hasPurchased`. Its absence here
-   * meant an admin opening a paid quiz was treated as a student who had not
-   * paid: the questions were stripped from the response, so the admin panel
-   * showed the quiz as empty.
-   */
-  async hasPurchased(userId: string, quizId: string): Promise<boolean> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-    if (this.isStaff(user ? { id: userId, role: user.role } : null)) return true;
-
+  /** Checks if an actual settled SUCCESS order exists in database for this user and quiz. */
+  async hasSettledOrder(userId: string, quizId: string): Promise<boolean> {
     const paidOrder = await this.prisma.order.findFirst({
       where: {
         userId,
@@ -77,21 +64,19 @@ export class QuizAccessService {
   }
 
   /**
+   * True when the user holds a settled payment for this specific quiz.
+   * Staff and Admin users follow the exact same access & payment restrictions as students.
+   */
+  async hasPurchased(userId: string, quizId: string): Promise<boolean> {
+    return this.hasSettledOrder(userId, quizId);
+  }
+
+  /**
    * Every quiz this user has settled payment for — one query for list routes.
-   *
-   * `hasAllAccess` is the staff shortcut: they hold no orders but may read
-   * everything, so the caller must honour it rather than only the id set.
+   * Staff and Admin users are subject to the same access & payment restrictions as students.
    */
   async getPurchasedQuizIds(userId?: string | null): Promise<{ quizIds: Set<string>; hasAllAccess: boolean }> {
     if (!userId) return { quizIds: new Set(), hasAllAccess: false };
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-    if (this.isStaff(user ? { id: userId, role: user.role } : null)) {
-      return { quizIds: new Set(), hasAllAccess: true };
-    }
 
     const orders = await this.prisma.order.findMany({
       where: {
@@ -128,28 +113,31 @@ export class QuizAccessService {
         access = { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
       } else if (!actor?.id) {
         access = { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
-      } else if (hasAllAccess) {
-        access = {
-          isPaid: true,
-          hasAccess: true,
-          price: effectivePrice,
-          originalPrice,
-          discountPercent,
-          reason: 'STAFF',
-        };
       } else {
         const bought = purchased.has(quiz.id);
-        access = {
-          isPaid: true,
-          hasAccess: bought,
-          price: effectivePrice,
-          originalPrice,
-          discountPercent,
-          reason: bought ? 'PURCHASED' : 'PAYMENT_REQUIRED',
-        };
+        if (bought) {
+          access = {
+            isPaid: true,
+            hasAccess: true,
+            price: effectivePrice,
+            originalPrice,
+            discountPercent,
+            reason: 'PURCHASED',
+          };
+        } else {
+          access = {
+            isPaid: true,
+            hasAccess: false,
+            price: effectivePrice,
+            originalPrice,
+            discountPercent,
+            reason: 'PAYMENT_REQUIRED',
+          };
+        }
       }
 
-      return { ...this.stripQuestionsIfLocked(quiz, access), access };
+      const mockTestId = (quiz as any).mockTestId ?? (quiz as any).mockTests?.[0]?.id ?? null;
+      return { ...this.stripQuestionsIfLocked(quiz, access), mockTestId, access };
     });
   }
 
@@ -166,25 +154,31 @@ export class QuizAccessService {
     if (!this.isPaidQuiz(quiz)) {
       return { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
     }
-    // Staff before the paywall, not after it: an admin has to see a paid quiz's
-    // questions to edit them at all. Without this the answer key was stripped
-    // from the response and the admin panel showed the quiz as questionless —
-    // which then let a save replace the questions it could not see.
-    if (this.isStaff(actor)) {
-      return { isPaid: true, hasAccess: true, price: effectivePrice, originalPrice, discountPercent, reason: 'STAFF' };
-    }
     if (!actor?.id) {
       return { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
     }
 
-    const purchased = await this.hasPurchased(actor.id, quiz!.id);
+    // Settled order takes precedence: if purchased, reason is PURCHASED
+    const bought = await this.hasSettledOrder(actor.id, quiz!.id);
+    if (bought) {
+      return {
+        isPaid: true,
+        hasAccess: true,
+        price: effectivePrice,
+        originalPrice,
+        discountPercent,
+        reason: 'PURCHASED',
+      };
+    }
+
+    // Staff and Admin users have the same access & payment restrictions as Students.
     return {
       isPaid: true,
-      hasAccess: purchased,
+      hasAccess: false,
       price: effectivePrice,
       originalPrice,
       discountPercent,
-      reason: purchased ? 'PURCHASED' : 'PAYMENT_REQUIRED',
+      reason: 'PAYMENT_REQUIRED',
     };
   }
 

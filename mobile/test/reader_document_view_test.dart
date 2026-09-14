@@ -16,6 +16,8 @@ import 'package:psc_tips_tricks_mobile/core/network/api_client.dart';
 import 'package:psc_tips_tricks_mobile/core/storage/token_store.dart';
 import 'package:psc_tips_tricks_mobile/data/repositories/books_repository.dart';
 
+import 'package:psc_tips_tricks_mobile/core/utils/orientation.dart';
+
 /// The reader writes the reading position as it goes and once more on close.
 /// Left real, that write opens a Dio request whose connect timeout outlives
 /// the test binding, which reports it as a leaked timer.
@@ -32,6 +34,7 @@ class _SilentBooksRepository extends BooksRepository {
 }
 
 void main() {
+  setUp(resetImmersiveForTesting);
   const bookId = 'b1';
 
   /// Topic one carries a document and narration; topic two carries neither, so
@@ -69,9 +72,15 @@ void main() {
     WidgetTester tester, {
     required Size size,
     ReaderAudioController? audio,
+    /// What the system draws over the bottom of the window — the gesture pill
+    /// or a three-button navigation bar. Non-zero only on an edge-to-edge
+    /// window, which on Android 15 and up is every window.
+    double bottomInset = 0,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
+    tester.view.viewPadding = FakeViewPadding(bottom: bottomInset);
+    tester.view.padding = FakeViewPadding(bottom: bottomInset);
     addTearDown(tester.view.reset);
 
     SharedPreferences.setMockInitialValues({});
@@ -260,6 +269,27 @@ void main() {
           findsNothing);
     });
 
+    testWidgets('the corners stay clear of the navigation bar',
+        (tester) async {
+      // The regression this exists for: the corners were pinned a flat 20 from
+      // the bottom of the Stack, and on an edge-to-edge window that is the
+      // bottom of the *window*, not of what can be seen. A phone still drawing
+      // a three-button bar swallowed the lowest of them — the audio button —
+      // leaving a sliver above the bar and no tap target, so the player strip
+      // it opens could not be reached at all.
+      await pump(tester, size: const Size(400, 860), bottomInset: 48);
+
+      const safeBottom = 860.0 - 48.0;
+      expect(
+        tester.getRect(find.byTooltip('Chapters and topics')).bottom,
+        lessThanOrEqualTo(safeBottom),
+      );
+      expect(
+        tester.getRect(find.byTooltip('Save this book to read offline')).bottom,
+        lessThanOrEqualTo(safeBottom),
+      );
+    });
+
     testWidgets('auto-scroll comes and goes with the narration',
         (tester) async {
       final audio = ReaderAudioController();
@@ -367,6 +397,8 @@ void main() {
         (call) async {
           if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
             modes.add('${call.arguments}');
+          } else if (call.method == 'SystemChrome.setEnabledSystemUIOverlays') {
+            modes.add('SystemUiMode.manual');
           }
           return null;
         },
@@ -383,7 +415,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       // And closing the reader hands them straight back.
-      expect(modes, contains('SystemUiMode.edgeToEdge'));
+      expect(modes, contains('SystemUiMode.manual'));
     });
 
     testWidgets('upright the reader leaves the system bars alone',

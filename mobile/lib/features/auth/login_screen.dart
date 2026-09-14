@@ -79,8 +79,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
     try {
       if (provider == 'google') {
-        await _googleNative();
-        return;
+        final handled = await _googleNative();
+        if (handled) return;
+        if (kDebugMode) {
+          debugPrint('Native Google sign-in unavailable; falling back to in-app WebView OAuth');
+        }
       }
       if (!mounted) return;
 
@@ -105,24 +108,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  /// Runs the native Google account picker flow exclusively.
-  Future<void> _googleNative() async {
+  /// Runs the native Google account picker flow.
+  /// Returns `true` if native flow handled the request (success or user dismissal).
+  /// Returns `false` if native Google Sign-In is unavailable on this device/emulator,
+  /// signaling that the caller should fall back to the in-app Web OAuth flow.
+  Future<bool> _googleNative() async {
     final GoogleNativeTokens? tokens;
     try {
       tokens = await GoogleNativeSignIn.tokens();
     } on GoogleNativeUnavailable catch (e) {
-      if (kDebugMode) debugPrint('Native Google sign-in error: $e');
-      if (mounted) setState(() => _error = e.reason);
-      return;
+      if (kDebugMode) debugPrint('Native Google sign-in unavailable: $e');
+      // Return false to allow seamless degradation to OAuth WebView
+      return false;
     } catch (e) {
       if (kDebugMode) debugPrint('Native Google sign-in exception: $e');
       if (mounted) setState(() => _error = 'Google sign-in failed. Please try again.');
-      return;
+      return true;
     }
 
     if (tokens == null || !tokens.isValid) {
       // Student dismissed the picker dialog
-      return;
+      return true;
     }
 
     try {
@@ -130,10 +136,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             idToken: tokens.idToken,
           );
       _goOnwards();
+      return true;
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+      return true;
     } catch (_) {
       if (mounted) setState(() => _error = 'Google sign-in failed. Please try again.');
+      return true;
     }
   }
 

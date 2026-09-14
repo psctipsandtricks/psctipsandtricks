@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// The app runs portrait-only (see `main.dart`): the quiz option cards, the
@@ -67,8 +68,27 @@ Future<void> enterImmersiveReading() {
 
 /// Gives up this screen's claim, and puts the system bars back once nothing
 /// else is holding one.
+///
+/// Restores `manual`, not `edgeToEdge`. Both bring the bars back, but they
+/// bring back different *windows*: `edgeToEdge` keeps the app laid out
+/// underneath them, which is not the state the app launched in. Below Android
+/// 15 that difference is real and permanent — one rotation inside the reader
+/// left every screen in the app drawing its last 48dp behind the navigation
+/// bar for the rest of the process, which is exactly the kind of thing that
+/// only shows up on the devices that still draw a three-button bar. On Android
+/// 15 and up the system enforces edge-to-edge regardless and this is a no-op
+/// for layout; the screens that float content over a full-bleed page read the
+/// bottom inset for themselves either way.
 Future<void> exitImmersiveReading() {
   if (_immersed > 0) _immersed -= 1;
   if (_immersed > 0) return Future<void>.value();
-  return SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  return SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: SystemUiOverlay.values,
+  );
+}
+
+@visibleForTesting
+void resetImmersiveForTesting() {
+  _immersed = 0;
 }

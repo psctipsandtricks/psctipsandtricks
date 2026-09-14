@@ -26,7 +26,7 @@ const RESOURCE_LINKS = [
 export function FooterWrapper() {
   const pathname = usePathname();
 
-  if (pathname.startsWith('/admin') || pathname.startsWith('/community')) {
+  if (pathname.startsWith('/admin') || pathname.startsWith('/community') || pathname.includes('/read')) {
     return null;
   }
 

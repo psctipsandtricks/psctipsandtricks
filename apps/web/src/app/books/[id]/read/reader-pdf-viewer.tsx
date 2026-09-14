@@ -997,7 +997,7 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUpOrLeave}
             onMouseLeave={handleMouseUpOrLeave}
-            className={`w-full max-w-full overflow-x-auto overflow-y-visible pb-12 pt-1 touch-pan-y ${
+            className={`w-full max-w-full overflow-x-auto overflow-y-visible pb-0 pt-0 touch-pan-y ${
               scale > 1.0 && tool === 'none'
                 ? isPanning
                   ? 'cursor-grabbing'

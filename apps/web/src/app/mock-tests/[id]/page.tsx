@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo } fr
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, Button, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@psc/ui';
-import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download, AlertCircle, Receipt } from 'lucide-react';
+import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download, AlertCircle, Receipt, Shield, ShoppingBag } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { QuizPaywall } from '@/app/quiz-paywall';
@@ -570,11 +570,21 @@ function CountdownGate({ mockTest }: { mockTest: any }) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
+  const access = mockTest.access;
+
   return (
     <div className="max-w-2xl mx-auto py-16 text-center space-y-6">
-      <Badge variant="outline" className="text-xs font-bold text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10">
-        Upcoming Live Mock Test
-      </Badge>
+      <div className="flex items-center justify-center gap-2 flex-wrap">
+        <Badge variant="outline" className="text-xs font-bold text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10">
+          Upcoming Live Mock Test
+        </Badge>
+        {access?.hasAccess && (
+          <Badge variant="success" className="text-xs font-bold flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3" />
+            <span>Purchased</span>
+          </Badge>
+        )}
+      </div>
       <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{mockTest.title}</h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
         {mockTest.quiz?.title} • {mockTest.quiz?.totalQuestions || mockTest.quiz?.questions?.length || 0} Questions • {mockTest.quiz?.durationMinutes || 15} mins

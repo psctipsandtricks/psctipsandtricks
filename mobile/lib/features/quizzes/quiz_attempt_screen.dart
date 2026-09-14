@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:collection/collection.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
@@ -15,7 +16,10 @@ import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/book.dart' show AccessState, AccessReason;
+import '../../data/models/mock_test.dart';
 import '../../data/models/quiz.dart';
+import '../home/home_providers.dart';
+import '../mock_tests/mock_tests_providers.dart';
 import 'quizzes_providers.dart';
 import 'widgets/quiz_paywall.dart';
 import 'widgets/quiz_result_sheet.dart';
@@ -468,7 +472,37 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
 
     ref.read(sharedPrefsProvider).remove(_storageKey);
 
-    final mockTestId = widget.mockTestId;
+    var effectiveMockTestId = widget.mockTestId ?? _quiz?.mockTestId ?? quiz.mockTestId;
+    final isLiveMock = quiz.isLiveMock || (_quiz?.isLiveMock == true);
+
+    if (effectiveMockTestId == null && isLiveMock) {
+      final liveMocks = ref.read(liveMockTestsProvider).valueOrNull;
+      effectiveMockTestId =
+          liveMocks?.firstWhereOrNull((m) => m.quizId == widget.quizId)?.id;
+      if (effectiveMockTestId == null) {
+        final allMocks = ref.read(allMockTestsProvider).valueOrNull;
+        effectiveMockTestId =
+            allMocks?.firstWhereOrNull((m) => m.quizId == widget.quizId)?.id;
+      }
+      if (effectiveMockTestId == null) {
+        try {
+          final liveList = await ref
+              .read(mockTestsRepositoryProvider)
+              .fetchMockTests(status: MockTestStatus.live);
+          final match =
+              liveList.firstWhereOrNull((m) => m.quizId == widget.quizId);
+          if (match != null) {
+            effectiveMockTestId = match.id;
+          } else {
+            final allList =
+                await ref.read(mockTestsRepositoryProvider).fetchMockTests();
+            effectiveMockTestId =
+                allList.firstWhereOrNull((m) => m.quizId == widget.quizId)?.id;
+          }
+        } catch (_) {}
+      }
+    }
+
     final submission = QuizSubmission(
       quizId: widget.quizId,
       answers: payload,
@@ -476,19 +510,41 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       timeTakenMs: timeTakenMs,
     );
 
-    if (mockTestId != null) {
+    if (effectiveMockTestId != null || isLiveMock) {
       // A scheduled mock test scores against its own rank list rather than a
       // personal attempt record — there is no per-attempt review screen to
       // hand off to here, so the locally scored sheet is the result, and it
       // leads back to the test's own page where the live rank list lives.
       var mockSubmitOk = false;
-      try {
-        await ref
-            .read(mockTestsRepositoryProvider)
-            .submit(mockTestId, submission);
-        mockSubmitOk = true;
-      } catch (_) {
-        mockSubmitOk = false;
+      if (effectiveMockTestId != null) {
+        try {
+          await ref
+              .read(mockTestsRepositoryProvider)
+              .submit(effectiveMockTestId, submission);
+          mockSubmitOk = true;
+          // Everything that renders a join button or a rank now says something
+          // different: the test page opens on the rank list instead of the
+          // paper, and the home banner's "Join now" becomes "View Live Rank
+          // List". None of them refetch on their own — the home rail in
+          // particular is kept alive by its tab — so they are told here.
+          ref.invalidate(mockTestProvider(effectiveMockTestId));
+          ref.invalidate(mockLeaderboardProvider(effectiveMockTestId));
+          ref.invalidate(liveMockTestsProvider);
+          ref.invalidate(mockTestsViewProvider);
+          ref.invalidate(allMockTestsProvider);
+          ref.invalidate(myMockAttemptsProvider);
+        } catch (_) {
+          mockSubmitOk = false;
+        }
+      } else {
+        try {
+          await ref.read(quizzesRepositoryProvider).submitAttempt(
+                widget.quizId,
+                submission,
+                attemptId: _attemptId,
+              );
+          mockSubmitOk = true;
+        } catch (_) {}
       }
 
       if (!mounted) return;
@@ -500,7 +556,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
             content: Text('Time ran out — your attempt was submitted.'),
           ),
         );
-      } else if (!mockSubmitOk) {
+      } else if (!mockSubmitOk && effectiveMockTestId != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -519,11 +575,16 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
         autoSubmitted: auto,
         questions: quiz.questions,
         answers: Map.of(_answers),
+        mockTestId: effectiveMockTestId,
       );
       if (mounted) {
         // `replace`, so Back from the mock test page lands on its hub rather
         // than re-opening the attempt just finished.
-        context.replace(AppRoutes.mockTest(mockTestId));
+        if (effectiveMockTestId != null) {
+          context.replace(AppRoutes.mockTest(effectiveMockTestId));
+        } else {
+          context.pop();
+        }
       }
       return;
     }

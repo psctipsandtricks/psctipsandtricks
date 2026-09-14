@@ -24,6 +24,7 @@ import { PdfsModule } from './pdfs/pdfs.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { SocialLinksModule } from './social-links/social-links.module';
 import { AppUpdateModule } from './app-update/app-update.module';
+import { SyncModule } from './sync/sync.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { AppUpdateModule } from './app-update/app-update.module';
     ReviewsModule,
     SocialLinksModule,
     AppUpdateModule,
+    SyncModule,
   ],
 })
 export class AppModule {}

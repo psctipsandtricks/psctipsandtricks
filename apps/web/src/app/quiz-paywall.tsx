@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   AlertCircle,
   Sparkles,
-  FlaskConical,
   CheckCircle2,
   X,
 } from 'lucide-react';
@@ -74,11 +73,6 @@ export function QuizPaywall({
   const savings = basePrice - finalPrice;
 
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_sample_key';
-  const isDemoMode =
-    !process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
-    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID.includes('sample_key') ||
-    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID.includes('your_key') ||
-    process.env.NEXT_PUBLIC_RAZORPAY_MODE === 'test';
 
   const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,16 +257,6 @@ export function QuizPaywall({
       )}
 
       <Card className="p-6 sm:p-8 space-y-5 border border-amber-500/30">
-        {isDemoMode && (
-          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>Razorpay Test Mode Active</span>
-            </div>
-            <Badge variant="gold">TEST MODE</Badge>
-          </div>
-        )}
-
         <div className="text-center space-y-3">
           <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-500 flex items-center justify-center mx-auto">
             <Lock className="w-7 h-7" />

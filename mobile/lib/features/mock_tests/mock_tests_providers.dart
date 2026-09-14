@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/providers/auth_controller.dart';
 import '../../data/models/mock_test.dart';
 import '../../data/models/paginated.dart';
 import '../../data/models/quiz.dart';
@@ -125,4 +126,34 @@ final myMockAttemptsProvider =
     FutureProvider.autoDispose<List<MockTestParticipant>>((ref) {
   return ref.watch(mockTestsRepositoryProvider).fetchMyAttempts();
 });
+
+/// The mock tests this student has already sat, by id.
+///
+/// The list and detail payloads carry `submitted` themselves and that is the
+/// source of truth; this is the belt to those braces. `/my-attempts` has
+/// reported the student's own participation since long before `submitted`
+/// existed, so a phone talking to an API that predates it — an app updated
+/// ahead of the server, which is the normal order of a release — still knows
+/// not to offer a join for a paper already handed in.
+///
+/// Signed out it asks nothing: there are no attempts to have, and the request
+/// would be a 401 on every build of the home screen. A failed call reads as
+/// "nothing submitted", which falls back to the payload's own answer rather
+/// than overriding it.
+final submittedMockTestIdsProvider = Provider.autoDispose<Set<String>>((ref) {
+  // Signed out there is nothing to ask about, and the request would be a 401
+  // on every build of the home screen.
+  if (ref.watch(currentUserProvider) == null) return const <String>{};
+  final attempts = ref.watch(myMockAttemptsProvider).valueOrNull;
+  if (attempts == null) return const <String>{};
+  return {
+    for (final attempt in attempts)
+      if (attempt.submittedAt != null) attempt.mockTestId,
+  };
+});
+
+/// Whether [mock] has been submitted by this student, according to either the
+/// payload it arrived in or the student's own attempt list.
+bool mockTestSubmitted(WidgetRef ref, MockTest mock) =>
+    mock.submitted || ref.watch(submittedMockTestIdsProvider).contains(mock.id);
 

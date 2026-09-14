@@ -116,6 +116,24 @@ function formatLocalTime(d: Date): string {
   return `${hours}:${minutes}`;
 }
 
+/**
+ * A "YYYY-MM-DD" filter bound as the absolute instant that day starts or ends
+ * *here*.
+ *
+ * Every date in this table is rendered in the admin's own timezone, so the
+ * filter has to be anchored the same way. Handing the server the bare date
+ * instead would have it cut the range at UTC midnight, hiding orders from the
+ * very day they are shown under and showing some from the next one.
+ */
+function localDayBoundaryIso(dateStr: string | undefined, edge: 'start' | 'end'): string | undefined {
+  if (!dateStr) return undefined;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return undefined;
+  return edge === 'start'
+    ? new Date(y, m - 1, d, 0, 0, 0, 0).toISOString()
+    : new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
+}
+
 function StudentSearchCombobox({
   users: initialUsers,
   selectedUserId,
@@ -529,8 +547,8 @@ export default function AdminOrdersPage() {
         limit: pageSize,
         search: searchTerm.trim() || undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
-        startDate: activeDateRange.start,
-        endDate: activeDateRange.end,
+        startDate: localDayBoundaryIso(activeDateRange.start, 'start'),
+        endDate: localDayBoundaryIso(activeDateRange.end, 'end'),
       });
 
       const fetchedOrders = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
@@ -868,18 +886,16 @@ export default function AdminOrdersPage() {
     setEditAmount(String(order.amount));
     setEditNote(order.description || '');
 
-    if (order.createdAtRaw) {
-      const d = new Date(order.createdAtRaw);
-      if (!isNaN(d.getTime())) {
-        setEditOrderDate(formatLocalDate(d));
-        setEditOrderTime(formatLocalTime(d));
-      } else {
-        setEditOrderDate(order.date || formatLocalDate(new Date()));
-        setEditOrderTime(formatLocalTime(new Date()));
-      }
+    const created = order.createdAtRaw ? new Date(order.createdAtRaw) : null;
+    if (created && !isNaN(created.getTime())) {
+      setEditOrderDate(formatLocalDate(created));
+      setEditOrderTime(formatLocalTime(created));
     } else {
+      // No usable timestamp on the row. Falls back to noon rather than the
+      // current clock, so simply opening and saving this dialog cannot quietly
+      // stamp "now" onto an order whose real time is unknown.
       setEditOrderDate(order.date || formatLocalDate(new Date()));
-      setEditOrderTime(formatLocalTime(new Date()));
+      setEditOrderTime('12:00');
     }
   };
 
@@ -907,7 +923,9 @@ export default function AdminOrdersPage() {
       await ApiClient.updateOrder(editingOrder.id, {
         status: editStatus,
         amount: rawEditAmount !== '' ? Number(rawEditAmount) : undefined,
-        description: rawEditNote !== '' ? rawEditNote : undefined,
+        // Sent even when blank: an admin clearing the note has to be able to
+        // remove it, not just replace it with different text.
+        description: rawEditNote,
         purchaseDate: purchaseDateCombined,
         orderDate: purchaseDateCombined,
         createdAt: purchaseDateCombined,

@@ -11,6 +11,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/glass_card.dart';
 import '../../../data/models/mock_test.dart';
+import '../../checkout/purchase_sheet.dart';
+import '../../mock_tests/mock_tests_providers.dart';
 import '../home_providers.dart';
 
 /// The live (or soon) mock tests, given the top of the home screen while they
@@ -266,6 +268,9 @@ class _MockCardState extends ConsumerState<_MockCard> {
     final palette = context.palette;
     final isLive = mock.isLive;
     final locked = mock.isLocked;
+    // A locked test never got a seat, so its `submitted` cannot be true — but
+    // reading them in this order keeps the paywall the one thing that wins.
+    final submitted = !locked && mockTestSubmitted(ref, mock);
     final accent = isLive ? AppColors.rose : AppColors.amber;
     final countdown = _countdownLabel(mock);
 
@@ -279,8 +284,41 @@ class _MockCardState extends ConsumerState<_MockCard> {
       );
     }
 
+    Future<void> buy() async {
+      final signedIn = ref.read(authControllerProvider).isAuthenticated;
+      if (!signedIn) {
+        final target = AppRoutes.mockTest(mock.id);
+        context.push(
+          '${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}',
+        );
+        return;
+      }
+
+      final success = await showPurchaseSheet(
+        context,
+        target: PurchaseTarget.quiz(
+          id: mock.quizId,
+          title: mock.title,
+          price: mock.price,
+        ),
+      );
+
+      if (success) {
+        ref.invalidate(liveMockTestsProvider);
+        ref.invalidate(mockTestProvider(mock.id));
+        ref.invalidate(mockTestsViewProvider);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment successful! You can now join the test.'),
+            backgroundColor: AppColors.emerald,
+          ),
+        );
+      }
+    }
+
     return GlassCard(
-      onTap: open,
+      onTap: locked ? buy : open,
       borderColor: accent.withValues(alpha: 0.45),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
@@ -346,7 +384,19 @@ class _MockCardState extends ConsumerState<_MockCard> {
                 ),
           ),
           const SizedBox(height: 5),
-          if (isLive)
+          if (submitted)
+            Text(
+              isLive
+                  ? 'You have submitted — your rank is updating live.'
+                  : 'You have submitted this test.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: palette.textSecondary,
+                    height: 1.3,
+                  ),
+            )
+          else if (isLive)
             Text(
               'Running now — join before the window closes.',
               maxLines: 1,
@@ -414,27 +464,38 @@ class _MockCardState extends ConsumerState<_MockCard> {
           const SizedBox(height: 8),
           // A locked test must not promise a seat it cannot give: tapping
           // through lands on the paywall either way, so the button says so
-          // rather than reading "Join now" and then refusing.
+          // rather than reading "Join now" and then refusing. The same goes
+          // the other way for a test already sat: the server refuses a second
+          // submission, so a student coming back to the home page is offered
+          // the rank list they are now on rather than a join that would fail.
           GradientButton(
             label: locked
                 ? 'Unlock for ${Fmt.price(mock.price)}'
-                : isLive
-                    ? (mock.joined ? 'Continue the test' : 'Join now')
-                    : 'View details',
+                : submitted
+                    ? 'View Live Rank List'
+                    : isLive
+                        ? (mock.joined ? 'Continue the test' : 'Join now')
+                        : 'View details',
             icon: locked
                 ? Icons.lock_rounded
-                : isLive
-                    ? Icons.bolt_rounded
-                    : Icons.event_rounded,
+                : submitted
+                    ? Icons.leaderboard_rounded
+                    : isLive
+                        ? Icons.bolt_rounded
+                        : Icons.event_rounded,
             compact: true,
             gradient: locked
                 ? AppColors.goldGradient
-                : isLive
+                : submitted
                     ? const LinearGradient(
-                        colors: [AppColors.rose, AppColors.amber],
+                        colors: [AppColors.cyan, AppColors.emerald],
                       )
-                    : AppColors.brandGradient,
-            onPressed: open,
+                    : isLive
+                        ? const LinearGradient(
+                            colors: [AppColors.rose, AppColors.amber],
+                          )
+                        : AppColors.brandGradient,
+            onPressed: locked ? buy : open,
           ),
         ],
       ),

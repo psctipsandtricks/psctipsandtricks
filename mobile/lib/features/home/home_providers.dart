@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/providers/auth_controller.dart';
 import '../../data/models/book.dart';
 import '../../data/models/mock_test.dart';
 import '../quizzes/quizzes_providers.dart';
@@ -10,6 +11,8 @@ import '../quizzes/quizzes_providers.dart';
 final featuredBooksProvider =
     FutureProvider.autoDispose<List<Book>>((ref) async {
   ref.keepAlive();
+  // React to sign-in / sign-out so access verdicts (purchased vs buy now) update immediately
+  ref.watch(currentUserProvider.select((user) => user?.id));
   return ref.watch(booksRepositoryProvider).fetchBooks(limit: 10);
 });
 
@@ -19,8 +22,6 @@ final featuredBooksProvider =
 /// display the exact same 10 newest premium quizzes in the same release order.
 final premiumQuizzesProvider = premiumCarouselQuizzesProvider;
 
-
-
 /// The mock tests worth showing at the top of the home screen: every test
 /// running right now (LIVE) as well as upcoming ones, sorted so LIVE tests appear
 /// first, followed by upcoming tests sorted by scheduled start time.
@@ -29,6 +30,7 @@ final premiumQuizzesProvider = premiumCarouselQuizzesProvider;
 /// signed-out student or a flaky call should not take the whole page down.
 final liveMockTestsProvider =
     FutureProvider.autoDispose<List<MockTest>>((ref) async {
+  ref.watch(currentUserProvider.select((user) => user?.id));
   try {
     final all = await ref.watch(mockTestsRepositoryProvider).fetchMockTests();
     final active = all

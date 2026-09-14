@@ -46,6 +46,7 @@ final quizSearchProvider = StateProvider<String>((ref) => '');
 /// than the whole catalog.
 final premiumCarouselQuizzesProvider =
     FutureProvider.autoDispose<List<Quiz>>((ref) async {
+  ref.watch(currentUserProvider.select((user) => user?.id));
   final rows = await ref.watch(quizzesRepositoryProvider).fetchQuizzes(
         publishedOnly: true,
         accessType: 'PAID',

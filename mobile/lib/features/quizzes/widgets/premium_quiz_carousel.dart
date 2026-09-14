@@ -117,7 +117,7 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
     }
 
     final signedIn = ref.read(authControllerProvider).isAuthenticated;
-    final target = AppRoutes.quizAttempt(quiz.id);
+    final target = AppRoutes.quizAttempt(quiz.id, mockTestId: quiz.mockTestId);
     if (!signedIn) {
       context.push('${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}');
       return;
