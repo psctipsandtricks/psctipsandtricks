@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import { ReaderWatermarkOverlay } from '@/app/books/[id]/read/reader-watermark-overlay';
 
-// Worker path from public directory
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+// Worker source matching the exact installed pdfjs-dist version.
+// Using unpkg ensures high reliability in production (e.g. Vercel) without depending on build-step filesystem copies.
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 export interface SecurePdfViewerProps {
   url: string;
@@ -187,9 +188,9 @@ export function SecurePdfViewer({ url, title, user, onClose }: SecurePdfViewerPr
 
   const documentOptions = useMemo(
     () => ({
-      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
       cMapPacked: true,
-      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+      standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
     }),
     []
   );

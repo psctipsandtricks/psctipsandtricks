@@ -29,8 +29,9 @@ import {
 import { ApiClient } from '@/lib/api-client';
 import { decideSyncScroll, type ResolvedSyncTarget, type Span } from './pdf-audio-sync';
 
-// Worker path from public directory
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+// Worker source matching the exact installed pdfjs-dist version.
+// Using unpkg ensures high reliability in production (e.g. Vercel) without depending on build-step filesystem copies.
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 /**
  * How long a plain wheel/touch scroll suspends cue-driven page turns.
@@ -733,15 +734,13 @@ export const ReaderPdfViewer = React.forwardRef<ReaderPdfViewerHandle, ReaderPdf
     [containerWidth]
   );
 
-  // Served from public/ by scripts/copy-pdf-worker.js, so these always match
-  // the installed pdfjs-dist. They were previously pinned to a CDN copy of
-  // 3.11.174 while the engine moved on to 5.x — a mismatch that drops glyphs
-  // (Malayalam among them) rather than raising an error.
+  // CMaps and fonts from unpkg matching the exact installed pdfjs-dist version,
+  // ensuring non-Latin scripts (such as Malayalam) render correctly without drift.
   const documentOptions = useMemo(
     () => ({
-      cMapUrl: '/pdfjs/cmaps/',
+      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`,
       cMapPacked: true,
-      standardFontDataUrl: '/pdfjs/standard_fonts/',
+      standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
     }),
     []
   );
