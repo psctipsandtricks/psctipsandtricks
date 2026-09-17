@@ -658,6 +658,11 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
   }
 
   void _navigateBackToQuizzes() {
+    ref.invalidate(premiumCarouselQuizzesProvider);
+    ref.invalidate(quizzesProvider);
+    ref.invalidate(quizAttemptSummaryProvider);
+    ref.invalidate(allQuizAttemptsProvider);
+    ref.invalidate(dashboardProvider);
     try {
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();

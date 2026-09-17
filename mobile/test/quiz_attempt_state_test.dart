@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:psc_tips_tricks_mobile/core/theme/app_theme.dart';
+import 'package:psc_tips_tricks_mobile/data/models/book.dart' show AccessState, AccessReason;
 import 'package:psc_tips_tricks_mobile/data/models/quiz.dart';
 import 'package:psc_tips_tricks_mobile/features/quizzes/widgets/quiz_card.dart';
 
@@ -145,6 +146,169 @@ void main() {
       expect(find.text('Resume'), findsOneWidget);
       expect(find.text('In progress'), findsOneWidget);
       expect(find.text('2 attempts'), findsNothing);
+    });
+
+    testWidgets('subscription quiz with exhausted attempts shows Renew and never Buy Now',
+        (tester) async {
+      const quiz = Quiz(
+        id: 'q_sub_ex',
+        title: 'Dev Test',
+        totalQuestions: 10,
+        durationMinutes: 15,
+        isLiveMock: false,
+        isPremium: true,
+        price: 47,
+        passingMarks: 5,
+        totalMarks: 10,
+        negativeMarking: NegativeMarking.disabled,
+        showCorrectAnswerAfterSelection: true,
+        subscriptionType: 'SUBSCRIPTION',
+        subscriptionDuration: '1_MONTH',
+        maxAttempts: 5,
+        access: const AccessState(
+          isPaid: true,
+          hasAccess: false,
+          price: 47,
+          reason: AccessReason.attemptsExhausted,
+          canRepurchase: true,
+          subscriptionType: 'SUBSCRIPTION',
+          maxAttempts: 5,
+          attemptsUsed: 5,
+          remainingAttempts: 0,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                child: QuizCard(
+                  quiz: quiz,
+                  attempt: _summary(completed: 5),
+                  width: 320,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Renew'), findsOneWidget);
+      expect(find.text('Buy Now'), findsNothing);
+      expect(find.text('5/5 attempts used'), findsOneWidget);
+    });
+
+    testWidgets('subscription quiz with expired access shows Renew and never Buy Now',
+        (tester) async {
+      const quiz = Quiz(
+        id: 'q_sub_exp',
+        title: 'Dev Test',
+        totalQuestions: 10,
+        durationMinutes: 15,
+        isLiveMock: false,
+        isPremium: true,
+        price: 47,
+        passingMarks: 5,
+        totalMarks: 10,
+        negativeMarking: NegativeMarking.disabled,
+        showCorrectAnswerAfterSelection: true,
+        subscriptionType: 'SUBSCRIPTION',
+        subscriptionDuration: '1_MONTH',
+        maxAttempts: 5,
+        access: const AccessState(
+          isPaid: true,
+          hasAccess: false,
+          price: 47,
+          reason: AccessReason.subscriptionExpired,
+          canRepurchase: true,
+          subscriptionType: 'SUBSCRIPTION',
+          maxAttempts: 5,
+          attemptsUsed: 2,
+          remainingAttempts: 0,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                child: QuizCard(
+                  quiz: quiz,
+                  attempt: _summary(completed: 2),
+                  width: 320,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Renew'), findsOneWidget);
+      expect(find.text('Buy Now'), findsNothing);
+      expect(find.text('Subscription expired'), findsOneWidget);
+    });
+
+    testWidgets('active purchased subscription quiz shows Retake and attempts left, never Buy Now',
+        (tester) async {
+      const quiz = Quiz(
+        id: 'q_sub_act',
+        title: 'Dev Test',
+        totalQuestions: 10,
+        durationMinutes: 15,
+        isLiveMock: false,
+        isPremium: true,
+        price: 47,
+        passingMarks: 5,
+        totalMarks: 10,
+        negativeMarking: NegativeMarking.disabled,
+        showCorrectAnswerAfterSelection: true,
+        subscriptionType: 'SUBSCRIPTION',
+        subscriptionDuration: '1_MONTH',
+        maxAttempts: 5,
+        access: const AccessState(
+          isPaid: true,
+          hasAccess: true,
+          price: 47,
+          reason: AccessReason.purchased,
+          canRepurchase: false,
+          subscriptionType: 'SUBSCRIPTION',
+          maxAttempts: 5,
+          attemptsUsed: 2,
+          remainingAttempts: 3,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                child: QuizCard(
+                  quiz: quiz,
+                  attempt: _summary(completed: 2),
+                  width: 320,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Retake'), findsOneWidget);
+      expect(find.text('Buy Now'), findsNothing);
+      expect(find.text('Renew'), findsNothing);
+      expect(find.text('3 attempts left'), findsOneWidget);
     });
   });
 }

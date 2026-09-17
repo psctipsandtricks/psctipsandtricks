@@ -17,6 +17,7 @@ import {
   Award,
   Sparkles,
   Unlock,
+  RotateCcw,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from './auth-provider';
@@ -41,6 +42,13 @@ interface HomeQuiz {
   imageUrl?: string | null;
   hasAccess: boolean;
   createdAt: string;
+  canRepurchase?: boolean;
+  subscriptionType?: string | null;
+  subscriptionDuration?: string | null;
+  remainingAttempts?: number | null;
+  accessReason?: string | null;
+  maxAttempts?: number | null;
+  attemptsUsed?: number | null;
 }
 
 function isRecentlyUploaded(createdAt: string): boolean {
@@ -82,55 +90,69 @@ export function HomeQuizCarousel() {
   const railRef = useRef<HTMLDivElement>(null);
   const autoScrollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function fetchQuizzes() {
-      try {
-        const data = (await ApiClient.getPublishedQuizzes()) as any[];
-        
-        // Filter strictly for Premium Quizzes (isPaid or accessType === 'PAID' or isPremium)
-        const premiumQuizzes = (data || []).filter((q) => {
-          const isPaid = q.access?.isPaid ?? (q.accessType === 'PAID' || q.isPremium);
-          return isPaid;
-        });
+  const fetchQuizzes = useCallback(async () => {
+    try {
+      const data = (await ApiClient.getPublishedQuizzes()) as any[];
+      
+      // Filter strictly for Premium Quizzes (isPaid or accessType === 'PAID' or isPremium)
+      const premiumQuizzes = (data || []).filter((q) => {
+        const isPaid = q.access?.isPaid ?? (q.accessType === 'PAID' || q.isPremium);
+        return isPaid;
+      });
 
-        // Prioritize the most recently added quizzes (descending order) and limit to max 10
-        const sorted = premiumQuizzes.sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
+      // Prioritize the most recently added quizzes (descending order) and limit to max 10
+      const sorted = premiumQuizzes.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
 
-        const mapped: HomeQuiz[] = sorted.slice(0, MAX_HOME_QUIZZES).map((q) => ({
-          id: q.id,
-          title: q.title,
-          folderName:
-            !q.folderName || q.folderName === 'Root' || q.folderName === 'Root / No Folder'
-              ? null
-              : q.folderName,
-          questions: q.totalQuestions || (q.questions?.length ?? 0),
-          duration: q.durationMinutes,
-          totalMarks: q.totalMarks,
-          isLive: !!q.isLiveMock,
-          isPaid: true,
-          // The admin's discounted "Final Student Price" overrides the base
-          // price — prefer the server-resolved access.price, then finalPrice.
-          price: q.access?.price ?? (q.finalPrice && q.finalPrice > 0 ? q.finalPrice : q.price) ?? 0,
-          imageUrl: q.imageUrl || null,
-          hasAccess: q.access?.hasAccess ?? false,
-          createdAt: q.createdAt,
-        }));
+      const mapped: HomeQuiz[] = sorted.slice(0, MAX_HOME_QUIZZES).map((q) => ({
+        id: q.id,
+        title: q.title,
+        folderName:
+          !q.folderName || q.folderName === 'Root' || q.folderName === 'Root / No Folder'
+            ? null
+            : q.folderName,
+        questions: q.totalQuestions || (q.questions?.length ?? 0),
+        duration: q.durationMinutes,
+        totalMarks: q.totalMarks,
+        isLive: !!q.isLiveMock,
+        isPaid: true,
+        // The admin's discounted "Final Student Price" overrides the base
+        // price — prefer the server-resolved access.price, then finalPrice.
+        price: q.access?.price ?? (q.finalPrice && q.finalPrice > 0 ? q.finalPrice : q.price) ?? 0,
+        imageUrl: q.imageUrl || null,
+        hasAccess: q.access?.hasAccess ?? false,
+        createdAt: q.createdAt,
+        canRepurchase: !!q.access?.canRepurchase,
+        subscriptionType: q.subscriptionType ?? q.access?.subscriptionType ?? null,
+        subscriptionDuration: q.subscriptionDuration ?? q.access?.subscriptionDuration ?? null,
+        remainingAttempts: q.access?.remainingAttempts ?? null,
+        accessReason: q.access?.reason ?? null,
+        maxAttempts: q.maxAttempts ?? q.access?.maxAttempts ?? null,
+        attemptsUsed: q.access?.attemptsUsed ?? null,
+      }));
 
-        if (isMounted) setQuizzes(mapped);
-      } catch (err) {
-        console.error('Failed to fetch premium quizzes for home carousel:', err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
+      setQuizzes(mapped);
+    } catch (err) {
+      console.error('Failed to fetch premium quizzes for home carousel:', err);
+    } finally {
+      setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
     fetchQuizzes();
-    return () => {
-      isMounted = false;
+
+    const onFocus = () => {
+      fetchQuizzes();
     };
-  }, [user?.id]);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [fetchQuizzes, user?.id]);
 
   const reachableStops = useCallback((rail: HTMLDivElement) => {
     const maxScroll = rail.scrollWidth - rail.clientWidth;
@@ -306,17 +328,21 @@ export function HomeQuizCarousel() {
               ? Array.from({ length: 4 }).map((_, i) => <QuizCardSkeleton key={i} />)
               : quizzes.map((quiz) => {
                   const isNew = isRecentlyUploaded(quiz.createdAt);
-                  const needsPurchase = quiz.isPaid && !quiz.hasAccess;
                   const displayImage = quiz.imageUrl || '/default-quiz-cover.svg';
+                  const isExhausted = quiz.accessReason === 'ATTEMPTS_EXHAUSTED';
+                  const isExpired = quiz.accessReason === 'SUBSCRIPTION_EXPIRED';
+                  const canRepurchase = !!quiz.canRepurchase || isExhausted || isExpired;
+                  const repurchaseLabel = (isExpired || quiz.subscriptionType === 'SUBSCRIPTION') ? 'Renew' : 'Repurchase';
+                  const needsPurchase = !quiz.hasAccess;
 
                   return (
                     <div
                       key={quiz.id}
-                      className="group shrink-0 snap-start w-[280px] sm:w-[320px] md:w-[330px] flex flex-col justify-between rounded-3xl glass-card p-4 sm:p-5 hover-lift transition-all duration-300 relative overflow-hidden"
+                      className="group relative flex-none w-[280px] sm:w-[320px] rounded-3xl border border-slate-200/80 dark:border-[#1e2e56] bg-white dark:bg-[#091124] p-4 transition-all duration-300 hover:shadow-2xl hover:shadow-amber-500/10 hover:border-amber-500/40 flex flex-col justify-between"
                     >
-                      <div className="space-y-3 relative z-10">
-                        {/* ── Visual Section: Image Cover (Uploaded or Default Placeholder) ── */}
-                        <div className="relative aspect-video w-full rounded-2xl overflow-hidden border border-white/40 dark:border-white/10 bg-slate-950 group/img shadow-md">
+                      <div className="space-y-3.5">
+                        {/* Image Container with 16:9 Aspect Ratio */}
+                        <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-slate-900 shadow-inner">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={displayImage}
@@ -345,7 +371,17 @@ export function HomeQuizCarousel() {
                                 </span>
                               )}
                             </div>
-                            {needsPurchase ? (
+                            {isExhausted ? (
+                              <span className="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-lg flex items-center gap-1">
+                                <RotateCcw className="w-2.5 h-2.5 text-amber-400" />
+                                <span>Exhausted</span>
+                              </span>
+                            ) : isExpired ? (
+                              <span className="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-lg flex items-center gap-1">
+                                <Timer className="w-2.5 h-2.5 text-amber-400" />
+                                <span>Expired</span>
+                              </span>
+                            ) : needsPurchase ? (
                               <span className="px-2.5 py-1 rounded-xl text-[10px] font-black font-mono bg-slate-950/85 backdrop-blur-md text-amber-400 border border-amber-500/30 shadow-lg flex items-center gap-1">
                                 <Lock className="w-2.5 h-2.5 text-amber-400" />
                                 <span>₹{quiz.price}</span>
@@ -353,7 +389,7 @@ export function HomeQuizCarousel() {
                             ) : (
                               <span className="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider bg-slate-950/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 shadow-lg flex items-center gap-1">
                                 <Unlock className="w-2.5 h-2.5 text-emerald-400" />
-                                <span>Unlocked</span>
+                                <span>{quiz.remainingAttempts !== null ? `${quiz.remainingAttempts} left` : 'Unlocked'}</span>
                               </span>
                             )}
                           </div>
@@ -404,17 +440,7 @@ export function HomeQuizCarousel() {
 
                       {/* Action Button */}
                       <div className="pt-3.5 mt-3.5 border-t border-slate-200/60 dark:border-slate-800/80 relative z-10">
-                        {needsPurchase ? (
-                          <Button
-                            size="md"
-                            variant="gold"
-                            onClick={() => handleStartQuiz(quiz)}
-                            className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
-                          >
-                            <ShoppingCart className="w-3.5 h-3.5" />
-                            <span>Buy Now</span>
-                          </Button>
-                        ) : (
+                        {quiz.hasAccess ? (
                           <Button
                             size="md"
                             variant="primary"
@@ -423,6 +449,26 @@ export function HomeQuizCarousel() {
                           >
                             <span>Start Quiz</span>
                             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                          </Button>
+                        ) : canRepurchase ? (
+                          <Button
+                            size="md"
+                            variant="gold"
+                            onClick={() => handleStartQuiz(quiz)}
+                            className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>{repurchaseLabel}</span>
+                          </Button>
+                        ) : (
+                          <Button
+                            size="md"
+                            variant="gold"
+                            onClick={() => handleStartQuiz(quiz)}
+                            className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5" />
+                            <span>Buy Now</span>
                           </Button>
                         )}
                       </div>

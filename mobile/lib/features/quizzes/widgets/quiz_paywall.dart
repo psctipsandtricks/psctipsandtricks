@@ -10,6 +10,8 @@ import '../../../core/widgets/glass_card.dart';
 import '../../../core/widgets/liquid_glass.dart';
 import '../../../data/models/book.dart' show AccessState;
 import '../../checkout/purchase_sheet.dart';
+import '../../dashboard/dashboard_providers.dart';
+import '../quizzes_providers.dart';
 
 /// Shown in place of a premium quiz — or of a premium live mock test, which is
 /// sold as the quiz behind it — until the student has paid for it.
@@ -200,7 +202,14 @@ class QuizPaywall extends ConsumerWidget {
                         price: access.price,
                       ),
                     );
-                    if (bought) await onUnlocked();
+                    if (bought) {
+                      ref.invalidate(premiumCarouselQuizzesProvider);
+                      ref.invalidate(quizzesProvider);
+                      ref.invalidate(quizAttemptSummaryProvider);
+                      ref.invalidate(allQuizAttemptsProvider);
+                      ref.invalidate(dashboardProvider);
+                      await onUnlocked();
+                    }
                   },
                 ),
               ],

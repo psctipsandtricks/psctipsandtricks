@@ -25,6 +25,7 @@ import '../announcements/announcement_providers.dart';
 import '../books/widgets/book_card.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../notifications/notifications_screen.dart';
+import '../quizzes/quizzes_providers.dart';
 import '../quizzes/widgets/premium_quiz_carousel.dart';
 import '../shell/shell_scaffold.dart';
 import '../social/widgets/social_media_section.dart';
@@ -62,6 +63,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _refresh() async {
     ref.invalidate(featuredBooksProvider);
     ref.invalidate(premiumQuizzesProvider);
+    ref.invalidate(premiumCarouselQuizzesProvider);
+    ref.invalidate(quizAttemptSummaryProvider);
+    ref.invalidate(allQuizAttemptsProvider);
     ref.invalidate(activeAnnouncementsProvider);
     ref.invalidate(liveMockTestsProvider);
     ref.invalidate(socialLinksProvider);

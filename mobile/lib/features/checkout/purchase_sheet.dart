@@ -14,6 +14,11 @@ import '../../core/utils/formatters.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../data/models/order.dart';
+import '../books/books_providers.dart';
+import '../dashboard/dashboard_providers.dart';
+import '../home/home_providers.dart';
+import '../mock_tests/mock_tests_providers.dart';
+import '../quizzes/quizzes_providers.dart';
 
 /// What is being bought. Exactly one of the two ids is set, matching the
 /// `POST /orders` contract.
@@ -241,8 +246,15 @@ class _PurchaseSheetState extends ConsumerState<PurchaseSheet> {
             razorpaySignature:
                 signature ?? 'sig_${DateTime.now().millisecondsSinceEpoch}',
           );
-      if (!mounted) return;
       if (ok) {
+        // Immediately invalidate all relevant content & access providers
+        ref.invalidate(premiumCarouselQuizzesProvider);
+        ref.invalidate(quizzesProvider);
+        ref.invalidate(quizAttemptSummaryProvider);
+        ref.invalidate(allQuizAttemptsProvider);
+        ref.invalidate(dashboardProvider);
+        ref.invalidate(booksProvider);
+        ref.invalidate(liveMockTestsProvider);
         Navigator.of(context).pop(true);
       } else {
         setState(() {

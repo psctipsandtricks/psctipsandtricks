@@ -110,7 +110,7 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
     });
   }
 
-  void _openQuiz(Quiz quiz) {
+  Future<void> _openQuiz(Quiz quiz) async {
     if (widget.onQuizTap != null) {
       widget.onQuizTap!(quiz);
       return;
@@ -119,10 +119,16 @@ class _PremiumQuizCarouselState extends ConsumerState<PremiumQuizCarousel> {
     final signedIn = ref.read(authControllerProvider).isAuthenticated;
     final target = AppRoutes.quizAttempt(quiz.id, mockTestId: quiz.mockTestId);
     if (!signedIn) {
-      context.push('${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}');
-      return;
+      await context.push('${AppRoutes.login}?redirect=${Uri.encodeComponent(target)}');
+    } else {
+      await context.push(target);
     }
-    context.push(target);
+    if (mounted) {
+      ref.invalidate(premiumCarouselQuizzesProvider);
+      ref.invalidate(quizzesProvider);
+      ref.invalidate(quizAttemptSummaryProvider);
+      ref.invalidate(allQuizAttemptsProvider);
+    }
   }
 
   @override

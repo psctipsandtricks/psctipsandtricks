@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardTitle, CardDescription, Button, Badge, Input, Pagination } from '@psc/ui';
-import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion } from 'lucide-react';
+import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion, RotateCcw } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { QuizFolder, QuizAttemptSummary } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
@@ -24,6 +24,13 @@ interface StudentQuiz {
   createdAt?: string;
   hasAccess?: boolean;
   isPurchased?: boolean;
+  canRepurchase?: boolean;
+  subscriptionType?: string | null;
+  subscriptionDuration?: string | null;
+  remainingAttempts?: number | null;
+  accessReason?: string | null;
+  maxAttempts?: number | null;
+  attemptsUsed?: number | null;
 }
 
 const NEW_QUIZ_WINDOW_DAYS = 7;
@@ -174,7 +181,12 @@ function QuizzesPageContent() {
   const toStudentQuiz = useCallback(
     (q: any, purchased: Set<string>): StudentQuiz => {
       const isPaid = q.accessType === 'PAID' || (q.price && q.price > 0);
-      const hasAccess = q.access?.hasAccess ?? (q.accessType === 'FREE' || purchased.has(q.id));
+      const isExhausted = q.access?.reason === 'ATTEMPTS_EXHAUSTED';
+      const isExpired = q.access?.reason === 'SUBSCRIPTION_EXPIRED';
+      const hasAccess = q.access
+        ? !!q.access.hasAccess
+        : (q.accessType === 'FREE' || purchased.has(q.id));
+      const canRepurchase = !!q.access?.canRepurchase || isExhausted || isExpired;
       const isPurchased = q.access?.reason === 'PURCHASED' || purchased.has(q.id);
       // The admin's discounted "Final Student Price" overrides the base price —
       // prefer the server's already-resolved access.price, then finalPrice, and
@@ -199,6 +211,13 @@ function QuizzesPageContent() {
         createdAt: q.createdAt,
         hasAccess,
         isPurchased,
+        canRepurchase,
+        subscriptionType: q.subscriptionType ?? q.access?.subscriptionType ?? null,
+        subscriptionDuration: q.subscriptionDuration ?? q.access?.subscriptionDuration ?? null,
+        remainingAttempts: q.access?.remainingAttempts ?? null,
+        accessReason: q.access?.reason ?? null,
+        maxAttempts: q.maxAttempts ?? q.access?.maxAttempts ?? null,
+        attemptsUsed: q.access?.attemptsUsed ?? null,
       };
     },
     [],
@@ -1188,7 +1207,23 @@ function QuizCardItem({
                 <Unlock className="w-3 h-3" />
                 <span>FREE</span>
               </Badge>
-            ) : quiz.hasAccess || quiz.isPurchased ? (
+            ) : quiz.accessReason === 'ATTEMPTS_EXHAUSTED' ? (
+              <Badge
+                variant="outline"
+                className="font-bold flex items-center gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30"
+              >
+                <RotateCcw className="w-3 h-3 text-amber-500" />
+                <span>EXHAUSTED</span>
+              </Badge>
+            ) : quiz.accessReason === 'SUBSCRIPTION_EXPIRED' ? (
+              <Badge
+                variant="outline"
+                className="font-bold flex items-center gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30"
+              >
+                <Timer className="w-3 h-3 text-amber-500" />
+                <span>EXPIRED</span>
+              </Badge>
+            ) : quiz.hasAccess ? (
               <Badge
                 variant="success"
                 className="font-bold flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
@@ -1225,10 +1260,29 @@ function QuizCardItem({
       </div>
 
       <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-        {inProgress ? (
+        {quiz.accessReason === 'ATTEMPTS_EXHAUSTED' ? (
+          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>
+              {quiz.maxAttempts ? `${quiz.attemptsUsed ?? completedCount}/${quiz.maxAttempts} attempts used` : 'Attempts exhausted'}
+            </span>
+          </span>
+        ) : quiz.accessReason === 'SUBSCRIPTION_EXPIRED' ? (
+          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <Timer className="w-3.5 h-3.5" />
+            <span>Subscription expired</span>
+          </span>
+        ) : inProgress ? (
           <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
             <History className="w-3.5 h-3.5" />
             <span>In progress</span>
+          </span>
+        ) : quiz.hasAccess && quiz.remainingAttempts !== null && quiz.remainingAttempts !== undefined ? (
+          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>
+              {quiz.remainingAttempts} {quiz.remainingAttempts === 1 ? 'attempt' : 'attempts'} left
+            </span>
           </span>
         ) : completedCount > 0 ? (
           <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -1240,16 +1294,33 @@ function QuizCardItem({
         ) : (
           <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
         )}
-        {quiz.accessType === 'PAID' && !quiz.hasAccess && !quiz.isPurchased ? (
-          <Button
-            size="sm"
-            variant="gold"
-            className="font-bold cursor-pointer"
-            onClick={onStart}
-          >
-            <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-            <span>Buy Now</span>
-          </Button>
+
+        {quiz.accessType === 'PAID' && !quiz.hasAccess ? (
+          quiz.canRepurchase || quiz.isPurchased ? (
+            <Button
+              size="sm"
+              variant="gold"
+              className="font-bold cursor-pointer"
+              onClick={onStart}
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+              <span>
+                {quiz.accessReason === 'SUBSCRIPTION_EXPIRED' || quiz.subscriptionType === 'SUBSCRIPTION'
+                  ? 'Renew'
+                  : 'Repurchase'}
+              </span>
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="gold"
+              className="font-bold cursor-pointer"
+              onClick={onStart}
+            >
+              <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+              <span>Buy Now</span>
+            </Button>
+          )
         ) : (
           <Button
             size="sm"

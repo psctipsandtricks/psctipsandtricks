@@ -359,7 +359,7 @@ class QuizCard extends StatelessWidget {
                     // or not this student has opened the quiz.
                     SizedBox(
                       height: 14,
-                      child: _AttemptStatusLine(attempt: attempt),
+                      child: _AttemptStatusLine(attempt: attempt, quiz: quiz),
                     ),
                     const SizedBox(height: 6),
                     // Price & Actions Row - Always pinned at the exact same horizontal baseline!
@@ -411,10 +411,20 @@ class QuizCard extends StatelessWidget {
                           ],
                         ],
                         const Spacer(),
-                        if (quiz.isPaid && quiz.isLocked)
-                          const BuyNowButton(compact: true)
-                        else
+                        if (quiz.isPaid && quiz.isLocked) ...[
+                          if (quiz.access?.canRepurchase == true ||
+                              quiz.access?.isSubscriptionExpired == true ||
+                              quiz.access?.isAttemptsExhausted == true)
+                            BuyNowButton(
+                              compact: true,
+                              label: _repurchaseActionLabel(quiz),
+                              icon: Icons.replay_rounded,
+                            )
+                          else
+                            const BuyNowButton(compact: true),
+                        ] else ...[
                           _AttemptAction(attempt: attempt, isDark: isDark),
+                        ],
                       ],
                     ),
                   ],
@@ -428,19 +438,170 @@ class QuizCard extends StatelessWidget {
   }
 }
 
-/// "In progress", "3 attempts", or nothing at all for a quiz never opened.
-///
-/// Only submitted attempts are counted — walking away from a quiz leaves it in
-/// progress, not attempted.
+String _repurchaseActionLabel(Quiz quiz) {
+  final access = quiz.access;
+  if (access?.isSubscriptionExpired == true) {
+    return 'Renew';
+  }
+  if (access?.isAttemptsExhausted == true) {
+    if (quiz.subscriptionType == 'SUBSCRIPTION' ||
+        access?.subscriptionType == 'SUBSCRIPTION') {
+      return 'Renew';
+    }
+    return 'Repurchase';
+  }
+  if (quiz.subscriptionType == 'SUBSCRIPTION' ||
+      access?.subscriptionType == 'SUBSCRIPTION') {
+    return 'Renew';
+  }
+  return 'Repurchase';
+}
+
+/// "In progress", "3 attempts", or "Attempts exhausted".
 class _AttemptStatusLine extends StatelessWidget {
-  const _AttemptStatusLine({required this.attempt});
+  const _AttemptStatusLine({required this.attempt, required this.quiz});
 
   final QuizAttemptSummary? attempt;
+  final Quiz quiz;
 
   @override
   Widget build(BuildContext context) {
+    final access = quiz.access;
+
+    // 1. Attempts exhausted
+    if (access?.isAttemptsExhausted == true) {
+      final used = access?.attemptsUsed ?? attempt?.completedCount ?? quiz.maxAttempts;
+      final max = access?.maxAttempts ?? quiz.maxAttempts;
+      final label = max != null ? '$used/$max attempts used' : 'Attempts exhausted';
+      return Row(
+        children: [
+          const Icon(
+            Icons.replay_rounded,
+            size: 11,
+            color: AppColors.amber,
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.amber,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // 2. Subscription expired
+    if (access?.isSubscriptionExpired == true) {
+      return const Row(
+        children: [
+          Icon(
+            Icons.schedule_rounded,
+            size: 11,
+            color: AppColors.amber,
+          ),
+          SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              'Subscription expired',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AppColors.amber,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // 3. Active access with remaining attempts count
+    if (quiz.isUnlocked && access?.remainingAttempts != null) {
+      final rem = access!.remainingAttempts!;
+      final state = attempt;
+      if (state != null && state.canResume) {
+        return const Row(
+          children: [
+            Icon(
+              Icons.history_rounded,
+              size: 11,
+              color: AppColors.amber,
+            ),
+            SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                'In progress',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.amber,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+      return Row(
+        children: [
+          const Icon(
+            Icons.check_circle_rounded,
+            size: 11,
+            color: AppColors.emerald,
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              '$rem ${rem == 1 ? 'attempt' : 'attempts'} left',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.emerald,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // 4. Default attempt state (in progress or completed count)
     final state = attempt;
     if (state == null || (!state.canResume && !state.hasCompleted)) {
+      if (quiz.subscriptionType == 'SUBSCRIPTION' && quiz.maxAttempts != null && quiz.maxAttempts! > 0) {
+        return Row(
+          children: [
+            Icon(
+              Icons.bolt_rounded,
+              size: 11,
+              color: AppColors.cyan.withValues(alpha: 0.8),
+            ),
+            const SizedBox(width: 3),
+            Flexible(
+              child: Text(
+                '${quiz.maxAttempts} attempts',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.cyan.withValues(alpha: 0.8),
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      }
       return const SizedBox.shrink();
     }
 

@@ -159,7 +159,7 @@ final quizzesProvider = FutureProvider.autoDispose<List<Quiz>>((ref) async {
 /// actually been completed. Empty for a signed-out visitor, who has none.
 final quizAttemptSummaryProvider =
     FutureProvider.autoDispose<Map<String, QuizAttemptSummary>>((ref) async {
-  final signedIn = ref.watch(authControllerProvider).isAuthenticated;
+  final signedIn = ref.watch(currentUserProvider) != null;
   if (!signedIn) return const {};
   final rows = await ref.watch(quizzesRepositoryProvider).fetchAttemptSummary();
   return {for (final row in rows) row.quizId: row};

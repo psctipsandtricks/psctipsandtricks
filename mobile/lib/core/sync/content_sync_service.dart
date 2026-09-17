@@ -9,6 +9,7 @@ import '../../core/config/app_config.dart';
 import '../../core/providers/auth_controller.dart';
 import '../../features/announcements/announcement_providers.dart';
 import '../../features/books/books_providers.dart';
+import '../../features/dashboard/dashboard_providers.dart';
 import '../../features/home/home_providers.dart';
 import '../../features/mock_tests/mock_tests_providers.dart';
 import '../../features/notifications/notifications_screen.dart';
@@ -115,6 +116,11 @@ class ContentSyncService with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _isForeground = true;
+      _ref.invalidate(premiumCarouselQuizzesProvider);
+      _ref.invalidate(premiumQuizzesProvider);
+      _ref.invalidate(quizzesProvider);
+      _ref.invalidate(quizAttemptSummaryProvider);
+      _ref.invalidate(dashboardProvider);
       unawaited(_connectSocket());
       _restartTimer();
       unawaited(syncNow());
@@ -213,6 +219,17 @@ class ContentSyncService with WidgetsBindingObserver {
     final now = DateTime.now();
     final last = _tabLastRefreshed[tabIndex];
     final isStale = last == null || now.difference(last) > _tabStaleThreshold;
+
+    // Always keep user access states, remaining attempts, and purchase status refreshed
+    if (tabIndex == 0) {
+      _ref.invalidate(premiumCarouselQuizzesProvider);
+      _ref.invalidate(premiumQuizzesProvider);
+      _ref.invalidate(quizAttemptSummaryProvider);
+      _ref.invalidate(dashboardProvider);
+    } else if (tabIndex == 2) {
+      _ref.invalidate(quizzesProvider);
+      _ref.invalidate(quizAttemptSummaryProvider);
+    }
 
     if (isStale) {
       _tabLastRefreshed[tabIndex] = now;
@@ -334,8 +351,11 @@ class ContentSyncService with WidgetsBindingObserver {
       case 0: // Home
         _ref.invalidate(featuredBooksProvider);
         _ref.invalidate(premiumQuizzesProvider);
+        _ref.invalidate(premiumCarouselQuizzesProvider);
         _ref.invalidate(liveMockTestsProvider);
         _ref.invalidate(activeAnnouncementsProvider);
+        _ref.invalidate(quizAttemptSummaryProvider);
+        _ref.invalidate(dashboardProvider);
         break;
 
       case 1: // Books
@@ -346,6 +366,7 @@ class ContentSyncService with WidgetsBindingObserver {
         _ref.invalidate(allQuizFoldersProvider);
         _ref.invalidate(quizTierCountsProvider);
         _ref.invalidate(quizzesProvider);
+        _ref.invalidate(quizAttemptSummaryProvider);
         break;
 
       case 3: // Library

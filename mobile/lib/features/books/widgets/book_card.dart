@@ -7,20 +7,25 @@ import '../../../core/widgets/app_image.dart';
 import '../../../core/widgets/glass_card.dart';
 import '../../../data/models/book.dart';
 
-/// Radiant gold gradient Buy Now button with pill capsule styling and lock icon.
+/// Radiant gold gradient Buy Now / Renew button with pill capsule styling.
 class BuyNowButton extends StatelessWidget {
   const BuyNowButton({
     super.key,
     this.onTap,
     this.compact = false,
+    this.label = 'Buy Now',
+    this.icon,
   });
 
   final VoidCallback? onTap;
   final bool compact;
+  final String label;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final effectiveIcon = icon ?? Icons.lock_rounded;
+    final child = Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 11 : 13,
         vertical: compact ? 5.5 : 7,
@@ -64,14 +69,14 @@ class BuyNowButton extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              Icons.lock_rounded,
+              effectiveIcon,
               size: compact ? 10.5 : 12,
               color: const Color(0xFF0F172A),
             ),
           ),
           const SizedBox(width: 4.5),
           Text(
-            'Buy Now',
+            label,
             style: TextStyle(
               color: const Color(0xFF0F172A),
               fontSize: compact ? 10.5 : 11.5,
@@ -82,6 +87,15 @@ class BuyNowButton extends StatelessWidget {
         ],
       ),
     );
+
+    if (onTap != null) {
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: child,
+      );
+    }
+    return child;
   }
 }
 
