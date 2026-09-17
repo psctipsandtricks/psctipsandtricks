@@ -71,5 +71,52 @@ void main() {
 
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
     });
+
+    test('correctly handles correct, incorrect, and skipped questions with marks obtained', () async {
+      final qCorrect = QuizPdfQuestion(
+        text: 'Question 1',
+        options: const [QuizPdfOption(text: 'Option A'), QuizPdfOption(text: 'Option B')],
+        correctIndex: 0,
+        marks: 1,
+        userSelection: 0,
+      );
+      final qIncorrect = QuizPdfQuestion(
+        text: 'Question 2',
+        options: const [QuizPdfOption(text: 'Option A'), QuizPdfOption(text: 'Option B')],
+        correctIndex: 0,
+        marks: 1,
+        userSelection: 1,
+      );
+      final qSkipped = QuizPdfQuestion(
+        text: 'Question 3',
+        options: const [QuizPdfOption(text: 'Option A'), QuizPdfOption(text: 'Option B')],
+        correctIndex: 1,
+        marks: 1,
+        userSelection: null,
+      );
+
+      expect(qCorrect.isCorrect, isTrue);
+      expect(qCorrect.isIncorrect, isFalse);
+      expect(qCorrect.isSkipped, isFalse);
+
+      expect(qIncorrect.isCorrect, isFalse);
+      expect(qIncorrect.isIncorrect, isTrue);
+      expect(qIncorrect.isSkipped, isFalse);
+
+      expect(qSkipped.isCorrect, isFalse);
+      expect(qSkipped.isIncorrect, isFalse);
+      expect(qSkipped.isSkipped, isTrue);
+
+      final bytes = await QuizPdfGenerator.generate(
+        quizTitle: 'Comprehensive Status Test Quiz',
+        category: 'PSC Practice Test',
+        score: 1.0,
+        totalMarks: 3.0,
+        questions: [qCorrect, qIncorrect, qSkipped],
+      );
+
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      expect(bytes.length, greaterThan(1500));
+    });
   });
 }

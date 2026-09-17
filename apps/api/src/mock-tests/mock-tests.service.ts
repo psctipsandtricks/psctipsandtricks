@@ -287,14 +287,42 @@ export class MockTestsService {
     // view and the rank list there.
     const participant = actor?.id ? mockTest.participants.find((p) => p.userId === actor.id) : undefined;
 
+    let mySubmission: any = null;
+    let myAnswers: Record<string, number> | null = null;
+    if (actor?.id && (participant?.submittedAt || participant)) {
+      mySubmission = await this.prisma.quizSubmission.findFirst({
+        where: { userId: actor.id, quizId: mockTest.quizId, attemptStatus: 'COMPLETED' },
+        orderBy: { submittedAt: 'desc' },
+      });
+      if (mySubmission && Array.isArray(mySubmission.answers)) {
+        myAnswers = {};
+        for (const a of mySubmission.answers as any[]) {
+          if (a && a.questionId && typeof a.selectedOptionIndex === 'number') {
+            myAnswers[a.questionId] = a.selectedOptionIndex;
+          }
+        }
+      }
+    }
+
     return {
       ...mockTest,
       quiz: this.quizAccess.stripQuestionsIfLocked(mockTest.quiz, access),
       access,
       joined: !!participant,
       submitted: !!participant?.submittedAt,
-      myScore: participant?.score ?? null,
+      myScore: participant?.score ?? mySubmission?.score ?? null,
       myRank: participant?.rank ?? null,
+      myAnswers,
+      mySubmissionId: mySubmission?.id ?? null,
+      myStats: mySubmission
+        ? {
+            correctAnswers: mySubmission.correctAnswers,
+            wrongAnswers: mySubmission.wrongAnswers,
+            unattempted: mySubmission.unattempted,
+            score: mySubmission.score,
+            totalMarks: mySubmission.totalMarks,
+          }
+        : null,
     };
   }
 
@@ -402,6 +430,16 @@ export class MockTestsService {
         startedAt: new Date(submittedAt.getTime() - timeTakenMs),
         submittedAt,
       },
+    });
+
+    // Retire any IN_PROGRESS attempts for this quiz and user
+    await this.prisma.quizSubmission.updateMany({
+      where: {
+        userId,
+        quizId: mockTest.quizId,
+        attemptStatus: 'IN_PROGRESS',
+      },
+      data: { attemptStatus: 'ABANDONED' },
     });
 
     const updated = await this.prisma.mockTestParticipant.update({

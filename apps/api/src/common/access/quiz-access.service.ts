@@ -1,6 +1,10 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { subscriptionExpiryFrom } from './order-access-status';
+import { QuizAccessState } from '@psc/shared-types';
+
+export { QuizAccessState };
 
 /** The subset of a quiz needed to decide whether it is behind a paywall. */
 export interface PaywallableQuiz {
@@ -12,18 +16,9 @@ export interface PaywallableQuiz {
   finalPrice?: number | null;
   title?: string | null;
   isLiveMock?: boolean | null;
-}
-
-/** What the caller is allowed to do with a quiz, and why. */
-export interface QuizAccessState {
-  /** The quiz is sold rather than free. */
-  isPaid: boolean;
-  /** The caller may read questions and attempt it. */
-  hasAccess: boolean;
-  price: number;
-  originalPrice?: number;
-  discountPercent?: number;
-  reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
+  subscriptionType?: string | null;
+  subscriptionDuration?: string | null;
+  maxAttempts?: number | null;
 }
 
 /** Caller identity as populated on the request by the JWT strategy. */
@@ -99,30 +94,24 @@ export class QuizAccessService {
     actor: AccessActor | null | undefined,
     quizzes: T[],
   ): Promise<(T & { access: QuizAccessState })[]> {
-    const { quizIds: purchased, hasAllAccess } = await this.getPurchasedQuizIds(actor?.id);
+    if (!actor?.id) {
+      return quizzes.map((quiz) => {
+        const originalPrice = quiz.price ?? 0;
+        const discountPercent = quiz.discountPercent ?? 0;
+        const effectivePrice = (quiz.finalPrice !== undefined && quiz.finalPrice !== null && quiz.finalPrice > 0)
+          ? quiz.finalPrice
+          : originalPrice;
+        let access: QuizAccessState;
 
-    return quizzes.map((quiz) => {
-      const originalPrice = quiz.price ?? 0;
-      const discountPercent = quiz.discountPercent ?? 0;
-      const effectivePrice = (quiz.finalPrice !== undefined && quiz.finalPrice !== null && quiz.finalPrice > 0)
-        ? quiz.finalPrice
-        : originalPrice;
-      let access: QuizAccessState;
-
-      if (!this.isPaidQuiz(quiz)) {
-        access = { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
-      } else if (!actor?.id) {
-        access = { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
-      } else {
-        const bought = purchased.has(quiz.id);
-        if (bought) {
+        if (!this.isPaidQuiz(quiz)) {
           access = {
-            isPaid: true,
+            isPaid: false,
             hasAccess: true,
-            price: effectivePrice,
-            originalPrice,
-            discountPercent,
-            reason: 'PURCHASED',
+            price: 0,
+            originalPrice: 0,
+            discountPercent: 0,
+            reason: 'FREE',
+            canRepurchase: false,
           };
         } else {
           access = {
@@ -131,14 +120,27 @@ export class QuizAccessService {
             price: effectivePrice,
             originalPrice,
             discountPercent,
-            reason: 'PAYMENT_REQUIRED',
+            reason: 'LOGIN_REQUIRED',
+            subscriptionType: quiz.subscriptionType || 'FULL_TIME_ACCESS',
+            subscriptionDuration: quiz.subscriptionDuration,
+            maxAttempts: quiz.subscriptionType === 'SUBSCRIPTION' ? (quiz.maxAttempts ?? 5) : null,
+            canRepurchase: false,
           };
         }
-      }
 
-      const mockTestId = (quiz as any).mockTestId ?? (quiz as any).mockTests?.[0]?.id ?? null;
-      return { ...this.stripQuestionsIfLocked(quiz, access), mockTestId, access };
-    });
+        const mockTestId = (quiz as any).mockTestId ?? (quiz as any).mockTests?.[0]?.id ?? null;
+        return { ...this.stripQuestionsIfLocked(quiz, access), mockTestId, access };
+      });
+    }
+
+    const results = await Promise.all(
+      quizzes.map(async (quiz) => {
+        const access = await this.getAccessState(actor, quiz);
+        const mockTestId = (quiz as any).mockTestId ?? (quiz as any).mockTests?.[0]?.id ?? null;
+        return { ...this.stripQuestionsIfLocked(quiz, access), mockTestId, access };
+      }),
+    );
+    return results;
   }
 
   async getAccessState(
@@ -151,16 +153,128 @@ export class QuizAccessService {
       ? quiz.finalPrice
       : originalPrice;
 
+    const subscriptionType = quiz?.subscriptionType || 'FULL_TIME_ACCESS';
+    const subscriptionDuration = quiz?.subscriptionDuration || null;
+    const maxAttempts = subscriptionType === 'SUBSCRIPTION' ? (quiz?.maxAttempts ?? 5) : null;
+
     if (!this.isPaidQuiz(quiz)) {
-      return { isPaid: false, hasAccess: true, price: 0, originalPrice: 0, discountPercent: 0, reason: 'FREE' };
-    }
-    if (!actor?.id) {
-      return { isPaid: true, hasAccess: false, price: effectivePrice, originalPrice, discountPercent, reason: 'LOGIN_REQUIRED' };
+      return {
+        isPaid: false,
+        hasAccess: true,
+        price: 0,
+        originalPrice: 0,
+        discountPercent: 0,
+        reason: 'FREE',
+        subscriptionType: 'FULL_TIME_ACCESS',
+        subscriptionDuration: null,
+        maxAttempts: null,
+        attemptsUsed: 0,
+        remainingAttempts: null,
+        canRepurchase: false,
+      };
     }
 
-    // Settled order takes precedence: if purchased, reason is PURCHASED
-    const bought = await this.hasSettledOrder(actor.id, quiz!.id);
-    if (bought) {
+    if (!actor?.id) {
+      return {
+        isPaid: true,
+        hasAccess: false,
+        price: effectivePrice,
+        originalPrice,
+        discountPercent,
+        reason: 'LOGIN_REQUIRED',
+        subscriptionType,
+        subscriptionDuration,
+        maxAttempts,
+        attemptsUsed: 0,
+        remainingAttempts: maxAttempts,
+        canRepurchase: false,
+      };
+    }
+
+    // Look for the latest settled SUCCESS order for this quiz
+    const latestOrder = await this.prisma.order.findFirst({
+      where: {
+        userId: actor.id,
+        status: 'SUCCESS',
+        quizId: quiz!.id,
+      },
+      orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (!latestOrder) {
+      return {
+        isPaid: true,
+        hasAccess: false,
+        price: effectivePrice,
+        originalPrice,
+        discountPercent,
+        reason: 'PAYMENT_REQUIRED',
+        subscriptionType,
+        subscriptionDuration,
+        maxAttempts,
+        attemptsUsed: 0,
+        remainingAttempts: maxAttempts,
+        canRepurchase: false,
+      };
+    }
+
+    if (subscriptionType === 'SUBSCRIPTION') {
+      const orderDate = latestOrder.paidAt || latestOrder.createdAt;
+      const validTill = latestOrder.validTill
+        ? new Date(latestOrder.validTill)
+        : subscriptionExpiryFrom(subscriptionDuration, orderDate);
+      const isExpired = new Date().getTime() > validTill.getTime();
+
+      // Count completed submissions created under this grant (since orderDate)
+      const attemptsUsed = await this.prisma.quizSubmission.count({
+        where: {
+          userId: actor.id,
+          quizId: quiz!.id,
+          attemptStatus: 'COMPLETED',
+          createdAt: { gte: orderDate },
+        },
+      });
+
+      const limit = maxAttempts ?? 5;
+      const isAttemptLimitReached = attemptsUsed >= limit;
+      const remainingAttempts = Math.max(0, limit - attemptsUsed);
+
+      if (isExpired) {
+        return {
+          isPaid: true,
+          hasAccess: false,
+          price: effectivePrice,
+          originalPrice,
+          discountPercent,
+          reason: 'SUBSCRIPTION_EXPIRED',
+          subscriptionType,
+          subscriptionDuration,
+          validTill: validTill.toISOString(),
+          maxAttempts: limit,
+          attemptsUsed,
+          remainingAttempts,
+          canRepurchase: true,
+        };
+      }
+
+      if (isAttemptLimitReached) {
+        return {
+          isPaid: true,
+          hasAccess: false,
+          price: effectivePrice,
+          originalPrice,
+          discountPercent,
+          reason: 'ATTEMPTS_EXHAUSTED',
+          subscriptionType,
+          subscriptionDuration,
+          validTill: validTill.toISOString(),
+          maxAttempts: limit,
+          attemptsUsed,
+          remainingAttempts: 0,
+          canRepurchase: true,
+        };
+      }
+
       return {
         isPaid: true,
         hasAccess: true,
@@ -168,17 +282,31 @@ export class QuizAccessService {
         originalPrice,
         discountPercent,
         reason: 'PURCHASED',
+        subscriptionType,
+        subscriptionDuration,
+        validTill: validTill.toISOString(),
+        maxAttempts: limit,
+        attemptsUsed,
+        remainingAttempts,
+        canRepurchase: false,
       };
     }
 
-    // Staff and Admin users have the same access & payment restrictions as Students.
+    // FULL_TIME_ACCESS
     return {
       isPaid: true,
-      hasAccess: false,
+      hasAccess: true,
       price: effectivePrice,
       originalPrice,
       discountPercent,
-      reason: 'PAYMENT_REQUIRED',
+      reason: 'PURCHASED',
+      subscriptionType: 'FULL_TIME_ACCESS',
+      subscriptionDuration: null,
+      validTill: null,
+      maxAttempts: null,
+      attemptsUsed: 0,
+      remainingAttempts: null,
+      canRepurchase: false,
     };
   }
 
@@ -192,10 +320,19 @@ export class QuizAccessService {
   ): Promise<QuizAccessState> {
     const state = await this.getAccessState(actor, quiz);
     if (!state.hasAccess) {
+      if (state.reason === 'LOGIN_REQUIRED') {
+        throw new ForbiddenException('Log in to access this premium quiz.');
+      }
+      if (state.reason === 'SUBSCRIPTION_EXPIRED') {
+        throw new ForbiddenException('Your subscription for this quiz has expired. Please repurchase to continue.');
+      }
+      if (state.reason === 'ATTEMPTS_EXHAUSTED') {
+        throw new ForbiddenException(
+          `You have exhausted the maximum attempts (${state.maxAttempts ?? 5}) for this quiz. Please repurchase to continue.`,
+        );
+      }
       throw new ForbiddenException(
-        state.reason === 'LOGIN_REQUIRED'
-          ? 'Log in to access this premium quiz.'
-          : 'This is a premium quiz. Complete the payment to unlock and attempt it.',
+        'This is a premium quiz. Complete the payment to unlock and attempt it.',
       );
     }
     return state;

@@ -1,6 +1,19 @@
-import { IsArray, IsBoolean, IsDateString, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateQuestionDto } from './create-question.dto';
+
+export const QUIZ_SUBSCRIPTION_DURATIONS = [
+  '1_WEEK',
+  '1_MONTH',
+  '3_MONTHS',
+  '6_MONTHS',
+  '1_YEAR',
+] as const;
+
+export const QUIZ_SUBSCRIPTION_TYPES = [
+  'FULL_TIME_ACCESS',
+  'SUBSCRIPTION',
+] as const;
 
 export class CreateQuizDto {
   @IsString()
@@ -63,6 +76,19 @@ export class CreateQuizDto {
   @IsNumber()
   @Min(0)
   finalPrice?: number;
+
+  @IsOptional()
+  @IsIn(QUIZ_SUBSCRIPTION_TYPES)
+  subscriptionType?: (typeof QUIZ_SUBSCRIPTION_TYPES)[number];
+
+  @IsOptional()
+  @IsIn(QUIZ_SUBSCRIPTION_DURATIONS)
+  subscriptionDuration?: (typeof QUIZ_SUBSCRIPTION_DURATIONS)[number];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxAttempts?: number;
 
   @IsOptional()
   @IsBoolean()

@@ -188,5 +188,107 @@ void main() {
       expect(quiz.isLocked, isFalse);
       expect(quiz.isUnlocked, isTrue);
     });
+
+    test('subscription quiz with expired access is locked with canRepurchase', () {
+      final quiz = Quiz(
+        id: 'q5',
+        title: 'Subscription Quiz',
+        totalQuestions: 25,
+        durationMinutes: 30,
+        isLiveMock: false,
+        isPremium: true,
+        price: 99,
+        passingMarks: 10,
+        totalMarks: 25,
+        negativeMarking: NegativeMarking.disabled,
+        showCorrectAnswerAfterSelection: true,
+        subscriptionType: 'SUBSCRIPTION',
+        subscriptionDuration: '1_MONTH',
+        maxAttempts: 5,
+        access: const AccessState(
+          isPaid: true,
+          hasAccess: false,
+          price: 99,
+          reason: AccessReason.subscriptionExpired,
+          canRepurchase: true,
+          subscriptionType: 'SUBSCRIPTION',
+          maxAttempts: 5,
+          remainingAttempts: 0,
+        ),
+      );
+
+      expect(quiz.isLocked, isTrue);
+      expect(quiz.access?.isSubscriptionExpired, isTrue);
+      expect(quiz.access?.canRepurchase, isTrue);
+    });
+
+    test('subscription quiz with exhausted attempts is locked with canRepurchase', () {
+      final quiz = Quiz(
+        id: 'q6',
+        title: 'Subscription Quiz',
+        totalQuestions: 25,
+        durationMinutes: 30,
+        isLiveMock: false,
+        isPremium: true,
+        price: 99,
+        passingMarks: 10,
+        totalMarks: 25,
+        negativeMarking: NegativeMarking.disabled,
+        showCorrectAnswerAfterSelection: true,
+        subscriptionType: 'SUBSCRIPTION',
+        subscriptionDuration: '1_MONTH',
+        maxAttempts: 5,
+        access: const AccessState(
+          isPaid: true,
+          hasAccess: false,
+          price: 99,
+          reason: AccessReason.attemptsExhausted,
+          canRepurchase: true,
+          subscriptionType: 'SUBSCRIPTION',
+          maxAttempts: 5,
+          attemptsUsed: 5,
+          remainingAttempts: 0,
+        ),
+      );
+
+      expect(quiz.isLocked, isTrue);
+      expect(quiz.access?.isAttemptsExhausted, isTrue);
+      expect(quiz.access?.canRepurchase, isTrue);
+    });
+
+    test('subscription quiz with valid period and attempts remaining is unlocked', () {
+      final quiz = Quiz(
+        id: 'q7',
+        title: 'Active Subscription Quiz',
+        totalQuestions: 25,
+        durationMinutes: 30,
+        isLiveMock: false,
+        isPremium: true,
+        price: 99,
+        passingMarks: 10,
+        totalMarks: 25,
+        negativeMarking: NegativeMarking.disabled,
+        showCorrectAnswerAfterSelection: true,
+        subscriptionType: 'SUBSCRIPTION',
+        subscriptionDuration: '1_MONTH',
+        maxAttempts: 5,
+        access: const AccessState(
+          isPaid: true,
+          hasAccess: true,
+          price: 99,
+          reason: AccessReason.purchased,
+          canRepurchase: false,
+          subscriptionType: 'SUBSCRIPTION',
+          maxAttempts: 5,
+          attemptsUsed: 2,
+          remainingAttempts: 3,
+        ),
+      );
+
+      expect(quiz.isLocked, isFalse);
+      expect(quiz.isUnlocked, isTrue);
+      expect(quiz.access?.remainingAttempts, 3);
+      expect(quiz.access?.canRepurchase, isFalse);
+    });
   });
 }

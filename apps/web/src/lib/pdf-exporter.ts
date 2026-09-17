@@ -455,16 +455,40 @@ export async function generateQuizSolutionsPDF({
   // Render header and footer on Page 1
   renderHeaderFooter();
 
+  const formatNum = (v?: number) => {
+    if (v === undefined || v === null) return '0';
+    const rounded = Math.round(v * 100) / 100;
+    return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(2);
+  };
+
+  let correctCount = 0;
+  let incorrectCount = 0;
+  let skippedCount = 0;
+  questions.forEach((q) => {
+    const isSkipped = q.userSelection === undefined || q.userSelection === null || q.userSelection < 0;
+    if (isSkipped) {
+      skippedCount++;
+    } else if (q.userSelection === q.correct) {
+      correctCount++;
+    } else {
+      incorrectCount++;
+    }
+  });
+
   // --- TOP HEADER BANNER CARD ---
   const hasScore = score !== undefined && totalMarks !== undefined;
   const titleStyle: TextStyle = { size: 15, bold: true, color: [15, 23, 42] }; // slate-900
-  const titleWidth = contentWidth - (hasScore ? 48 : 10);
+  const titleWidth = contentWidth - (hasScore ? 54 : 10);
   const titleBlock = layoutText(doc, quizTitle, titleWidth, titleStyle, 6.5);
   // Two lines of title keep the banner from dominating the first page.
   titleBlock.lines = titleBlock.lines.slice(0, 2);
   titleBlock.height = titleBlock.lines.length * titleBlock.lineHeight;
 
-  const bannerHeight = Math.max(26, titleBlock.height + 17);
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const metaText = `Category: ${category}   |   Date: ${dateStr}\nTotal Questions: ${questions.length}   |   Correct: ${correctCount}   |   Incorrect: ${incorrectCount}   |   Skipped: ${skippedCount}`;
+  const metaBlock = layoutText(doc, metaText, titleWidth, { size: 8, color: [71, 85, 105] }, 4.0);
+
+  const bannerHeight = Math.max(30, titleBlock.height + metaBlock.height + 12);
 
   doc.setFillColor(...BANNER_BG);
   doc.roundedRect(margin, y, contentWidth, bannerHeight, 3, 3, 'F');
@@ -472,39 +496,52 @@ export async function generateQuizSolutionsPDF({
   doc.setLineWidth(0.4);
   doc.roundedRect(margin, y, contentWidth, bannerHeight, 3, 3, 'D');
 
-  drawText(doc, titleBlock, margin + 5, y + 9, BANNER_BG);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(71, 85, 105); // slate-600
-  const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const metaText = `Category: ${category}   |   Total Questions: ${questions.length}   |   Date: ${dateStr}`;
-  const metaBlock = layoutText(doc, metaText, contentWidth - 10, { size: 8.5, color: [71, 85, 105] }, 4.2);
-  drawText(doc, metaBlock, margin + 5, y + bannerHeight - 9, BANNER_BG);
+  drawText(doc, titleBlock, margin + 5, y + 8, BANNER_BG);
+  drawText(doc, metaBlock, margin + 5, y + titleBlock.height + 11, BANNER_BG);
 
   if (hasScore) {
     // Score Badge Pill
     doc.setFillColor(254, 243, 199); // amber-100
     doc.setDrawColor(251, 191, 36); // amber-400
-    doc.roundedRect(pageWidth - margin - 38, y + 5, 33, 16, 2, 2, 'FD');
+    doc.roundedRect(pageWidth - margin - 46, y + 6, 42, 17, 2, 2, 'FD');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(6.5);
     doc.setTextColor(180, 83, 9); // amber-700
-    doc.text('SCORE ACHIEVED', pageWidth - margin - 21.5, y + 9.5, { align: 'center' });
+    doc.text('MARKS OBTAINED', pageWidth - margin - 25, y + 11, { align: 'center' });
 
     doc.setFontSize(11);
     doc.setTextColor(146, 64, 14); // amber-800
-    doc.text(`${score} / ${totalMarks}`, pageWidth - margin - 21.5, y + 16, { align: 'center' });
+    doc.text(`${formatNum(score)} / ${formatNum(totalMarks)}`, pageWidth - margin - 25, y + 18, { align: 'center' });
   }
 
   y += bannerHeight + 6;
 
   // --- QUESTIONS LIST ---
   questions.forEach((q, qIndex) => {
-    // Question Text (measured first so a long question can start on a fresh page)
+    const isSkipped = q.userSelection === undefined || q.userSelection === null || q.userSelection < 0;
+    const isQuestionCorrect = !isSkipped && q.userSelection === q.correct;
+
+    const statusLabel = isSkipped ? 'SKIPPED' : isQuestionCorrect ? 'CORRECT' : 'INCORRECT';
+    const statusBg: [number, number, number] = isSkipped
+      ? [254, 243, 199] // amber-100
+      : isQuestionCorrect
+      ? [236, 253, 245] // emerald-50
+      : [255, 241, 242]; // rose-50
+    const statusBorder: [number, number, number] = isSkipped
+      ? [251, 191, 36] // amber-400
+      : isQuestionCorrect
+      ? [110, 231, 183] // emerald-300
+      : [253, 164, 175]; // rose-300
+    const statusText: [number, number, number] = isSkipped
+      ? [180, 83, 9] // amber-700
+      : isQuestionCorrect
+      ? [4, 120, 87] // emerald-700
+      : [190, 18, 60]; // rose-700
+
+    // Question Text (measured with room on right for the status badge)
     const questionStyle: TextStyle = { size: 10.5, bold: true, color: [15, 23, 42] };
-    const questionBlock = layoutText(doc, q.text, contentWidth - 18, questionStyle, 5);
+    const questionBlock = layoutText(doc, q.text, contentWidth - 48, questionStyle, 5);
 
     checkAddPage(Math.min(questionBlock.height + 24, 60));
 
@@ -516,16 +553,48 @@ export async function generateQuizSolutionsPDF({
     doc.setTextColor(255, 255, 255);
     doc.text(`Q${qIndex + 1}`, margin + 7, y + 4.5, { align: 'center' });
 
+    // Question Status Badge (Right side)
+    doc.setFillColor(...statusBg);
+    doc.setDrawColor(...statusBorder);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(pageWidth - margin - 26, y, 26, 6.5, 1.5, 1.5, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...statusText);
+    doc.text(statusLabel, pageWidth - margin - 13, y + 4.5, { align: 'center' });
+
+    // Marks label below status badge if marks present
+    if (q.marks !== undefined && q.marks !== null) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`${formatNum(q.marks)} ${q.marks === 1 ? 'mark' : 'marks'}`, pageWidth - margin - 13, y + 10.5, { align: 'center' });
+    }
+
     drawText(doc, questionBlock, margin + 18, y + 4.8, WHITE);
 
-    y += Math.max(9, questionBlock.height + 4);
+    y += Math.max(12, questionBlock.height + 4);
+
+    // Dedicated banner for SKIPPED questions
+    if (isSkipped) {
+      checkAddPage(10);
+      doc.setFillColor(254, 243, 199); // amber-100
+      doc.setDrawColor(251, 191, 36); // amber-400
+      doc.setLineWidth(0.3);
+      doc.roundedRect(margin + 2, y, contentWidth - 2, 6.5, 1.5, 1.5, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(180, 83, 9); // amber-700
+      doc.text('SKIPPED  •  This question was not attempted by the student', margin + 6, y + 4.5);
+      y += 9.5;
+    }
 
     // Options A, B, C, D...
     q.options.forEach((optRaw, optIdx) => {
       const optObj = typeof optRaw === 'string' ? { id: `opt-${optIdx}`, text: optRaw } : optRaw;
       const optionLetter = String.fromCharCode(65 + optIdx);
       const isCorrect = optIdx === q.correct;
-      const isUserChoice = q.userSelection !== undefined && q.userSelection === optIdx;
+      const isUserChoice = q.userSelection !== undefined && q.userSelection !== null && q.userSelection === optIdx;
 
       const cardBg = isCorrect ? CORRECT_BG : isUserChoice ? WRONG_BG : NEUTRAL_BG;
 
@@ -534,7 +603,7 @@ export async function generateQuizSolutionsPDF({
       const hasOptionExplanation = explanationText.length > 0;
 
       // Calculate heights and spacing
-      const textWidth = contentWidth - 55; // Leave room for right status badge
+      const textWidth = contentWidth - 65; // Leave room for right status badge
       const optStyle: TextStyle = {
         size: 9.5,
         bold: isCorrect,
@@ -596,16 +665,18 @@ export async function generateQuizSolutionsPDF({
       // Status Pill Badges (Right side of Option card)
       if (isCorrect) {
         doc.setFillColor(16, 185, 129); // emerald-500
-        doc.roundedRect(pageWidth - margin - 32, y + 3.5, 30, 6, 1.5, 1.5, 'F');
+        const badgeLabel = isUserChoice ? 'YOUR SELECTION (CORRECT)' : 'CORRECT ANSWER';
+        const badgeW = isUserChoice ? 42 : 30;
+        doc.roundedRect(pageWidth - margin - badgeW - 2, y + 3.5, badgeW, 6, 1.5, 1.5, 'F');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7);
+        doc.setFontSize(6.5);
         doc.setTextColor(255, 255, 255);
-        doc.text('CORRECT ANSWER', pageWidth - margin - 17, y + 7.5, { align: 'center' });
+        doc.text(badgeLabel, pageWidth - margin - (badgeW / 2) - 2, y + 7.5, { align: 'center' });
       } else if (isUserChoice) {
         doc.setFillColor(244, 63, 94); // rose-500
         doc.roundedRect(pageWidth - margin - 32, y + 3.5, 30, 6, 1.5, 1.5, 'F');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7);
+        doc.setFontSize(6.5);
         doc.setTextColor(255, 255, 255);
         doc.text('YOUR SELECTION', pageWidth - margin - 17, y + 7.5, { align: 'center' });
       }

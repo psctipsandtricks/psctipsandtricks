@@ -379,6 +379,9 @@ export class QuizzesService {
           ? Number(quizData.finalPrice)
           : QuizzesService.resolveFinalPrice(price, discountPercent))
       : 0;
+    const subscriptionType = isPaid ? (quizData.subscriptionType || 'FULL_TIME_ACCESS') : 'FULL_TIME_ACCESS';
+    const subscriptionDuration = isPaid && subscriptionType === 'SUBSCRIPTION' ? (quizData.subscriptionDuration || '1_MONTH') : null;
+    const maxAttempts = isPaid && subscriptionType === 'SUBSCRIPTION' ? (Number(quizData.maxAttempts) || 5) : null;
 
     return this.prisma.quiz.create({
       data: {
@@ -386,6 +389,9 @@ export class QuizzesService {
         price,
         discountPercent,
         finalPrice,
+        subscriptionType,
+        subscriptionDuration,
+        maxAttempts,
         totalQuestions: questionCount,
         orderIndex: await this.nextOrderIndex(quizData.folderName),
         isActive: quizData.isActive ?? true,
@@ -435,6 +441,9 @@ export class QuizzesService {
       quizData.price = 0;
       quizData.discountPercent = 0;
       quizData.finalPrice = 0;
+      quizData.subscriptionType = 'FULL_TIME_ACCESS';
+      quizData.subscriptionDuration = null;
+      quizData.maxAttempts = null;
     } else if (isPaid) {
       const price = quizData.price !== undefined ? Math.max(0, Number(quizData.price) || 0) : existing.price;
       const discountPercent = quizData.discountPercent !== undefined ? Math.min(100, Math.max(0, Number(quizData.discountPercent) || 0)) : existing.discountPercent;
@@ -444,6 +453,21 @@ export class QuizzesService {
       if (quizData.price !== undefined) quizData.price = price;
       if (quizData.discountPercent !== undefined) quizData.discountPercent = discountPercent;
       quizData.finalPrice = finalPrice;
+
+      const subType = (quizData.subscriptionType ?? existing.subscriptionType) as string;
+      if (subType === 'FULL_TIME_ACCESS') {
+        quizData.subscriptionDuration = null;
+        quizData.maxAttempts = null;
+      } else if (subType === 'SUBSCRIPTION') {
+        if (quizData.subscriptionDuration === undefined && !existing.subscriptionDuration) {
+          quizData.subscriptionDuration = '1_MONTH';
+        }
+        if (quizData.maxAttempts !== undefined) {
+          quizData.maxAttempts = Number(quizData.maxAttempts) || 5;
+        } else if (existing.maxAttempts === null || existing.maxAttempts === undefined) {
+          quizData.maxAttempts = 5;
+        }
+      }
     }
 
     // Delete existing questions and recreate if questions array is provided
@@ -652,6 +676,11 @@ export class QuizzesService {
     for (const attempt of inProgress) {
       const existing = byQuiz.get(attempt.quizId);
       if (existing) {
+        // If there is already a completed submission whose submittedAt is after or equal to this attempt's startedAt,
+        // then this in-progress attempt is stale/superseded by that completion and should not be resumed.
+        if (existing.lastSubmittedAt && attempt.startedAt && attempt.startedAt <= existing.lastSubmittedAt) {
+          continue;
+        }
         // Ordered newest first, so the first one seen for a quiz is the one to
         // resume; a student with two open rows on one quiz resumes the latest.
         existing.inProgressAttemptId ??= attempt.id;
@@ -763,6 +792,32 @@ export class QuizzesService {
     }
 
     if (!submission) {
+      const active = await this.prisma.quizSubmission.findFirst({
+        where: { userId, quizId, attemptStatus: 'IN_PROGRESS' },
+        orderBy: { startedAt: 'desc' },
+      });
+      if (active) {
+        submission = await this.prisma.quizSubmission.update({
+          where: { id: active.id },
+          data: {
+            attemptStatus: 'COMPLETED',
+            score: finalScore,
+            totalMarks,
+            percentage,
+            totalQuestions,
+            passed,
+            correctAnswers: correctCount,
+            wrongAnswers: wrongCount,
+            unattempted,
+            timeTakenSeconds: payload.timeTakenSeconds || 0,
+            answers: (payload.answers || []) as unknown as Prisma.InputJsonValue,
+            submittedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    if (!submission) {
       submission = await this.prisma.quizSubmission.create({
         data: {
           quizId,
@@ -784,6 +839,17 @@ export class QuizzesService {
         },
       });
     }
+
+    // Retire any other remaining IN_PROGRESS attempts for this quiz and user
+    await this.prisma.quizSubmission.updateMany({
+      where: {
+        userId,
+        quizId,
+        attemptStatus: 'IN_PROGRESS',
+        id: { not: submission.id },
+      },
+      data: { attemptStatus: 'ABANDONED' },
+    });
 
     // Enqueue background processing for rank generation
     try {

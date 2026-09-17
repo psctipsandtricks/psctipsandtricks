@@ -18,6 +18,7 @@ import '../../core/widgets/state_views.dart';
 import '../../data/models/book.dart' show AccessState, AccessReason;
 import '../../data/models/mock_test.dart';
 import '../../data/models/quiz.dart';
+import '../dashboard/dashboard_providers.dart';
 import '../home/home_providers.dart';
 import '../mock_tests/mock_tests_providers.dart';
 import 'quizzes_providers.dart';
@@ -533,6 +534,12 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
           ref.invalidate(mockTestsViewProvider);
           ref.invalidate(allMockTestsProvider);
           ref.invalidate(myMockAttemptsProvider);
+          ref.invalidate(quizAttemptSummaryProvider);
+          ref.invalidate(allQuizAttemptsProvider);
+          ref.invalidate(quizHistoryPageProvider);
+          ref.invalidate(premiumCarouselQuizzesProvider);
+          ref.invalidate(quizzesProvider);
+          ref.invalidate(dashboardProvider);
         } catch (_) {
           mockSubmitOk = false;
         }
@@ -544,6 +551,12 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
                 attemptId: _attemptId,
               );
           mockSubmitOk = true;
+          ref.invalidate(quizAttemptSummaryProvider);
+          ref.invalidate(allQuizAttemptsProvider);
+          ref.invalidate(quizHistoryPageProvider);
+          ref.invalidate(premiumCarouselQuizzesProvider);
+          ref.invalidate(quizzesProvider);
+          ref.invalidate(dashboardProvider);
         } catch (_) {}
       }
 
@@ -602,6 +615,9 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
       ref.invalidate(quizHistoryPageProvider);
       ref.invalidate(allQuizAttemptsProvider);
       ref.invalidate(quizAttemptSummaryProvider);
+      ref.invalidate(premiumCarouselQuizzesProvider);
+      ref.invalidate(quizzesProvider);
+      ref.invalidate(dashboardProvider);
     } catch (_) {
       saved = null;
     }
@@ -1403,6 +1419,38 @@ class _QuizIntroScreen extends StatelessWidget {
                             height: 1.5,
                           ),
                     ),
+                    if (quiz.isPaid) ...[
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.amber.withValues(alpha: 0.12),
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusSm),
+                            border: Border.all(
+                              color: AppColors.amber.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: Text(
+                            quiz.access?.subscriptionType == 'SUBSCRIPTION'
+                                ? '${quiz.access?.remainingAttempts ?? quiz.maxAttempts ?? 5} / ${quiz.access?.maxAttempts ?? quiz.maxAttempts ?? 5} attempts left'
+                                    '${quiz.access?.validTill != null ? ' · Valid till ${Fmt.date(quiz.access!.validTill!)}' : ''}'
+                                : 'Full-time access · Unlimited attempts',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: AppColors.amber,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     Row(
                       children: [

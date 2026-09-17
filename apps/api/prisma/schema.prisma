@@ -329,6 +329,9 @@ model Quiz {
   price                           Float            @default(0)
   discountPercent                 Float            @default(0)
   finalPrice                      Float            @default(0)
+  subscriptionType                String           @default("FULL_TIME_ACCESS")
+  subscriptionDuration            String?
+  maxAttempts                     Int?             @default(5)
   imageUrl                        String?
   // Negative marking is a "for every N wrong answers, deduct M marks" rule
   // (default: every 3 wrong answers costs 1 mark), not a flat per-question

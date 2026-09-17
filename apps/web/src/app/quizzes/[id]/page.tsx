@@ -543,6 +543,7 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
         totalMarks={questions.reduce((sum, q) => sum + (q.marks ?? 1), 0)}
         negativeMarking={negativeMarkingRules}
         isPremium={isPremiumQuiz}
+        access={access}
         hasSavedProgress={hasSavedProgress}
         isStarting={isStartingAttempt}
         error={startError}
@@ -1044,6 +1045,7 @@ function QuizStartScreen({
   totalMarks,
   negativeMarking,
   isPremium,
+  access,
   hasSavedProgress,
   isStarting,
   error,
@@ -1058,6 +1060,7 @@ function QuizStartScreen({
   totalMarks: number;
   negativeMarking: { enabled: boolean; every: number; deduct: number; allowNegative: boolean };
   isPremium: boolean;
+  access?: QuizAccessState | null;
   hasSavedProgress: boolean;
   isStarting: boolean;
   error: string;
@@ -1085,11 +1088,25 @@ function QuizStartScreen({
           <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-500 flex items-center justify-center mx-auto">
             <ListChecks className="w-7 h-7" />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {isPremium && (
-              <Badge variant="gold" className="text-[10px] font-black uppercase tracking-wider">
-                Premium · Unlocked
-              </Badge>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <Badge variant="gold" className="text-[10px] font-black uppercase tracking-wider">
+                  Premium · Unlocked
+                </Badge>
+                {access?.subscriptionType === 'SUBSCRIPTION' ? (
+                  <Badge variant="outline" className="text-[10px] font-black uppercase tracking-wider border-amber-500/30 text-amber-600 dark:text-amber-400">
+                    {access.remainingAttempts !== null && access.remainingAttempts !== undefined
+                      ? `${access.remainingAttempts} / ${access.maxAttempts ?? 5} Attempts Left`
+                      : 'Subscription Active'}
+                    {access.validTill ? ` · Valid till ${new Date(access.validTill).toLocaleDateString()}` : ''}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] font-black uppercase tracking-wider border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
+                    Full-Time Access · Unlimited Attempts
+                  </Badge>
+                )}
+              </div>
             )}
             <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
               {title || 'Ready to begin?'}

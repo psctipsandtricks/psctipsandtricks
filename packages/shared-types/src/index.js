@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BOOK_SUBSCRIPTION_DURATIONS_LIST = void 0;
+exports.QUIZ_SUBSCRIPTION_DURATIONS_LIST = exports.QUIZ_SUBSCRIPTION_TYPES = exports.BOOK_SUBSCRIPTION_DURATIONS_LIST = void 0;
 exports.formatSubscriptionDuration = formatSubscriptionDuration;
 exports.BOOK_SUBSCRIPTION_DURATIONS_LIST = [
     { value: '1_MONTH', label: '1 Month' },
@@ -8,8 +8,21 @@ exports.BOOK_SUBSCRIPTION_DURATIONS_LIST = [
     { value: '6_MONTHS', label: '6 Months' },
     { value: '1_YEAR', label: '1 Year (12 Months)' },
 ];
+exports.QUIZ_SUBSCRIPTION_TYPES = [
+    { value: 'FULL_TIME_ACCESS', label: 'Full Time Access' },
+    { value: 'SUBSCRIPTION', label: 'Subscription' },
+];
+exports.QUIZ_SUBSCRIPTION_DURATIONS_LIST = [
+    { value: '1_WEEK', label: '1 Week' },
+    { value: '1_MONTH', label: '1 Month' },
+    { value: '3_MONTHS', label: '3 Months' },
+    { value: '6_MONTHS', label: '6 Months' },
+    { value: '1_YEAR', label: '1 Year (12 Months)' },
+];
 function formatSubscriptionDuration(duration) {
     switch (duration) {
+        case '1_WEEK':
+            return '1 Week';
         case '1_MONTH':
             return '1 Month';
         case '3_MONTHS':

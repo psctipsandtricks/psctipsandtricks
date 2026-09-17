@@ -62,13 +62,50 @@ class QuizPaywall extends ConsumerWidget {
     (Icons.replay_rounded, 'Keep the paper afterwards for practice'),
   ];
 
+  String _buildSubtitle(bool needsLogin) {
+    if (subtitle != null) return subtitle!;
+    if (needsLogin) {
+      return 'Sign in to check whether you already own this question bank.';
+    }
+    if (access.isSubscriptionExpired) {
+      return 'Your subscription validity period has expired. Purchase again to regain access.';
+    }
+    if (access.isAttemptsExhausted) {
+      return 'You have exhausted all ${access.maxAttempts ?? 5} attempts for this quiz. Purchase again to unlock fresh attempts.';
+    }
+    return 'This question bank is premium. Complete the payment to unlock the questions and attempt it.';
+  }
+
+  String _accessModelLabel() {
+    if (access.subscriptionType == 'SUBSCRIPTION') {
+      final dur = access.subscriptionDuration != null
+          ? access.subscriptionDuration!.replaceAll('_', ' ')
+          : 'Subscription';
+      return '$dur validity · ${access.maxAttempts ?? 5} attempts';
+    }
+    return 'One-time payment · lifetime access · Unlimited attempts';
+  }
+
+  List<(IconData, String)> _resolvePerks() {
+    if (perks != null) return perks!;
+    if (access.subscriptionType == 'SUBSCRIPTION') {
+      return <(IconData, String)>[
+        (Icons.replay_rounded, '${access.maxAttempts ?? 5} exam attempts included'),
+        (Icons.insights_rounded, 'Detailed accuracy and rank analytics'),
+        (Icons.lightbulb_outline_rounded, 'Explanations for every question'),
+        (Icons.leaderboard_rounded, 'Compete on the live rank list'),
+      ];
+    }
+    return quizPerks;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final palette = context.palette;
     final needsLogin = access.needsLogin;
 
     return Scaffold(
-      appBar: GlassAppBar(title: Text(appBarTitle ?? 'Premium question bank')),
+      appBar: GlassAppBar(title: Text(appBarTitle ?? (access.canRepurchase ? 'Renew access' : 'Premium question bank'))),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [
@@ -85,8 +122,11 @@ class QuizPaywall extends ConsumerWidget {
                       color: AppColors.amber.withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.lock_rounded,
-                        color: AppColors.amber, size: 30),
+                    child: Icon(
+                      access.canRepurchase ? Icons.replay_rounded : Icons.lock_rounded,
+                      color: AppColors.amber,
+                      size: 30,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -100,14 +140,11 @@ class QuizPaywall extends ConsumerWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  subtitle ??
-                      (needsLogin
-                          ? 'Sign in to check whether you already own this question bank.'
-                          : 'This question bank is premium. Complete the payment to '
-                              'unlock the questions and attempt it.'),
+                  _buildSubtitle(needsLogin),
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: palette.textSecondary,
+                        color: access.canRepurchase ? AppColors.amber : palette.textSecondary,
+                        fontWeight: access.canRepurchase ? FontWeight.w600 : FontWeight.normal,
                         height: 1.55,
                       ),
                 ),
@@ -125,17 +162,26 @@ class QuizPaywall extends ConsumerWidget {
                   const SizedBox(height: 6),
                   Center(
                     child: Text(
-                      'One-time payment · lifetime access',
+                      _accessModelLabel(),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: palette.textMuted,
+                            fontWeight: FontWeight.bold,
                           ),
                     ),
                   ),
                   const SizedBox(height: 20),
                 ],
                 GradientButton(
-                  label: needsLogin ? 'Sign in to continue' : 'Unlock now',
-                  icon: needsLogin ? Icons.login_rounded : Icons.lock_open_rounded,
+                  label: needsLogin
+                      ? 'Sign in to continue'
+                      : access.canRepurchase
+                          ? 'Repurchase / Buy Again'
+                          : 'Unlock now',
+                  icon: needsLogin
+                      ? Icons.login_rounded
+                      : access.canRepurchase
+                          ? Icons.refresh_rounded
+                          : Icons.lock_open_rounded,
                   gradient: AppColors.goldGradient,
                   onPressed: () async {
                     if (needsLogin) {
@@ -161,7 +207,7 @@ class QuizPaywall extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 20),
-          _Perks(items: perks ?? quizPerks),
+          _Perks(items: _resolvePerks()),
         ],
       ),
     );

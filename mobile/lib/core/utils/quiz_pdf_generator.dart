@@ -35,6 +35,10 @@ class QuizPdfQuestion {
 
   /// Null when the student has not picked an option for this question yet.
   final int? userSelection;
+
+  bool get isSkipped => userSelection == null || userSelection! < 0;
+  bool get isCorrect => !isSkipped && userSelection == correctIndex;
+  bool get isIncorrect => !isSkipped && userSelection != correctIndex;
 }
 
 /// Builds the same "solutions PDF" the website offers on a premium quiz: every
@@ -109,13 +113,35 @@ class QuizPdfGenerator {
         category: category,
         score: score,
         totalMarks: totalMarks,
-        questionCount: questions.length,
+        questions: questions,
       ),
     ];
 
     for (var qi = 0; qi < questions.length; qi++) {
       final question = questions[qi];
       content.add(await _questionHeader(qi, question));
+      if (question.isSkipped) {
+        content.add(
+          pw.Container(
+            width: double.infinity,
+            margin: const pw.EdgeInsets.only(bottom: 8),
+            padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: pw.BoxDecoration(
+              color: _amber100,
+              borderRadius: pw.BorderRadius.circular(3),
+              border: pw.Border.all(color: _amber400, width: 0.6),
+            ),
+            child: pw.Text(
+              'SKIPPED  -  This question was not attempted by the student',
+              style: pw.TextStyle(
+                fontSize: 7.5,
+                fontWeight: pw.FontWeight.bold,
+                color: _amber800,
+              ),
+            ),
+          ),
+        );
+      }
       for (var oi = 0; oi < question.options.length; oi++) {
         content.add(await _optionCard(question, oi));
       }
@@ -227,11 +253,15 @@ class QuizPdfGenerator {
     required String category,
     double? score,
     double? totalMarks,
-    required int questionCount,
+    required List<QuizPdfQuestion> questions,
   }) async {
     final hasScore = score != null && totalMarks != null;
-    final titleWidth = _contentWidth - 20 - (hasScore ? 76 : 0);
+    final titleWidth = _contentWidth - 20 - (hasScore ? 88 : 0);
     final dateStr = _formatDate(DateTime.now());
+
+    final correctCount = questions.where((q) => q.isCorrect).length;
+    final incorrectCount = questions.where((q) => q.isIncorrect).length;
+    final skippedCount = questions.where((q) => q.isSkipped).length;
 
     return pw.Container(
       width: double.infinity,
@@ -256,19 +286,28 @@ class QuizPdfGenerator {
                   color: _slate900,
                   maxWidth: titleWidth,
                 ),
-                pw.SizedBox(height: 6),
+                pw.SizedBox(height: 5),
                 pw.Text(
-                  'Category: $category   |   Total Questions: $questionCount   |   Date: $dateStr',
-                  style: pw.TextStyle(fontSize: 8.5, color: _slate600),
+                  'Category: $category   |   Date: $dateStr',
+                  style: pw.TextStyle(fontSize: 8, color: _slate600),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Total Questions: ${questions.length}   |   Correct: $correctCount   |   Incorrect: $incorrectCount   |   Skipped: $skippedCount',
+                  style: pw.TextStyle(
+                    fontSize: 8,
+                    fontWeight: pw.FontWeight.bold,
+                    color: _slate600,
+                  ),
                 ),
               ],
             ),
           ),
           if (hasScore) ...[
-            pw.SizedBox(width: 10),
+            pw.SizedBox(width: 8),
             pw.Container(
-              width: 66,
-              padding: const pw.EdgeInsets.symmetric(vertical: 6),
+              width: 80,
+              padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
               decoration: pw.BoxDecoration(
                 color: _amber100,
                 borderRadius: pw.BorderRadius.circular(4),
@@ -277,9 +316,9 @@ class QuizPdfGenerator {
               child: pw.Column(
                 children: [
                   pw.Text(
-                    'SCORE',
+                    'MARKS OBTAINED',
                     style: pw.TextStyle(
-                      fontSize: 6.5,
+                      fontSize: 6.2,
                       fontWeight: pw.FontWeight.bold,
                       color: _amber700,
                     ),
@@ -303,8 +342,32 @@ class QuizPdfGenerator {
   }
 
   static Future<pw.Widget> _questionHeader(int index, QuizPdfQuestion q) async {
+    final isSkipped = q.isSkipped;
+    final isCorrect = q.isCorrect;
+
+    final statusText = isSkipped
+        ? 'SKIPPED'
+        : isCorrect
+            ? 'CORRECT'
+            : 'INCORRECT';
+    final statusBg = isSkipped
+        ? _amber100
+        : isCorrect
+            ? _emerald50
+            : _rose50;
+    final statusBorder = isSkipped
+        ? _amber400
+        : isCorrect
+            ? _emerald300
+            : _rose300;
+    final statusColor = isSkipped
+        ? _amber800
+        : isCorrect
+            ? _emerald800
+            : _rose800;
+
     return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 8),
+      padding: const pw.EdgeInsets.only(bottom: 6),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
@@ -330,16 +393,38 @@ class QuizPdfGenerator {
               fontSize: 10.5,
               bold: true,
               color: _slate900,
-              maxWidth: _contentWidth - 60,
+              maxWidth: _contentWidth - 110,
             ),
           ),
-          if (q.marks != null) ...[
-            pw.SizedBox(width: 6),
-            pw.Text(
-              '${_num(q.marks)} ${q.marks == 1 ? 'mark' : 'marks'}',
-              style: pw.TextStyle(fontSize: 7.5, color: _slate500),
-            ),
-          ],
+          pw.SizedBox(width: 8),
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                decoration: pw.BoxDecoration(
+                  color: statusBg,
+                  borderRadius: pw.BorderRadius.circular(3),
+                  border: pw.Border.all(color: statusBorder, width: 0.6),
+                ),
+                child: pw.Text(
+                  statusText,
+                  style: pw.TextStyle(
+                    fontSize: 6.5,
+                    fontWeight: pw.FontWeight.bold,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+              if (q.marks != null) ...[
+                pw.SizedBox(height: 3),
+                pw.Text(
+                  '${_num(q.marks)} ${q.marks == 1 ? 'mark' : 'marks'}',
+                  style: pw.TextStyle(fontSize: 7, color: _slate500),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
     );
@@ -399,7 +484,7 @@ class QuizPdfGenerator {
                   fontSize: 9.5,
                   bold: isCorrect,
                   color: textColor,
-                  maxWidth: _contentWidth - 120,
+                  maxWidth: _contentWidth - 140,
                 ),
               ),
               if (isCorrect || isUserChoice) ...[
@@ -411,7 +496,11 @@ class QuizPdfGenerator {
                     borderRadius: pw.BorderRadius.circular(3),
                   ),
                   child: pw.Text(
-                    isCorrect ? 'CORRECT ANSWER' : 'YOUR SELECTION',
+                    isCorrect && isUserChoice
+                        ? 'YOUR SELECTION (CORRECT)'
+                        : isCorrect
+                            ? 'CORRECT ANSWER'
+                            : 'YOUR SELECTION',
                     style: pw.TextStyle(
                       fontSize: 6,
                       fontWeight: pw.FontWeight.bold,

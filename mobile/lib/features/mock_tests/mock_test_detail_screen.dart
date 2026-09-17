@@ -117,6 +117,7 @@ class _MockTestDetailScreenState extends ConsumerState<MockTestDetailScreen> {
         data: (mock) => RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(mockLeaderboardProvider(mock.id));
+            ref.invalidate(mockTestProvider(mock.id));
             await ref.read(mockTestProvider(mock.id).future);
           },
           child: ListView(
@@ -628,14 +629,31 @@ class _MyRankListState extends ConsumerState<_MyRankList> {
               final rules = quiz.negativeMarking;
               final sc = score ?? mock.myScore ?? 0.0;
               final tm = totalMarks ?? quiz.totalMarks;
+              final answers = mock.myAnswers ?? const <String, int>{};
+              final stats = mock.myStats;
+              var correctCount = stats?.correctAnswers ?? 0;
+              var wrongCount = stats?.wrongAnswers ?? 0;
+              var unattempted = stats?.unattempted ?? 0;
+              if (stats == null) {
+                for (final q in quiz.questions) {
+                  final ans = answers[q.id];
+                  if (ans == null || ans < 0) {
+                    unattempted++;
+                  } else if (ans == q.correctOptionIndex) {
+                    correctCount++;
+                  } else {
+                    wrongCount++;
+                  }
+                }
+              }
               final res = QuizResult(
                 score: sc,
                 positiveMarks: sc,
                 negativeMarks: 0,
                 totalMarks: tm,
-                correct: 0,
-                wrong: 0,
-                unattempted: 0,
+                correct: correctCount,
+                wrong: wrongCount,
+                unattempted: unattempted,
                 timeTakenSeconds: 0,
                 attemptNumber: 1,
                 negativeMarking: rules,
@@ -646,7 +664,7 @@ class _MyRankListState extends ConsumerState<_MyRankList> {
                 quiz: quiz,
                 result: res,
                 questions: quiz.questions,
-                answers: const {},
+                answers: answers,
                 mockTestId: mock.id,
               );
             },

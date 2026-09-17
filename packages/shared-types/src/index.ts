@@ -70,8 +70,26 @@ export const BOOK_SUBSCRIPTION_DURATIONS_LIST = [
   { value: '1_YEAR', label: '1 Year (12 Months)' },
 ] as const;
 
+export type QuizSubscriptionType = 'FULL_TIME_ACCESS' | 'SUBSCRIPTION';
+export type QuizSubscriptionDuration = '1_WEEK' | '1_MONTH' | '3_MONTHS' | '6_MONTHS' | '1_YEAR';
+
+export const QUIZ_SUBSCRIPTION_TYPES = [
+  { value: 'FULL_TIME_ACCESS', label: 'Full Time Access' },
+  { value: 'SUBSCRIPTION', label: 'Subscription' },
+] as const;
+
+export const QUIZ_SUBSCRIPTION_DURATIONS_LIST = [
+  { value: '1_WEEK', label: '1 Week' },
+  { value: '1_MONTH', label: '1 Month' },
+  { value: '3_MONTHS', label: '3 Months' },
+  { value: '6_MONTHS', label: '6 Months' },
+  { value: '1_YEAR', label: '1 Year (12 Months)' },
+] as const;
+
 export function formatSubscriptionDuration(duration?: string | null) {
   switch (duration) {
+    case '1_WEEK':
+      return '1 Week';
     case '1_MONTH':
       return '1 Month';
     case '3_MONTHS':
@@ -448,6 +466,9 @@ export interface Quiz {
   price: number;
   discountPercent?: number;
   finalPrice?: number;
+  subscriptionType?: QuizSubscriptionType | string;
+  subscriptionDuration?: QuizSubscriptionDuration | string | null;
+  maxAttempts?: number | null;
   /** "For every N wrong answers, deduct M marks" — disabled by default. */
   negativeMarkingEnabled: boolean;
   negativeMarkingEvery: number;
@@ -459,6 +480,22 @@ export interface Quiz {
   questions?: Question[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QuizAccessState {
+  isPaid: boolean;
+  hasAccess: boolean;
+  price: number;
+  originalPrice?: number;
+  discountPercent?: number;
+  reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED' | 'SUBSCRIPTION_EXPIRED' | 'ATTEMPTS_EXHAUSTED';
+  subscriptionType?: QuizSubscriptionType | string;
+  subscriptionDuration?: QuizSubscriptionDuration | string | null;
+  validTill?: string | null;
+  maxAttempts?: number | null;
+  attemptsUsed?: number;
+  remainingAttempts?: number | null;
+  canRepurchase?: boolean;
 }
 
 export interface QuizSubmissionPayload {

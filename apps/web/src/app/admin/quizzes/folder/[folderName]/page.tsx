@@ -6,7 +6,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { ApiClient } from '@/lib/api-client';
-import { QuizFolder } from '@psc/shared-types';
+import { QuizFolder, QUIZ_SUBSCRIPTION_TYPES, QUIZ_SUBSCRIPTION_DURATIONS_LIST } from '@psc/shared-types';
 import {
   Card,
   Table,
@@ -115,6 +115,9 @@ export interface QuizItem {
   negativeMarkingEvery?: number;
   negativeMarkingDeduct?: number;
   allowNegativeScore?: boolean;
+  subscriptionType?: 'FULL_TIME_ACCESS' | 'SUBSCRIPTION';
+  subscriptionDuration?: string | null;
+  maxAttempts?: number | null;
   questions: QuizQuestion[];
 }
 
@@ -184,6 +187,9 @@ interface QuizFormValues {
   negativeMarkingEvery: string;
   negativeMarkingDeduct: string;
   allowNegativeScore: boolean;
+  subscriptionType: 'FULL_TIME_ACCESS' | 'SUBSCRIPTION';
+  subscriptionDuration: string;
+  maxAttempts: string;
 }
 
 const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
@@ -209,6 +215,9 @@ const DEFAULT_QUIZ_FORM_VALUES: QuizFormValues = {
   negativeMarkingEvery: '3',
   negativeMarkingDeduct: '1',
   allowNegativeScore: false,
+  subscriptionType: 'FULL_TIME_ACCESS',
+  subscriptionDuration: '1_MONTH',
+  maxAttempts: '5',
 };
 
 function computeFinalPrice(price: string, discountPercent: string) {
@@ -490,6 +499,9 @@ export default function AdminFolderQuizzesPage() {
       negativeMarkingEvery: apiQuiz.negativeMarkingEvery ?? 3,
       negativeMarkingDeduct: apiQuiz.negativeMarkingDeduct ?? 1,
       allowNegativeScore: apiQuiz.allowNegativeScore ?? false,
+      subscriptionType: apiQuiz.subscriptionType || 'FULL_TIME_ACCESS',
+      subscriptionDuration: apiQuiz.subscriptionDuration || null,
+      maxAttempts: apiQuiz.maxAttempts !== undefined && apiQuiz.maxAttempts !== null ? apiQuiz.maxAttempts : 5,
       questions: (apiQuiz.questions || []).map((q: any) => ({
         id: q.id,
         text: q.text,
@@ -901,6 +913,9 @@ export default function AdminFolderQuizzesPage() {
         price: numericPrice,
         discountPercent: numericDiscount,
         finalPrice: numericFinalPrice,
+        subscriptionType: values.accessType === 'PAID' ? values.subscriptionType : 'FULL_TIME_ACCESS',
+        subscriptionDuration: values.accessType === 'PAID' && values.subscriptionType === 'SUBSCRIPTION' ? values.subscriptionDuration : null,
+        maxAttempts: values.accessType === 'PAID' && values.subscriptionType === 'SUBSCRIPTION' ? (Number(values.maxAttempts) || 5) : null,
         imageUrl: values.imageUrl?.trim() || null,
         negativeMarkingEnabled: values.negativeMarkingEnabled,
         negativeMarkingEvery: values.negativeMarkingEnabled ? Number(values.negativeMarkingEvery) || 3 : 3,
@@ -1092,6 +1107,9 @@ export default function AdminFolderQuizzesPage() {
         negativeMarkingEvery: String(quiz.negativeMarkingEvery ?? 3),
         negativeMarkingDeduct: String(quiz.negativeMarkingDeduct ?? 1),
         allowNegativeScore: quiz.allowNegativeScore ?? false,
+        subscriptionType: (quiz.subscriptionType as any) || 'FULL_TIME_ACCESS',
+        subscriptionDuration: quiz.subscriptionDuration || '1_MONTH',
+        maxAttempts: quiz.maxAttempts !== undefined && quiz.maxAttempts !== null ? String(quiz.maxAttempts) : '5',
       },
     });
     setIsDialogOpen(true);
@@ -1782,6 +1800,11 @@ export default function AdminFolderQuizzesPage() {
                                 {quiz.discountPercent}% OFF
                               </span>
                             )}
+                            {quiz.subscriptionType === 'SUBSCRIPTION' && (
+                              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                                Sub · {quiz.maxAttempts ?? 5} att
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <Badge variant="success" className="font-bold text-xs flex items-center gap-1">
@@ -2066,43 +2089,102 @@ export default function AdminFolderQuizzesPage() {
             </div>
 
             {formik.values.accessType === 'PAID' && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-start pt-2">
-                <Input
-                  label="Price (INR)"
-                  name="price"
-                  type="number"
-                  placeholder="e.g. 1000"
-                  value={formik.values.price}
-                  onChange={formik.handleChange}
-                  onBlur={formik.handleBlur}
-                  error={formik.touched.price && formik.errors.price ? formik.errors.price : undefined}
-                />
-                <Input
-                  label="Discount %"
-                  name="discountPercent"
-                  type="number"
-                  placeholder="e.g. 20"
-                  value={formik.values.discountPercent}
-                  onChange={formik.handleChange}
-                  onBlur={formik.handleBlur}
-                  error={formik.touched.discountPercent && formik.errors.discountPercent ? formik.errors.discountPercent : undefined}
-                />
-                <div className="w-full space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                    Final Student Price
-                  </label>
-                  <div
-                    title="Calculated automatically from Price and Discount %"
-                    className="flex h-11 w-full items-center justify-between rounded-xl border border-cyan-500/40 bg-cyan-500/[0.08] dark:bg-cyan-500/[0.05] px-3.5 text-sm font-mono font-black text-cyan-600 dark:text-cyan-400 shadow-2xs"
-                  >
-                    <span className="text-base font-black">
-                      ₹{computeFinalPrice(formik.values.price, formik.values.discountPercent)}
+              <div className="space-y-3.5 pt-2">
+                {/* ── ACCESS MODEL & PRICING ── */}
+                <div className="space-y-3.5 p-3.5 rounded-2xl border border-slate-200/80 dark:border-[#1e2e56] bg-slate-100/50 dark:bg-[#070e20]/60">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-200/60 dark:border-[#1e2e56]/60">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                        Access Model & Pricing
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md">
+                      {formik.values.subscriptionType === 'SUBSCRIPTION' ? 'Subscription Mode' : 'Full Time Access Mode'}
                     </span>
-                    {Number(formik.values.discountPercent) > 0 && (
-                      <span className="text-[11px] font-sans font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-md">
-                        {formik.values.discountPercent}% OFF
-                      </span>
+                  </div>
+
+                  {/* Access Model, Duration & Attempts Grid */}
+                  <div className={`grid gap-3.5 ${formik.values.subscriptionType === 'SUBSCRIPTION' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1'}`}>
+                    <Select
+                      label="Subscription / Access Model"
+                      name="subscriptionType"
+                      value={formik.values.subscriptionType}
+                      onChange={(val) => {
+                        formik.setFieldValue('subscriptionType', val);
+                        if (val === 'SUBSCRIPTION' && !formik.values.subscriptionDuration) {
+                          formik.setFieldValue('subscriptionDuration', '1_MONTH');
+                        }
+                        if (val === 'SUBSCRIPTION' && !formik.values.maxAttempts) {
+                          formik.setFieldValue('maxAttempts', '5');
+                        }
+                      }}
+                      options={QUIZ_SUBSCRIPTION_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                    />
+
+                    {formik.values.subscriptionType === 'SUBSCRIPTION' && (
+                      <>
+                        <Select
+                          label="Subscription Duration (Required)"
+                          name="subscriptionDuration"
+                          value={formik.values.subscriptionDuration || '1_MONTH'}
+                          onChange={(val) => formik.setFieldValue('subscriptionDuration', val)}
+                          options={QUIZ_SUBSCRIPTION_DURATIONS_LIST.map((d) => ({ value: d.value, label: d.label }))}
+                        />
+                        <Input
+                          label="Number of Attempts"
+                          name="maxAttempts"
+                          type="number"
+                          placeholder="e.g. 5"
+                          value={formik.values.maxAttempts}
+                          onChange={formik.handleChange}
+                          onBlur={formik.handleBlur}
+                          error={formik.touched.maxAttempts && formik.errors.maxAttempts ? (formik.errors.maxAttempts as string) : undefined}
+                        />
+                      </>
                     )}
+                  </div>
+
+                  {/* Pricing Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 items-start pt-1">
+                    <Input
+                      label="Price (INR)"
+                      name="price"
+                      type="number"
+                      placeholder="e.g. 1000"
+                      value={formik.values.price}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      error={formik.touched.price && formik.errors.price ? formik.errors.price : undefined}
+                    />
+                    <Input
+                      label="Discount %"
+                      name="discountPercent"
+                      type="number"
+                      placeholder="e.g. 20"
+                      value={formik.values.discountPercent}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      error={formik.touched.discountPercent && formik.errors.discountPercent ? formik.errors.discountPercent : undefined}
+                    />
+                    <div className="w-full space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        Final Student Price
+                      </label>
+                      <div
+                        title="Calculated automatically from Price and Discount %"
+                        className="flex h-11 w-full items-center justify-between rounded-xl border border-cyan-500/40 bg-cyan-500/[0.08] dark:bg-cyan-500/[0.05] px-3.5 text-sm font-mono font-black text-cyan-600 dark:text-cyan-400 shadow-2xs"
+                      >
+                        <span className="text-base font-black">
+                          ₹{computeFinalPrice(formik.values.price, formik.values.discountPercent)}
+                        </span>
+                        {Number(formik.values.discountPercent) > 0 && (
+                          <span className="text-[11px] font-sans font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-md">
+                            {formik.values.discountPercent}% OFF
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

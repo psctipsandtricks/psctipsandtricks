@@ -15,13 +15,9 @@ import { ApiClient } from '@/lib/api-client';
 import { loadRazorpayScript } from '@/lib/razorpay';
 import { useAuth } from '@/app/auth-provider';
 
-/** Access verdict the API attaches to a quiz or mock test. */
-export interface QuizAccessState {
-  isPaid: boolean;
-  hasAccess: boolean;
-  price: number;
-  reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED';
-}
+import { QuizAccessState, formatSubscriptionDuration } from '@psc/shared-types';
+
+export type { QuizAccessState };
 
 /** A coupon the API accepted, kept so the summary can show what it saves. */
 interface AppliedCoupon {
@@ -263,16 +259,49 @@ export function QuizPaywall({
           </div>
 
           <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2">
+              <Badge variant="gold" className="text-[10px] font-black uppercase tracking-wider">
+                {access.subscriptionType === 'SUBSCRIPTION'
+                  ? `${formatSubscriptionDuration(access.subscriptionDuration)} · ${access.maxAttempts ?? 5} Attempts`
+                  : 'Full-Time Access · Unlimited Attempts'}
+              </Badge>
+            </div>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-              Premium Mock Test
+              {access.canRepurchase ? 'Renew Access' : 'Premium Mock Test'}
             </h2>
             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{title}</p>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
               {subtitle ||
-                'This test is based on a premium question bank. Complete the payment to unlock the questions and take part in the live rank list.'}
+                (access.canRepurchase
+                  ? 'Your previous access has ended. Purchase again to receive a fresh validity period and full attempt limit.'
+                  : 'This test is based on a premium question bank. Complete the payment to unlock the questions and take part in the live rank list.')}
             </p>
           </div>
         </div>
+
+        {access.reason === 'SUBSCRIPTION_EXPIRED' && (
+          <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-bold flex items-start gap-2 text-left">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+            <div>
+              <p className="font-extrabold text-sm">Subscription Expired</p>
+              <p className="font-medium text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Your subscription validity period has expired. Purchase again to regain access.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {access.reason === 'ATTEMPTS_EXHAUSTED' && (
+          <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-start gap-2 text-left">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+            <div>
+              <p className="font-extrabold text-sm">Attempt Limit Reached</p>
+              <p className="font-medium text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                You have exhausted all {access.maxAttempts ?? 5} attempts for this quiz. Purchase again to unlock fresh attempts.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Everything below only applies once we know who is buying. */}
         {needsLogin ? (
@@ -379,7 +408,13 @@ export function QuizPaywall({
               onClick={handlePay}
             >
               <Sparkles className="w-4 h-4" />
-              <span>{paying ? 'Processing payment…' : `Pay ₹${finalPrice} & Unlock`}</span>
+              <span>
+                {paying
+                  ? 'Processing payment…'
+                  : access.canRepurchase
+                    ? `Repurchase / Buy Again · Pay ₹${finalPrice}`
+                    : `Pay ₹${finalPrice} & Unlock`}
+              </span>
             </Button>
           </>
         )}

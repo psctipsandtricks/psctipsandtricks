@@ -2,7 +2,15 @@ import '../../core/utils/json.dart';
 import 'pdf_sync.dart';
 
 /// Why the API granted or withheld access to a book or quiz.
-enum AccessReason { free, purchased, staff, loginRequired, paymentRequired }
+enum AccessReason {
+  free,
+  purchased,
+  staff,
+  loginRequired,
+  paymentRequired,
+  subscriptionExpired,
+  attemptsExhausted,
+}
 
 AccessReason _reasonFrom(dynamic v) {
   switch (J.str(v).toUpperCase()) {
@@ -14,6 +22,10 @@ AccessReason _reasonFrom(dynamic v) {
       return AccessReason.staff;
     case 'LOGIN_REQUIRED':
       return AccessReason.loginRequired;
+    case 'SUBSCRIPTION_EXPIRED':
+      return AccessReason.subscriptionExpired;
+    case 'ATTEMPTS_EXHAUSTED':
+      return AccessReason.attemptsExhausted;
     default:
       return AccessReason.paymentRequired;
   }
@@ -56,6 +68,13 @@ class AccessState {
     required this.price,
     required this.reason,
     this.subscription,
+    this.subscriptionType,
+    this.subscriptionDuration,
+    this.validTillDate,
+    this.maxAttempts,
+    this.attemptsUsed,
+    this.remainingAttempts,
+    this.canRepurchase = false,
   });
 
   final bool isPaid;
@@ -67,11 +86,24 @@ class AccessState {
   /// does not lapse.
   final SubscriptionAccess? subscription;
 
+  final String? subscriptionType;
+  final String? subscriptionDuration;
+  final DateTime? validTillDate;
+  final int? maxAttempts;
+  final int? attemptsUsed;
+  final int? remainingAttempts;
+  final bool canRepurchase;
+
   bool get needsLogin => reason == AccessReason.loginRequired;
-  bool get needsPayment => reason == AccessReason.paymentRequired;
+  bool get needsPayment =>
+      reason == AccessReason.paymentRequired ||
+      reason == AccessReason.subscriptionExpired ||
+      reason == AccessReason.attemptsExhausted;
+  bool get isSubscriptionExpired => reason == AccessReason.subscriptionExpired;
+  bool get isAttemptsExhausted => reason == AccessReason.attemptsExhausted;
 
   /// When this entitlement runs out, or null when it never does.
-  DateTime? get validTill => subscription?.validTill;
+  DateTime? get validTill => validTillDate ?? subscription?.validTill;
 
   factory AccessState.fromJson(Map<String, dynamic> json) => AccessState(
         isPaid: J.boolVal(json['isPaid']),
@@ -81,6 +113,13 @@ class AccessState {
         subscription: json['subscription'] is Map
             ? SubscriptionAccess.fromJson(J.map(json['subscription']))
             : null,
+        subscriptionType: J.strOrNull(json['subscriptionType']),
+        subscriptionDuration: J.strOrNull(json['subscriptionDuration']),
+        validTillDate: J.dateOrNull(json['validTill']),
+        maxAttempts: J.intOrNull(json['maxAttempts']),
+        attemptsUsed: J.intOrNull(json['attemptsUsed']),
+        remainingAttempts: J.intOrNull(json['remainingAttempts']),
+        canRepurchase: J.boolVal(json['canRepurchase'], false),
       );
 }
 

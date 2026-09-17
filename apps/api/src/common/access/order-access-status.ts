@@ -54,6 +54,9 @@ export function subscriptionExpiryFrom(
 ): Date {
   const validTill = new Date(from);
   switch (duration) {
+    case '1_WEEK':
+      validTill.setDate(validTill.getDate() + 7);
+      break;
     case '1_MONTH':
       validTill.setMonth(validTill.getMonth() + 1);
       break;

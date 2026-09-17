@@ -8,6 +8,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { CreateManualOrderDto } from './dto/create-manual-order.dto';
 import { RazorpayService } from './razorpay.service';
+import { QuizAccessService } from '../common/access/quiz-access.service';
 
 /** Marks an order as admin-granted rather than paid through Razorpay — the admin orders table reads this prefix to show a "Manual" badge. */
 export const MANUAL_ORDER_TAG = 'MANUAL_GRANT';
@@ -56,6 +57,7 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private razorpayService: RazorpayService,
+    private quizAccess: QuizAccessService,
   ) {}
 
   async createOrder(userId: string, data: CreateOrderDto) {
@@ -64,23 +66,25 @@ export class OrdersService {
     if (data.quizId) {
       const quiz = await this.prisma.quiz.findUnique({
         where: { id: data.quizId },
-        select: { price: true, finalPrice: true, accessType: true, isPremium: true },
+        select: {
+          id: true,
+          price: true,
+          finalPrice: true,
+          accessType: true,
+          isPremium: true,
+          subscriptionType: true,
+          subscriptionDuration: true,
+          maxAttempts: true,
+        },
       });
       if (!quiz) throw new NotFoundException('Quiz not found');
 
       const isPaidQuiz = quiz.accessType === 'PAID' || quiz.isPremium || (quiz.price ?? 0) > 0;
       if (!isPaidQuiz) throw new BadRequestException('This quiz is free — no payment is needed.');
 
-      const existingSuccessOrder = await this.prisma.order.findFirst({
-        where: {
-          userId,
-          status: 'SUCCESS',
-          quizId: data.quizId,
-        },
-        select: { id: true },
-      });
-      if (existingSuccessOrder) {
-        throw new ConflictException('You have already purchased this quiz / mock test.');
+      const accessState = await this.quizAccess.getAccessState({ id: userId }, quiz);
+      if (accessState.hasAccess) {
+        throw new ConflictException('You already have active access to this quiz / mock test.');
       }
 
       amount = (quiz.finalPrice && quiz.finalPrice > 0) ? quiz.finalPrice : (quiz.price ?? 0);
@@ -216,29 +220,47 @@ export class OrdersService {
         validTill = subscriptionExpiryFrom(book.subscriptionDuration, purchasedAt);
       }
     } else if (dto.quizId) {
-      const quiz = await this.prisma.quiz.findUnique({ where: { id: dto.quizId }, select: { price: true, finalPrice: true } });
+      const quiz = await this.prisma.quiz.findUnique({
+        where: { id: dto.quizId },
+        select: {
+          id: true,
+          price: true,
+          finalPrice: true,
+          subscriptionType: true,
+          subscriptionDuration: true,
+          maxAttempts: true,
+        },
+      });
       if (!quiz) throw new NotFoundException('Quiz not found');
       if (amount === undefined) amount = (quiz.finalPrice && quiz.finalPrice > 0) ? quiz.finalPrice : (quiz.price ?? 0);
+      if (quiz.subscriptionType === 'SUBSCRIPTION') {
+        accessType = 'SUBSCRIPTION';
+        validTill = subscriptionExpiryFrom(quiz.subscriptionDuration, purchasedAt);
+      }
+
+      const accessState = await this.quizAccess.getAccessState({ id: dto.userId }, quiz);
+      if (accessState.hasAccess) {
+        throw new ConflictException(
+          'This quiz has already been purchased and is currently active for this user.',
+        );
+      }
     }
 
-    // Granting a second copy of something the student already holds would leave
-    // two live orders for one item — the access checks read the first one they
-    // find, and the duplicate only ever shows up as a confusing extra row in
-    // their order history. An expired subscription is not active, so re-granting
-    // that is allowed and is the normal way to renew one by hand.
-    const activeGrant = await this.prisma.order.findFirst({
-      where: {
-        userId: dto.userId,
-        status: 'SUCCESS',
-        ...(dto.bookId ? { bookId: dto.bookId } : { quizId: dto.quizId }),
-        OR: [{ validTill: null }, { validTill: { gt: new Date() } }],
-      },
-      select: { id: true },
-    });
-    if (activeGrant) {
-      throw new ConflictException(
-        'This product has already been purchased and is currently active for this user.',
-      );
+    if (dto.bookId) {
+      const activeGrant = await this.prisma.order.findFirst({
+        where: {
+          userId: dto.userId,
+          status: 'SUCCESS',
+          bookId: dto.bookId,
+          OR: [{ validTill: null }, { validTill: { gt: new Date() } }],
+        },
+        select: { id: true },
+      });
+      if (activeGrant) {
+        throw new ConflictException(
+          'This product has already been purchased and is currently active for this user.',
+        );
+      }
     }
 
     const notePart = dto.note ? `_${dto.note.slice(0, 60).replace(/\s+/g, '_')}` : '';
@@ -296,6 +318,15 @@ export class OrdersService {
         accessType = 'SUBSCRIPTION';
         validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
       }
+    } else if (order.quizId) {
+      const quiz = await this.prisma.quiz.findUnique({
+        where: { id: order.quizId },
+        select: { subscriptionType: true, subscriptionDuration: true },
+      });
+      if (quiz?.subscriptionType === 'SUBSCRIPTION') {
+        accessType = 'SUBSCRIPTION';
+        validTill = this.calculateSubscriptionExpiry(quiz.subscriptionDuration);
+      }
     }
 
     const updated = await this.prisma.order.update({
@@ -340,6 +371,15 @@ export class OrdersService {
               if (book?.subscriptionType === 'SUBSCRIPTION') {
                 accessType = 'SUBSCRIPTION';
                 validTill = this.calculateSubscriptionExpiry(book.subscriptionDuration);
+              }
+            } else if (order.quizId) {
+              const quiz = await this.prisma.quiz.findUnique({
+                where: { id: order.quizId },
+                select: { subscriptionType: true, subscriptionDuration: true },
+              });
+              if (quiz?.subscriptionType === 'SUBSCRIPTION') {
+                accessType = 'SUBSCRIPTION';
+                validTill = this.calculateSubscriptionExpiry(quiz.subscriptionDuration);
               }
             }
 

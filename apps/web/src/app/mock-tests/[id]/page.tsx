@@ -372,6 +372,10 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
       alert('No questions available to download PDF.');
       return;
     }
+    const answersMap = Object.keys(selectedAnswers).length > 0
+      ? selectedAnswers
+      : (mockTest as any)?.myAnswers || {};
+
     const exportQuestions = questions.map((q) => ({
       id: q.id,
       text: q.text,
@@ -379,7 +383,7 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
       correct: q.correct,
       explanation: q.explanation,
       marks: q.marks,
-      userSelection: selectedAnswers[q.id],
+      userSelection: answersMap[q.id],
     }));
 
     setIsExportingPDF(true);
@@ -387,7 +391,7 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
       const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
       await generateQuizSolutionsPDF({
         quizTitle: mockTest?.title || mockTest?.quiz?.title || 'Live Mock Test Solutions',
-        score: submitResult?.score ?? myParticipant?.score,
+        score: submitResult?.score ?? myParticipant?.score ?? (mockTest as any)?.myScore ?? (mockTest as any)?.myStats?.score,
         totalMarks: mockTest?.quiz?.totalMarks,
         questions: exportQuestions,
       });

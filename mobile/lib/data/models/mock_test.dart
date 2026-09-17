@@ -31,6 +31,9 @@ class MockTest {
     this.submitted = false,
     this.myScore,
     this.myRank,
+    this.myAnswers,
+    this.mySubmissionId,
+    this.myStats,
   });
 
   final String id;
@@ -58,6 +61,9 @@ class MockTest {
   /// between submitting and the background recompute landing.
   final double? myScore;
   final int? myRank;
+  final Map<String, int>? myAnswers;
+  final String? mySubmissionId;
+  final MockTestStats? myStats;
 
   bool get isLive => status == MockTestStatus.live;
   bool get isUpcoming => status == MockTestStatus.upcoming;
@@ -90,6 +96,39 @@ class MockTest {
         submitted: J.boolVal(json['submitted']),
         myScore: J.dblOrNull(json['myScore']),
         myRank: J.intOrNull(json['myRank']),
+        myAnswers: json['myAnswers'] is Map
+            ? (json['myAnswers'] as Map).map(
+                (k, v) => MapEntry(k.toString(), J.intVal(v)),
+              )
+            : null,
+        mySubmissionId: J.strOrNull(json['mySubmissionId']),
+        myStats: json['myStats'] is Map
+            ? MockTestStats.fromJson(J.map(json['myStats']))
+            : null,
+      );
+}
+
+class MockTestStats {
+  const MockTestStats({
+    this.correctAnswers = 0,
+    this.wrongAnswers = 0,
+    this.unattempted = 0,
+    this.score,
+    this.totalMarks,
+  });
+
+  final int correctAnswers;
+  final int wrongAnswers;
+  final int unattempted;
+  final double? score;
+  final double? totalMarks;
+
+  factory MockTestStats.fromJson(Map<String, dynamic> json) => MockTestStats(
+        correctAnswers: J.intVal(json['correctAnswers']),
+        wrongAnswers: J.intVal(json['wrongAnswers']),
+        unattempted: J.intVal(json['unattempted']),
+        score: J.dblOrNull(json['score']),
+        totalMarks: J.dblOrNull(json['totalMarks']),
       );
 }
 

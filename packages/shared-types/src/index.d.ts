@@ -72,6 +72,31 @@ export declare const BOOK_SUBSCRIPTION_DURATIONS_LIST: readonly [{
     readonly value: "1_YEAR";
     readonly label: "1 Year (12 Months)";
 }];
+export type QuizSubscriptionType = 'FULL_TIME_ACCESS' | 'SUBSCRIPTION';
+export type QuizSubscriptionDuration = '1_WEEK' | '1_MONTH' | '3_MONTHS' | '6_MONTHS' | '1_YEAR';
+export declare const QUIZ_SUBSCRIPTION_TYPES: readonly [{
+    readonly value: "FULL_TIME_ACCESS";
+    readonly label: "Full Time Access";
+}, {
+    readonly value: "SUBSCRIPTION";
+    readonly label: "Subscription";
+}];
+export declare const QUIZ_SUBSCRIPTION_DURATIONS_LIST: readonly [{
+    readonly value: "1_WEEK";
+    readonly label: "1 Week";
+}, {
+    readonly value: "1_MONTH";
+    readonly label: "1 Month";
+}, {
+    readonly value: "3_MONTHS";
+    readonly label: "3 Months";
+}, {
+    readonly value: "6_MONTHS";
+    readonly label: "6 Months";
+}, {
+    readonly value: "1_YEAR";
+    readonly label: "1 Year (12 Months)";
+}];
 export declare function formatSubscriptionDuration(duration?: string | null): string;
 export interface Book {
     id: string;
@@ -400,6 +425,9 @@ export interface Quiz {
     price: number;
     discountPercent?: number;
     finalPrice?: number;
+    subscriptionType?: QuizSubscriptionType | string;
+    subscriptionDuration?: QuizSubscriptionDuration | string | null;
+    maxAttempts?: number | null;
     /** "For every N wrong answers, deduct M marks" — disabled by default. */
     negativeMarkingEnabled: boolean;
     negativeMarkingEvery: number;
@@ -411,6 +439,21 @@ export interface Quiz {
     questions?: Question[];
     createdAt: string;
     updatedAt: string;
+}
+export interface QuizAccessState {
+    isPaid: boolean;
+    hasAccess: boolean;
+    price: number;
+    originalPrice?: number;
+    discountPercent?: number;
+    reason: 'FREE' | 'PURCHASED' | 'STAFF' | 'LOGIN_REQUIRED' | 'PAYMENT_REQUIRED' | 'SUBSCRIPTION_EXPIRED' | 'ATTEMPTS_EXHAUSTED';
+    subscriptionType?: QuizSubscriptionType | string;
+    subscriptionDuration?: QuizSubscriptionDuration | string | null;
+    validTill?: string | null;
+    maxAttempts?: number | null;
+    attemptsUsed?: number;
+    remainingAttempts?: number | null;
+    canRepurchase?: boolean;
 }
 export interface QuizSubmissionPayload {
     quizId: string;

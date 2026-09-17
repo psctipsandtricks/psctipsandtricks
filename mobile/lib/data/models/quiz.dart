@@ -120,6 +120,9 @@ class Quiz {
     this.mockTestId,
     this.createdAt,
     this.releaseDate,
+    this.subscriptionType,
+    this.subscriptionDuration,
+    this.maxAttempts,
     this.isActive = true,
   }) : finalPrice = finalPrice ?? price;
 
@@ -131,6 +134,9 @@ class Quiz {
   final String? accessType;
   final String? imageUrl;
   final String? mockTestId;
+  final String? subscriptionType;
+  final String? subscriptionDuration;
+  final int? maxAttempts;
   final int totalQuestions;
   final int durationMinutes;
   final bool isLiveMock;
@@ -194,6 +200,9 @@ class Quiz {
         access: json['access'] is Map
             ? AccessState.fromJson(J.map(json['access']))
             : null,
+        subscriptionType: J.strOrNull(json['subscriptionType']),
+        subscriptionDuration: J.strOrNull(json['subscriptionDuration']),
+        maxAttempts: J.intOrNull(json['maxAttempts']),
         questions: J.list(json['questions'], Question.fromJson),
         createdAt: J.dateOrNull(json['createdAt']),
         releaseDate: J.dateOrNull(json['releaseDate']),
