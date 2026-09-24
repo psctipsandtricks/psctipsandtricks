@@ -10,11 +10,13 @@ const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
 
 const QUICK_LINKS = [
   { label: 'Home', href: '/' },
+  { label: 'About Us', href: '/about' },
   { label: 'Quiz Hub', href: '/quizzes' },
   { label: 'E-Books', href: '/books' },
   { label: 'Community', href: '/community' },
   { label: 'Dashboard', href: '/dashboard' },
 ];
+
 
 const RESOURCE_LINKS = [
   { label: 'Mock Tests & Rank Lists', href: '/quizzes' },

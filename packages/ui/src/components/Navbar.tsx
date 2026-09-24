@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {brandName}
             </span>
           </LinkTag>
-          <nav className="hidden md:flex items-center space-x-1">
+          <nav className="hidden min-[1260px]:flex items-center space-x-1">
             {links.map((link) => (
               <LinkTag
                 key={link.href}
@@ -180,7 +180,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <div className="flex items-center space-x-1.5 sm:space-x-3 shrink-0">
           {actions ? (
-            <div className="hidden md:flex items-center">
+            <div className="hidden min-[1260px]:flex items-center">
               {actions}
             </div>
           ) : null}
@@ -492,7 +492,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-xl border border-slate-300 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300 active:scale-90"
+            className="min-[1260px]:hidden p-2 rounded-xl border border-slate-300 dark:border-[#1e2e56] text-slate-700 dark:text-slate-300 active:scale-90"
+            aria-label="Toggle Navigation Menu"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -501,7 +502,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Navigation Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl px-4 py-4 space-y-2 animate-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
+        <div className="min-[1260px]:hidden border-t border-slate-200 dark:border-[#1e2e56] bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl px-4 py-4 space-y-2 animate-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
           {user && (
             <div className="p-3 rounded-2xl bg-slate-100/90 dark:bg-[#0c1630] border border-slate-200 dark:border-[#1e2e56] mb-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">

@@ -10,6 +10,7 @@ import { NotificationBell } from './notification-bell';
 
 const MAIN_NAV_ROUTES = [
   '/',
+  '/about',
   '/quizzes',
   '/books',
   '/videos',
@@ -56,6 +57,8 @@ export function NavbarWrapper() {
         ]
       : []),
   ];
+
+
 
   // Shown only after mount, and only to a signed-in student: the inbox needs a
   // session, and a bell that popped in on hydration would shift the action row.
