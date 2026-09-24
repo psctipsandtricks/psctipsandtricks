@@ -24,8 +24,16 @@ class PdfDownloader {
   }) async {
     if (url.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No PDF URL available for download.'),
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          content: const Text(
+            'No PDF URL available for download.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
           backgroundColor: AppColors.rose,
         ),
       );
@@ -72,12 +80,18 @@ class PdfDownloader {
       messenger.hideCurrentSnackBar();
       if (e.code == 'permission_denied') {
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            content: const Text(
               'Storage permission is needed to save PDFs to your device.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
             ),
             backgroundColor: AppColors.rose,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
       } else {
@@ -135,18 +149,32 @@ class PdfDownloader {
       messenger.hideCurrentSnackBar();
       if (e.code == 'permission_denied') {
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            content: const Text(
               'Storage permission is needed to save PDFs to your device.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
             ),
             backgroundColor: AppColors.rose,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
       } else {
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Could not save the PDF: ${e.message ?? e.code}'),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            content: Text(
+              'Could not save the PDF: ${e.message ?? e.code}',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
             backgroundColor: AppColors.rose,
             duration: const Duration(seconds: 4),
           ),
@@ -156,7 +184,15 @@ class PdfDownloader {
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Could not save the PDF: $e'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          content: Text(
+            'Could not save the PDF: $e',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
           backgroundColor: AppColors.rose,
           duration: const Duration(seconds: 4),
         ),
@@ -205,9 +241,17 @@ class PdfDownloader {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Opening the PDF in your browser instead…'),
-            duration: Duration(seconds: 3),
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            content: const Text(
+              'Opening the PDF in your browser instead…',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+            duration: const Duration(seconds: 3),
           ),
         );
         return;
@@ -216,7 +260,15 @@ class PdfDownloader {
 
     messenger.showSnackBar(
       SnackBar(
-        content: Text('Could not download the PDF: $reason'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        content: Text(
+          'Could not download the PDF: $reason',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
         backgroundColor: AppColors.rose,
         duration: const Duration(seconds: 4),
       ),
@@ -225,6 +277,14 @@ class PdfDownloader {
 
   static SnackBar _progressSnack(String fileName, {String verb = 'Downloading'}) =>
       SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFF334155), width: 1),
+        ),
+        backgroundColor: const Color(0xFF0F172A),
+        duration: const Duration(seconds: 45),
         content: Row(
           children: [
             const SizedBox(
@@ -232,7 +292,7 @@ class PdfDownloader {
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2.2,
-                color: Colors.white,
+                color: AppColors.cyan,
               ),
             ),
             const SizedBox(width: 14),
@@ -241,35 +301,75 @@ class PdfDownloader {
                 '$verb $fileName…',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
               ),
             ),
           ],
         ),
-        duration: const Duration(seconds: 45),
-        backgroundColor: const Color(0xFF1E293B),
       );
 
   static SnackBar _successSnack(String fileName, String savedUri, String url) {
     final canOpen = FileSaver.canOpen(savedUri);
     return SnackBar(
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: AppColors.emerald.withValues(alpha: 0.5),
+          width: 1.2,
+        ),
+      ),
+      backgroundColor: const Color(0xFF0F172A),
+      duration: const Duration(seconds: 5),
       content: Row(
         children: [
-          const Icon(Icons.check_circle_rounded,
-              color: AppColors.emerald, size: 20),
-          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppColors.emerald.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.check_circle_rounded,
+              color: AppColors.emerald,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              'Saved to Downloads · $fileName',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Saved to Downloads',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
-      backgroundColor: const Color(0xFF0F172A),
-      duration: const Duration(seconds: 5),
       action: SnackBarAction(
         label: 'Open',
         textColor: AppColors.cyan,

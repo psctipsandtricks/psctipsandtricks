@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:psc_tips_tricks_mobile/core/theme/app_theme.dart';
@@ -6,36 +7,51 @@ import 'package:psc_tips_tricks_mobile/data/models/book.dart' show AccessState, 
 import 'package:psc_tips_tricks_mobile/data/models/quiz.dart';
 import 'package:psc_tips_tricks_mobile/features/quizzes/widgets/quiz_card.dart';
 
-QuizAttemptSummary _summary({int completed = 0, String? inProgress}) =>
+QuizAttemptSummary _summary({
+  int completed = 0,
+  String? inProgress,
+  String? latestAttemptId,
+}) =>
     QuizAttemptSummary(
       quizId: 'q1',
       completedCount: completed,
       inProgressAttemptId: inProgress,
+      latestAttemptId: latestAttemptId ?? (completed > 0 ? 'att-1' : null),
     );
 
-Quiz _quiz() => const Quiz(
+Quiz _quiz({bool isPaid = false}) => Quiz(
       id: 'q1',
       title: 'Kerala Renaissance',
       totalQuestions: 20,
       durationMinutes: 20,
       isLiveMock: false,
-      isPremium: false,
-      price: 0,
+      isPremium: isPaid,
+      price: isPaid ? 199 : 0,
       passingMarks: 40,
       totalMarks: 20,
       negativeMarking: NegativeMarking.disabled,
       showCorrectAnswerAfterSelection: false,
     );
 
-Future<void> _pumpCard(WidgetTester tester, QuizAttemptSummary? attempt) async {
+Future<void> _pumpCard(
+  WidgetTester tester,
+  QuizAttemptSummary? attempt, {
+  Quiz? quiz,
+}) async {
   await tester.pumpWidget(
-    MaterialApp(
-      theme: AppTheme.light(),
-      home: Scaffold(
-        body: Center(
-          child: SizedBox(
-            width: 320,
-            child: QuizCard(quiz: _quiz(), attempt: attempt, width: 320),
+    ProviderScope(
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 320,
+              child: QuizCard(
+                quiz: quiz ?? _quiz(),
+                attempt: attempt,
+                width: 320,
+              ),
+            ),
           ),
         ),
       ),
@@ -309,6 +325,32 @@ void main() {
       expect(find.text('Buy Now'), findsNothing);
       expect(find.text('Renew'), findsNothing);
       expect(find.text('3 attempts left'), findsOneWidget);
+    });
+
+    testWidgets('unattempted quiz shows neither review nor download solution icons',
+        (tester) async {
+      await _pumpCard(tester, null);
+      expect(find.byIcon(Icons.fact_check_rounded), findsNothing);
+      expect(find.byIcon(Icons.download_rounded), findsNothing);
+    });
+
+    testWidgets('free quiz with completed attempt shows review answer icon only',
+        (tester) async {
+      await _pumpCard(tester, _summary(completed: 1));
+      expect(find.byIcon(Icons.fact_check_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.download_rounded), findsNothing);
+    });
+
+    testWidgets('premium quiz with completed attempt shows both review answer and download solution icons',
+        (tester) async {
+      final premiumQuiz = _quiz(isPaid: true);
+      await _pumpCard(
+        tester,
+        _summary(completed: 1),
+        quiz: premiumQuiz,
+      );
+      expect(find.byIcon(Icons.fact_check_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.download_rounded), findsOneWidget);
     });
   });
 }

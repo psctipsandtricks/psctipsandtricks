@@ -640,12 +640,17 @@ export class QuizzesService {
    * asking per quiz.
    */
   async getAttemptSummary(userId: string) {
-    const [completed, inProgress] = await Promise.all([
+    const [completedGroups, completedSubmissions, inProgress] = await Promise.all([
       this.prisma.quizSubmission.groupBy({
         by: ['quizId'],
         where: { userId, attemptStatus: 'COMPLETED' },
         _count: { _all: true },
         _max: { submittedAt: true },
+      }),
+      this.prisma.quizSubmission.findMany({
+        where: { userId, attemptStatus: 'COMPLETED' },
+        select: { id: true, quizId: true, submittedAt: true },
+        orderBy: { submittedAt: 'desc' },
       }),
       this.prisma.quizSubmission.findMany({
         where: { userId, attemptStatus: 'IN_PROGRESS' },
@@ -654,6 +659,13 @@ export class QuizzesService {
       }),
     ]);
 
+    const latestCompletedByQuiz = new Map<string, string>();
+    for (const sub of completedSubmissions) {
+      if (!latestCompletedByQuiz.has(sub.quizId)) {
+        latestCompletedByQuiz.set(sub.quizId, sub.id);
+      }
+    }
+
     const byQuiz = new Map<
       string,
       {
@@ -661,15 +673,17 @@ export class QuizzesService {
         completedCount: number;
         lastSubmittedAt: Date | null;
         inProgressAttemptId: string | null;
+        latestAttemptId: string | null;
       }
     >();
 
-    for (const row of completed) {
+    for (const row of completedGroups) {
       byQuiz.set(row.quizId, {
         quizId: row.quizId,
         completedCount: row._count._all,
         lastSubmittedAt: row._max.submittedAt,
         inProgressAttemptId: null,
+        latestAttemptId: latestCompletedByQuiz.get(row.quizId) ?? null,
       });
     }
 
@@ -690,6 +704,7 @@ export class QuizzesService {
           completedCount: 0,
           lastSubmittedAt: null,
           inProgressAttemptId: attempt.id,
+          latestAttemptId: null,
         });
       }
     }

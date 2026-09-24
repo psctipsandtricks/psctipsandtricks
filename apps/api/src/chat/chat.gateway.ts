@@ -75,7 +75,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('joinRoom')
-  async handleJoinRoom(@ConnectedSocket() client: Socket, @MessageBody('room') room: string) {
+  async handleJoinRoom(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    const room = typeof data === 'string' ? data : data?.room;
+    if (!room) return;
     // Blocked members must not receive a group's realtime feed either.
     const groupId = room?.startsWith('group:') ? room.slice('group:'.length) : null;
     const authedUser = this.socketUsers.get(client.id);
@@ -87,6 +89,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.join(room);
     this.logger.log(`Client ${client.id} joined room: ${room}`);
     return { event: 'joinedRoom', room };
+  }
+
+  @SubscribeMessage('leaveRoom')
+  handleLeaveRoom(@ConnectedSocket() client: Socket, @MessageBody() data: any) {
+    const room = typeof data === 'string' ? data : data?.room;
+    if (!room) return;
+    client.leave(room);
+    this.logger.log(`Client ${client.id} left room: ${room}`);
+    return { event: 'leftRoom', room };
   }
 
   @SubscribeMessage('sendChatMessage')
@@ -151,6 +162,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   async broadcastGroupMessage(groupId: string, message: unknown) {
     this.server.to(`group:${groupId}`).emit('newChatMessage', message);
+    this.server.emit('newChatMessage', message);
     try {
       const memberIds = await this.chatService.getActiveMemberUserIds(groupId);
       if (memberIds.length === 0) return;
@@ -166,17 +178,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Broadcast reactions and poll vote updates in real time.
    */
-  broadcastMetadataUpdate(messageId: string, metadata: unknown) {
-    this.server.emit('messageMetadataUpdated', { messageId, metadata });
+  broadcastMetadataUpdate(messageId: string, metadata: unknown, groupId?: string) {
+    if (groupId) {
+      this.server.to(`group:${groupId}`).emit('messageMetadataUpdated', { messageId, metadata, groupId });
+    }
+    this.server.emit('messageMetadataUpdated', { messageId, metadata, groupId });
   }
 
   /** Tells every connected client to redraw a message its author rewrote. */
   broadcastMessageEdited(groupId: string, message: unknown) {
     this.server.to(`group:${groupId}`).emit('messageEdited', { groupId, message });
+    this.server.emit('messageEdited', { groupId, message });
   }
 
   /** Tells every connected client to drop a deleted message from their thread. */
   broadcastMessageDeleted(groupId: string, messageId: string) {
+    this.server.to(`group:${groupId}`).emit('messageDeleted', { groupId, messageId });
     this.server.emit('messageDeleted', { groupId, messageId });
   }
 

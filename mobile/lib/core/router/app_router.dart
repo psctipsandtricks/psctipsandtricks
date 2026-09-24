@@ -202,6 +202,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             QuizReviewScreen(attemptId: state.pathParameters['attemptId']!),
       ),
       GoRoute(
+        path: '/quizzes/attempts/:attemptId',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) =>
+            QuizReviewScreen(attemptId: state.pathParameters['attemptId']!),
+      ),
+      GoRoute(
         path: '/mock-tests/:id',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) =>

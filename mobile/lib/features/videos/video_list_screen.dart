@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -13,8 +15,9 @@ import '../shell/library_providers.dart';
 import 'video_player_screen.dart';
 import '../shell/shell_scaffold.dart';
 
-/// Videos of an exam or category. Supports both subfolders (chapters)
-/// and direct video lessons.
+/// Videos of an exam or category.
+/// Implements a natural step-by-step folder navigation flow where tapping a chapter/folder
+/// opens that folder's contents on a new screen.
 class VideoListScreen extends ConsumerWidget {
   const VideoListScreen({
     super.key,
@@ -62,36 +65,23 @@ class VideoListScreen extends ConsumerWidget {
               child: ListView(
                 padding: EdgeInsets.fromLTRB(
                   Responsive.horizontalPadding(context),
-                  12,
+                  14,
                   Responsive.horizontalPadding(context),
                   24 + ShellScaffold.dockExtent,
                 ),
                 children: [
-                  // 1. Subfolders / Chapters
+                  // 1. Subfolders / Chapters (Step-by-step navigation)
                   if (subfolders.isNotEmpty) ...[
-                    if (directVideos.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
-                        child: Text(
-                          'Chapters (${subfolders.length})',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: context.palette.textMuted,
-                              ),
-                        ),
-                      ),
-                    for (int i = 0; i < subfolders.length; i++)
-                      _ChapterTile(
-                        chapter: subfolders[i],
-                        initiallyExpanded: i == 0 && directVideos.isEmpty,
-                      ),
+                    for (final folder in subfolders)
+                      _VideoFolderCard(folder: folder),
                   ],
 
-                  // 2. Direct Videos
+                  // 2. Direct Videos belonging to this specific folder
                   if (directVideos.isNotEmpty) ...[
-                    if (subfolders.isNotEmpty)
+                    if (subfolders.isNotEmpty) ...[
+                      const SizedBox(height: 6),
                       Padding(
-                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 12),
+                        padding: const EdgeInsets.only(left: 4, bottom: 8),
                         child: Text(
                           'Video Lessons (${directVideos.length})',
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -100,6 +90,7 @@ class VideoListScreen extends ConsumerWidget {
                               ),
                         ),
                       ),
+                    ],
                     Container(
                       decoration: BoxDecoration(
                         color: context.palette.card,
@@ -131,14 +122,14 @@ class VideoListScreen extends ConsumerWidget {
   }
 }
 
-class _ChapterTile extends ConsumerWidget {
-  const _ChapterTile({required this.chapter, this.initiallyExpanded = false});
+/// Clean, modern video folder tile that navigates into the folder upon click.
+class _VideoFolderCard extends StatelessWidget {
+  const _VideoFolderCard({required this.folder});
 
-  final LibraryFolder chapter;
-  final bool initiallyExpanded;
+  final LibraryFolder folder;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final palette = context.palette;
 
     return Container(
@@ -147,99 +138,78 @@ class _ChapterTile extends ConsumerWidget {
         color: palette.card,
         borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         border: Border.all(color: palette.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: palette.isDark ? 0.2 : 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: initiallyExpanded,
-          maintainState: true,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-          leading: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.red.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: const Icon(Icons.playlist_play_rounded,
-                color: AppColors.red, size: 18),
-          ),
-          title: Text(
-            chapter.title,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
-          ),
-          subtitle: chapter.itemCount > 0
-              ? Text(
-                  Fmt.count(chapter.itemCount, 'video'),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: palette.textMuted,
-                      ),
-                )
-              : null,
-          children: [_VideoList(chapterId: chapter.id)],
-        ),
-      ),
-    );
-  }
-}
-
-class _VideoList extends ConsumerWidget {
-  const _VideoList({required this.chapterId});
-
-  final String chapterId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final videosAsync = ref.watch(chapterVideosProvider(chapterId));
-
-    return videosAsync.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.fromLTRB(14, 0, 14, 16),
-        child: Column(
-          children: [
-            SkeletonBox(height: 74, radius: AppTheme.radiusMd),
-            SizedBox(height: 10),
-            SkeletonBox(height: 74, radius: AppTheme.radiusMd),
-          ],
-        ),
-      ),
-      error: (error, _) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: ErrorView(
-          error: error,
-          compact: true,
-          onRetry: () => ref.invalidate(chapterVideosProvider(chapterId)),
-        ),
-      ),
-      data: (videos) {
-        if (videos.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-            child: Text(
-              'No videos in this chapter yet.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: context.palette.textMuted,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            context.push(
+              '${AppRoutes.library}/videos/${folder.id}?title=${Uri.encodeComponent(folder.title)}',
+            );
+          },
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: AppColors.red.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-            ),
-          );
-        }
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-          child: Column(
-            children: [
-              for (final video in videos)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _VideoRow(video: video),
+                  child: const Icon(
+                    Icons.folder_rounded,
+                    color: AppColors.red,
+                    size: 22,
+                  ),
                 ),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        folder.title,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                              height: 1.25,
+                            ),
+                      ),
+                      if (folder.itemCount > 0) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          Fmt.count(folder.itemCount, 'video'),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: palette.textMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: palette.textMuted.withValues(alpha: 0.7),
+                  size: 22,
+                ),
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -251,81 +221,95 @@ class _VideoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
-
-    return InkWell(
-      onTap: () => openVideo(
-        context,
-        VideoPlayerArgs(
-          youtubeUrl: video.youtubeUrl,
-          title: video.title,
-          description: video.description,
-          pdfUrl: video.pdfUrl,
-          pdfFileName: video.pdfFileName,
-          thumbnailUrl: video.effectiveThumbnailUrl,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        onTap: () => openVideo(
+          context,
+          VideoPlayerArgs(
+            youtubeUrl: video.youtubeUrl,
+            title: video.title,
+            description: video.description,
+            pdfUrl: video.pdfUrl,
+            pdfFileName: video.pdfFileName,
+            thumbnailUrl: video.effectiveThumbnailUrl,
+          ),
         ),
-      ),
-      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Row(
-          children: [
-            VideoThumbnail(
-              thumbnailUrl: video.effectiveThumbnailUrl,
-              youtubeVideoId: video.youtubeVideoId,
-              youtubeUrl: video.youtubeUrl,
-              width: 112,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    video.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          height: 1.3,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: AppColors.red.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: AppColors.red,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      video.title,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13.5,
+                          ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (video.hasNotes) ...[
+                      const SizedBox(height: 3),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => openPdf(
+                          context,
+                          url: video.pdfUrl!,
+                          title: video.pdfFileName ?? 'Class notes',
                         ),
-                  ),
-                  if (video.hasNotes) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(Icons.attach_file_rounded,
-                            size: 12, color: AppColors.amber),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Notes attached',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.attach_file_rounded,
+                              size: 13,
+                              color: AppColors.amber,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              video.pdfFileName ?? 'Notes',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
                                     color: AppColors.amber,
                                     fontWeight: FontWeight.w700,
                                   ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            ),
-            if (video.hasNotes)
-              IconButton(
-                icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
-                color: AppColors.rose,
-                tooltip: 'View notes PDF',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => openPdf(
-                  context,
-                  url: video.pdfUrl!,
-                  title: video.pdfFileName ?? '${video.title} notes',
-                  minimal: true,
                 ),
               ),
-            Icon(Icons.chevron_right_rounded, color: palette.textMuted),
-          ],
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: Colors.grey,
+              ),
+            ],
+          ),
         ),
       ),
     );

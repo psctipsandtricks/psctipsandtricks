@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardTitle, CardDescription, Button, Badge, Input, Pagination } from '@psc/ui';
-import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion, RotateCcw } from 'lucide-react';
+import { Timer, Award, Folder, FolderOpen, Lock, Unlock, ArrowRight, Search, Filter, History, Radio, CheckCircle2, Trophy, Calendar, Clock, ChevronRight, ChevronLeft, Crown, ShoppingCart, Zap, FileQuestion, RotateCcw, ListChecks, Download, Loader2 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { QuizFolder, QuizAttemptSummary } from '@psc/shared-types';
 import { useAuth } from '../auth-provider';
@@ -1125,14 +1125,51 @@ function QuizCardItem({
   attempt?: QuizAttemptSummary;
   onStart: () => void;
 }) {
+  const router = useRouter();
   const isPaid = quiz.accessType === 'PAID';
   // An unfinished attempt outranks a finished one: the thing to offer someone
   // who walked away mid-quiz is the way back in, not another fresh run.
   const inProgress = !!attempt?.inProgressAttemptId;
   const completedCount = attempt?.completedCount ?? 0;
+  const hasCompleted = completedCount > 0;
+  const latestAttemptId = attempt?.latestAttemptId;
   const isNew = isRecentlyUploaded(quiz.createdAt);
   const defaultCover = isPaid ? '/default-quiz-cover.svg' : '/default-free-quiz-cover.svg';
   const coverImage = quiz.imageUrl || defaultCover;
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const handleDownloadPdf = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!latestAttemptId || downloadingPdf) return;
+    setDownloadingPdf(true);
+    try {
+      const review = await ApiClient.getQuizAttemptReview(latestAttemptId);
+      const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
+      await generateQuizSolutionsPDF({
+        quizTitle: review.quizTitle || quiz.title || 'PSC Quiz Solutions',
+        score: review.score,
+        totalMarks: review.totalMarks,
+        questions: (review.questions || []).map((q) => ({
+          id: q.id,
+          text: q.text,
+          options: (q.options || []).map((opt) => ({
+            id: opt.id,
+            text: opt.text,
+            explanation: opt.explanation ?? undefined,
+          })),
+          correct: q.correctOptionIndex ?? -1,
+          explanation: q.explanation ?? undefined,
+          marks: q.marks,
+          userSelection: q.selectedOptionIndex ?? undefined,
+        })),
+      });
+    } catch (err) {
+      console.error('Failed to generate solutions PDF', err);
+      alert('Could not generate the solutions PDF. Please try again.');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
 
   return (
     <Card
@@ -1259,57 +1296,105 @@ function QuizCardItem({
         </div>
       </div>
 
-      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-        {quiz.accessReason === 'ATTEMPTS_EXHAUSTED' ? (
-          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>
-              {quiz.maxAttempts ? `${quiz.attemptsUsed ?? completedCount}/${quiz.maxAttempts} attempts used` : 'Attempts exhausted'}
-            </span>
-          </span>
-        ) : quiz.accessReason === 'SUBSCRIPTION_EXPIRED' ? (
-          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-            <Timer className="w-3.5 h-3.5" />
-            <span>Subscription expired</span>
-          </span>
-        ) : inProgress ? (
-          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-            <History className="w-3.5 h-3.5" />
-            <span>In progress</span>
-          </span>
-        ) : quiz.hasAccess && quiz.remainingAttempts !== null && quiz.remainingAttempts !== undefined ? (
-          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>
-              {quiz.remainingAttempts} {quiz.remainingAttempts === 1 ? 'attempt' : 'attempts'} left
-            </span>
-          </span>
-        ) : completedCount > 0 ? (
-          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>
-              {completedCount} {completedCount === 1 ? 'attempt' : 'attempts'}
-            </span>
-          </span>
-        ) : (
-          <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
-        )}
-
-        {quiz.accessType === 'PAID' && !quiz.hasAccess ? (
-          quiz.canRepurchase || quiz.isPurchased ? (
-            <Button
-              size="sm"
-              variant="gold"
-              className="font-bold cursor-pointer"
-              onClick={onStart}
-            >
-              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          {quiz.accessReason === 'ATTEMPTS_EXHAUSTED' ? (
+            <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <RotateCcw className="w-3.5 h-3.5" />
               <span>
-                {quiz.accessReason === 'SUBSCRIPTION_EXPIRED' || quiz.subscriptionType === 'SUBSCRIPTION'
-                  ? 'Renew'
-                  : 'Repurchase'}
+                {quiz.maxAttempts ? `${quiz.attemptsUsed ?? completedCount}/${quiz.maxAttempts} attempts used` : 'Attempts exhausted'}
               </span>
-            </Button>
+            </span>
+          ) : quiz.accessReason === 'SUBSCRIPTION_EXPIRED' ? (
+            <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <Timer className="w-3.5 h-3.5" />
+              <span>Subscription expired</span>
+            </span>
+          ) : inProgress ? (
+            <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <History className="w-3.5 h-3.5" />
+              <span>In progress</span>
+            </span>
+          ) : quiz.hasAccess && quiz.remainingAttempts !== null && quiz.remainingAttempts !== undefined ? (
+            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>
+                {quiz.remainingAttempts} {quiz.remainingAttempts === 1 ? 'attempt' : 'attempts'} left
+              </span>
+            </span>
+          ) : completedCount > 0 ? (
+            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>
+                {completedCount} {completedCount === 1 ? 'attempt' : 'attempts'}
+              </span>
+            </span>
+          ) : (
+            <span className="text-[11px] text-slate-400 font-mono">Not attempted</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Review Answer icon button for any quiz with at least one completed attempt */}
+          {hasCompleted && latestAttemptId && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/quizzes/attempts/${latestAttemptId}`);
+              }}
+              title="Review Answer"
+              className="p-2 rounded-xl text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 shadow-xs transition-all active:scale-95 cursor-pointer flex items-center justify-center"
+              aria-label="Review Answer"
+            >
+              <ListChecks className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Download Solution PDF icon button for Premium Quizzes with at least one completed attempt */}
+          {isPaid && hasCompleted && latestAttemptId && (
+            <button
+              type="button"
+              disabled={downloadingPdf}
+              onClick={handleDownloadPdf}
+              title="Download Solution PDF"
+              className="p-2 rounded-xl text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+              aria-label="Download Solution PDF"
+            >
+              {downloadingPdf ? (
+                <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+            </button>
+          )}
+
+          {quiz.accessType === 'PAID' && !quiz.hasAccess ? (
+            quiz.canRepurchase || quiz.isPurchased ? (
+              <Button
+                size="sm"
+                variant="gold"
+                className="font-bold cursor-pointer"
+                onClick={onStart}
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                <span>
+                  {quiz.accessReason === 'SUBSCRIPTION_EXPIRED' || quiz.subscriptionType === 'SUBSCRIPTION'
+                    ? 'Renew'
+                    : 'Repurchase'}
+                </span>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="gold"
+                className="font-bold cursor-pointer"
+                onClick={onStart}
+              >
+                <ShoppingCart className="w-3.5 h-3.5 mr-1" />
+                <span>Buy Now</span>
+              </Button>
+            )
           ) : (
             <Button
               size="sm"
@@ -1317,23 +1402,13 @@ function QuizCardItem({
               className="font-bold cursor-pointer"
               onClick={onStart}
             >
-              <ShoppingCart className="w-3.5 h-3.5 mr-1" />
-              <span>Buy Now</span>
+              <span>
+                {inProgress ? 'Resume Quiz' : completedCount > 0 ? 'Retake Quiz' : 'Start Quiz'}
+              </span>
+              <ChevronRight className="w-3.5 h-3.5 ml-1" />
             </Button>
-          )
-        ) : (
-          <Button
-            size="sm"
-            variant="gold"
-            className="font-bold cursor-pointer"
-            onClick={onStart}
-          >
-            <span>
-              {inProgress ? 'Resume Quiz' : completedCount > 0 ? 'Retake Quiz' : 'Start Quiz'}
-            </span>
-            <ChevronRight className="w-3.5 h-3.5 ml-1" />
-          </Button>
-        )}
+          )}
+        </div>
       </div>
     </Card>
   );

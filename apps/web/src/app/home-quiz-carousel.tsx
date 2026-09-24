@@ -18,6 +18,9 @@ import {
   Sparkles,
   Unlock,
   RotateCcw,
+  ListChecks,
+  Download,
+  Loader2,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from './auth-provider';
@@ -81,6 +84,8 @@ export function HomeQuizCarousel() {
   const router = useRouter();
 
   const [quizzes, setQuizzes] = useState<HomeQuiz[]>([]);
+  const [attemptsByQuiz, setAttemptsByQuiz] = useState<Map<string, any>>(new Map());
+  const [downloadingPdfQuizId, setDownloadingPdfQuizId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -90,9 +95,51 @@ export function HomeQuizCarousel() {
   const railRef = useRef<HTMLDivElement>(null);
   const autoScrollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const handleDownloadPdf = async (e: React.MouseEvent, quiz: HomeQuiz, attemptId: string) => {
+    e.stopPropagation();
+    if (!attemptId || downloadingPdfQuizId) return;
+    setDownloadingPdfQuizId(quiz.id);
+    try {
+      const review = await ApiClient.getQuizAttemptReview(attemptId);
+      const { generateQuizSolutionsPDF } = await import('@/lib/pdf-exporter');
+      await generateQuizSolutionsPDF({
+        quizTitle: review.quizTitle || quiz.title || 'PSC Quiz Solutions',
+        score: review.score,
+        totalMarks: review.totalMarks,
+        questions: (review.questions || []).map((q) => ({
+          id: q.id,
+          text: q.text,
+          options: (q.options || []).map((opt) => ({
+            id: opt.id,
+            text: opt.text,
+            explanation: opt.explanation ?? undefined,
+          })),
+          correct: q.correctOptionIndex ?? -1,
+          explanation: q.explanation ?? undefined,
+          marks: q.marks,
+          userSelection: q.selectedOptionIndex ?? undefined,
+        })),
+      });
+    } catch (err) {
+      console.error('Failed to generate solutions PDF', err);
+      alert('Could not generate the solutions PDF. Please try again.');
+    } finally {
+      setDownloadingPdfQuizId(null);
+    }
+  };
+
   const fetchQuizzes = useCallback(async () => {
     try {
-      const data = (await ApiClient.getPublishedQuizzes()) as any[];
+      const [data, summaries] = await Promise.all([
+        ApiClient.getPublishedQuizzes() as Promise<any[]>,
+        user ? ApiClient.getQuizAttemptSummary().catch(() => []) : Promise.resolve([]),
+      ]);
+
+      const summaryMap = new Map<string, any>();
+      (summaries || []).forEach((s: any) => {
+        if (s?.quizId) summaryMap.set(s.quizId, s);
+      });
+      setAttemptsByQuiz(summaryMap);
       
       // Filter strictly for Premium Quizzes (isPaid or accessType === 'PAID' or isPremium)
       const premiumQuizzes = (data || []).filter((q) => {
@@ -138,7 +185,7 @@ export function HomeQuizCarousel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchQuizzes();
@@ -334,6 +381,11 @@ export function HomeQuizCarousel() {
                   const canRepurchase = !!quiz.canRepurchase || isExhausted || isExpired;
                   const repurchaseLabel = (isExpired || quiz.subscriptionType === 'SUBSCRIPTION') ? 'Renew' : 'Repurchase';
                   const needsPurchase = !quiz.hasAccess;
+                  const attempt = attemptsByQuiz.get(quiz.id);
+                  const completedCount = attempt?.completedCount ?? 0;
+                  const hasCompleted = completedCount > 0;
+                  const latestAttemptId = attempt?.latestAttemptId;
+                  const isDownloadingThisPdf = downloadingPdfQuizId === quiz.id;
 
                   return (
                     <div
@@ -439,38 +491,71 @@ export function HomeQuizCarousel() {
                       </div>
 
                       {/* Action Button */}
-                      <div className="pt-3.5 mt-3.5 border-t border-slate-200/60 dark:border-slate-800/80 relative z-10">
-                        {quiz.hasAccess ? (
-                          <Button
-                            size="md"
-                            variant="primary"
-                            onClick={() => handleStartQuiz(quiz)}
-                            className="w-full font-black text-xs rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
+                      <div className="pt-3.5 mt-3.5 border-t border-slate-200/60 dark:border-slate-800/80 relative z-10 flex items-center gap-2">
+                        {hasCompleted && latestAttemptId && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/quizzes/attempts/${latestAttemptId}`);
+                            }}
+                            title="Review Answer"
+                            className="p-2.5 rounded-xl text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 shadow-xs transition-all active:scale-95 cursor-pointer flex items-center justify-center shrink-0"
+                            aria-label="Review Answer"
                           >
-                            <span>Start Quiz</span>
-                            <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
-                          </Button>
-                        ) : canRepurchase ? (
-                          <Button
-                            size="md"
-                            variant="gold"
-                            onClick={() => handleStartQuiz(quiz)}
-                            className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>{repurchaseLabel}</span>
-                          </Button>
-                        ) : (
-                          <Button
-                            size="md"
-                            variant="gold"
-                            onClick={() => handleStartQuiz(quiz)}
-                            className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
-                          >
-                            <ShoppingCart className="w-3.5 h-3.5" />
-                            <span>Buy Now</span>
-                          </Button>
+                            <ListChecks className="w-4 h-4" />
+                          </button>
                         )}
+                        {hasCompleted && latestAttemptId && (
+                          <button
+                            type="button"
+                            disabled={!!downloadingPdfQuizId}
+                            onClick={(e) => handleDownloadPdf(e, quiz, latestAttemptId)}
+                            title="Download Solution PDF"
+                            className="p-2.5 rounded-xl text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shrink-0"
+                            aria-label="Download Solution PDF"
+                          >
+                            {isDownloadingThisPdf ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          {quiz.hasAccess ? (
+                            <Button
+                              size="md"
+                              variant="primary"
+                              onClick={() => handleStartQuiz(quiz)}
+                              className="w-full font-black text-xs rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-400 text-slate-950 shadow-lg shadow-amber-500/25 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
+                            >
+                              <span>{completedCount > 0 ? 'Retake Quiz' : 'Start Quiz'}</span>
+                              <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                            </Button>
+                          ) : canRepurchase ? (
+                            <Button
+                              size="md"
+                              variant="gold"
+                              onClick={() => handleStartQuiz(quiz)}
+                              className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>{repurchaseLabel}</span>
+                            </Button>
+                          ) : (
+                            <Button
+                              size="md"
+                              variant="gold"
+                              onClick={() => handleStartQuiz(quiz)}
+                              className="w-full font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer h-10 transition-all hover:scale-[1.01]"
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5" />
+                              <span>Buy Now</span>
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

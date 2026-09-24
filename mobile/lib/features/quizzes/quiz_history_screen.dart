@@ -506,33 +506,88 @@ class _AttemptCardState extends ConsumerState<_AttemptCard> {
                   size: 16, color: palette.textMuted),
             ],
           ),
-          // Premium-only, and only once the attempt is submitted — a live
-          // attempt has no locked-in questions to build a solutions PDF from.
-          if (attempt.quizIsPremium && !inProgress) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _downloadingPdf ? null : _downloadSolutionsPdf,
-                icon: _downloadingPdf
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.download_rounded, size: 16),
-                label: Text(
-                  _downloadingPdf ? 'Preparing…' : 'Download Solutions PDF',
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.amber,
-                  side: BorderSide(color: AppColors.amber.withValues(alpha: 0.4)),
-                  padding: const EdgeInsets.symmetric(vertical: 9),
+          // Actions for completed vs in-progress attempts
+          if (!inProgress) ...[
+            const SizedBox(height: 12),
+            if (attempt.quizIsPremium)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          context.push(AppRoutes.quizAttempt(attempt.quizId)),
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text(
+                        'Retake Quiz',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.cyan,
+                        side: BorderSide(
+                          color: AppColors.cyan.withValues(alpha: 0.45),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed:
+                          _downloadingPdf ? null : _downloadSolutionsPdf,
+                      icon: _downloadingPdf
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.download_rounded, size: 16),
+                      label: Text(
+                        _downloadingPdf ? 'Preparing…' : 'Solutions PDF',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.amber,
+                        side: BorderSide(
+                          color: AppColors.amber.withValues(alpha: 0.45),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () =>
+                      context.push(AppRoutes.quizAttempt(attempt.quizId)),
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text(
+                    'Retake Quiz',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.cyan,
+                    side: BorderSide(
+                      color: AppColors.cyan.withValues(alpha: 0.45),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                  ),
                 ),
               ),
-            ),
           ],
         ],
       ),

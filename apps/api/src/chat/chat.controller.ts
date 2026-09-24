@@ -215,7 +215,7 @@ export class ChatController {
   @Patch('messages/:id/metadata')
   async updateMessageMetadata(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateMessageMetadataDto) {
     const res = await this.chatService.updateMessageMetadata(id, req.user.id, dto.metadata);
-    this.chatGateway.broadcastMetadataUpdate(id, dto.metadata);
+    this.chatGateway.broadcastMetadataUpdate(id, (res as any)?.metadata || dto.metadata, (res as any)?.groupId);
     return res;
   }
 

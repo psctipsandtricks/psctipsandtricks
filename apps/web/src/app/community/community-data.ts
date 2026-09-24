@@ -42,10 +42,32 @@ function getSocket(): Socket | null {
   if (!socket) {
     socket = io(API_BASE_URL, {
       auth: { token },
-      transports: ['websocket'],
+      extraHeaders: {
+        Authorization: `Bearer ${token}`,
+      },
+      transports: ['websocket', 'polling'],
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
     socketToken = token;
+
+    if (process.env.NODE_ENV !== 'production') {
+      socket.on('connect', () => {
+        console.log('[Web Socket] Connected to backend gateway', socket?.id);
+      });
+      socket.on('disconnect', (reason) => {
+        console.log('[Web Socket] Disconnected from backend gateway:', reason);
+      });
+      socket.on('connect_error', (err) => {
+        console.warn('[Web Socket] Connection error:', err.message);
+      });
+    }
+  }
+  if (!socket.connected) {
+    socket.connect();
   }
   return socket;
 }
@@ -298,9 +320,18 @@ export function useGroupRealtime(groupId: string | null) {
     if (!s) return;
 
     const room = `group:${groupId}`;
-    const join = () => s.emit('joinRoom', { room });
-    join();
+    const join = () => {
+      s.emit('joinRoom', { room });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Web Socket] Joined room ${room}`);
+      }
+    };
+
+    if (s.connected) {
+      join();
+    }
     s.on('connect', join);
+    s.on('reconnect', join);
 
     const onNewMessage = (raw: any) => {
       if (raw?.groupId && raw.groupId !== groupId) return;
@@ -312,7 +343,8 @@ export function useGroupRealtime(groupId: string | null) {
       qc.invalidateQueries({ queryKey: chatGroupsKey });
     };
 
-    const onMetadataUpdated = (payload: { messageId: string; metadata: any }) => {
+    const onMetadataUpdated = (payload: { messageId: string; metadata: any; groupId?: string }) => {
+      if (payload.groupId && payload.groupId !== groupId) return;
       const { messageId, metadata } = payload;
       qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
         if (!old) return old;
@@ -330,8 +362,8 @@ export function useGroupRealtime(groupId: string | null) {
       });
     };
 
-    const onMessageDeleted = (payload: { groupId: string; messageId: string }) => {
-      if (payload.groupId !== groupId) return;
+    const onMessageDeleted = (payload: { groupId?: string; messageId: string }) => {
+      if (payload.groupId && payload.groupId !== groupId) return;
       qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
         if (!old) return old;
         return { ...old, pages: old.pages.map((page) => page.filter((m) => m.id !== payload.messageId)) };
@@ -343,8 +375,8 @@ export function useGroupRealtime(groupId: string | null) {
 
     // An author rewriting their own message has to reach everyone already
     // reading the thread, not just the tab that made the edit.
-    const onMessageEdited = (payload: { groupId: string; message: any }) => {
-      if (payload.groupId !== groupId) return;
+    const onMessageEdited = (payload: { groupId?: string; message: any }) => {
+      if (payload.groupId && payload.groupId !== groupId) return;
       const edited = mapMessage(payload.message);
       qc.setQueryData<InfiniteData<MessagePage>>(chatMessagesKey(groupId), (old) => {
         if (!old) return old;
@@ -362,12 +394,15 @@ export function useGroupRealtime(groupId: string | null) {
     s.on('messageMetadataUpdated', onMetadataUpdated);
     s.on('messageEdited', onMessageEdited);
     s.on('messageDeleted', onMessageDeleted);
+
     return () => {
+      s.emit('leaveRoom', { room });
       s.off('newChatMessage', onNewMessage);
       s.off('messageMetadataUpdated', onMetadataUpdated);
       s.off('messageEdited', onMessageEdited);
       s.off('messageDeleted', onMessageDeleted);
       s.off('connect', join);
+      s.off('reconnect', join);
     };
   }, [groupId, qc]);
 }

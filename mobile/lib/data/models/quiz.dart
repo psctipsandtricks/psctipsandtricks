@@ -270,12 +270,14 @@ class QuizAttemptSummary {
     required this.quizId,
     this.completedCount = 0,
     this.inProgressAttemptId,
+    this.latestAttemptId,
     this.lastSubmittedAt,
   });
 
   final String quizId;
   final int completedCount;
   final String? inProgressAttemptId;
+  final String? latestAttemptId;
   final DateTime? lastSubmittedAt;
 
   /// An unfinished attempt outranks a finished one: what to offer someone who
@@ -295,6 +297,7 @@ class QuizAttemptSummary {
         quizId: J.str(json['quizId']),
         completedCount: J.intVal(json['completedCount']),
         inProgressAttemptId: J.strOrNull(json['inProgressAttemptId']),
+        latestAttemptId: J.strOrNull(json['latestAttemptId']),
         lastSubmittedAt: J.dateOrNull(json['lastSubmittedAt']),
       );
 }

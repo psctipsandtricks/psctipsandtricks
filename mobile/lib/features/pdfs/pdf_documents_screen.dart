@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
@@ -12,8 +14,9 @@ import '../shell/library_providers.dart';
 import 'pdf_viewer_screen.dart';
 import '../shell/shell_scaffold.dart';
 
-/// Documents of a PDF exam or category. Supports both subfolders (years/chapters)
-/// and direct PDF documents.
+/// Documents of a PDF exam or category.
+/// Implements a natural step-by-step folder navigation flow where tapping a folder
+/// opens that folder's contents on a new screen.
 class PdfDocumentsScreen extends ConsumerWidget {
   const PdfDocumentsScreen({
     super.key,
@@ -62,36 +65,23 @@ class PdfDocumentsScreen extends ConsumerWidget {
               child: ListView(
                 padding: EdgeInsets.fromLTRB(
                   Responsive.horizontalPadding(context),
-                  12,
+                  14,
                   Responsive.horizontalPadding(context),
                   24 + ShellScaffold.dockExtent,
                 ),
                 children: [
-                  // 1. Subfolders / Chapters
+                  // 1. Subfolders (Step-by-step navigation flow)
                   if (subfolders.isNotEmpty) ...[
-                    if (directDocuments.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
-                        child: Text(
-                          'Folders (${subfolders.length})',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: context.palette.textMuted,
-                              ),
-                        ),
-                      ),
-                    for (int i = 0; i < subfolders.length; i++)
-                      _ChapterTile(
-                        chapter: subfolders[i],
-                        initiallyExpanded: i == 0 && directDocuments.isEmpty,
-                      ),
+                    for (final folder in subfolders)
+                      _FolderCard(folder: folder),
                   ],
 
-                  // 2. Direct Documents
+                  // 2. Direct Documents belonging to this specific folder
                   if (directDocuments.isNotEmpty) ...[
-                    if (subfolders.isNotEmpty)
+                    if (subfolders.isNotEmpty) ...[
+                      const SizedBox(height: 6),
                       Padding(
-                        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 12),
+                        padding: const EdgeInsets.only(left: 4, bottom: 8),
                         child: Text(
                           'Study Materials (${directDocuments.length})',
                           style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -100,6 +90,7 @@ class PdfDocumentsScreen extends ConsumerWidget {
                               ),
                         ),
                       ),
+                    ],
                     Container(
                       decoration: BoxDecoration(
                         color: context.palette.card,
@@ -111,13 +102,16 @@ class PdfDocumentsScreen extends ConsumerWidget {
                         children: [
                           for (int i = 0; i < directDocuments.length; i++)
                             Padding(
-                              padding: EdgeInsets.only(bottom: i < directDocuments.length - 1 ? 9 : 0),
+                              padding: EdgeInsets.only(
+                                bottom: i < directDocuments.length - 1 ? 9 : 0,
+                              ),
                               child: PdfAttachmentTile(
                                 title: directDocuments[i].title,
                                 subtitle: [
                                   if (directDocuments[i].readableSize.isNotEmpty)
                                     directDocuments[i].readableSize,
-                                  if ((directDocuments[i].description ?? '').isNotEmpty)
+                                  if ((directDocuments[i].description ?? '')
+                                      .isNotEmpty)
                                     directDocuments[i].description!,
                                 ].join(' · '),
                                 onTap: () => openPdf(
@@ -142,11 +136,11 @@ class PdfDocumentsScreen extends ConsumerWidget {
   }
 }
 
-class _ChapterTile extends StatelessWidget {
-  const _ChapterTile({required this.chapter, this.initiallyExpanded = false});
+/// Clean, modern folder tile that navigates into the folder upon click.
+class _FolderCard extends StatelessWidget {
+  const _FolderCard({required this.folder});
 
-  final LibraryFolder chapter;
-  final bool initiallyExpanded;
+  final LibraryFolder folder;
 
   @override
   Widget build(BuildContext context) {
@@ -158,113 +152,78 @@ class _ChapterTile extends StatelessWidget {
         color: palette.card,
         borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         border: Border.all(color: palette.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: palette.isDark ? 0.2 : 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: initiallyExpanded,
-          maintainState: true,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-          leading: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.amber.withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: const Icon(Icons.folder_copy_rounded,
-                color: AppColors.amber, size: 18),
-          ),
-          title: Text(
-            chapter.title,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            context.push(
+              '${AppRoutes.library}/pdfs/${folder.id}?title=${Uri.encodeComponent(folder.title)}',
+            );
+          },
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: AppColors.amber.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.folder_rounded,
+                    color: AppColors.amber,
+                    size: 22,
+                  ),
                 ),
-          ),
-          subtitle: chapter.itemCount > 0
-              ? Text(
-                  Fmt.count(chapter.itemCount, 'document'),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: palette.textMuted,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        folder.title,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                              height: 1.25,
+                            ),
                       ),
-                )
-              : null,
-          children: [_DocumentList(chapterId: chapter.id)],
-        ),
-      ),
-    );
-  }
-}
-
-class _DocumentList extends ConsumerWidget {
-  const _DocumentList({required this.chapterId});
-
-  final String chapterId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final docsAsync = ref.watch(chapterDocumentsProvider(chapterId));
-
-    return docsAsync.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.fromLTRB(14, 0, 14, 16),
-        child: Column(
-          children: [
-            SkeletonBox(height: 56, radius: AppTheme.radiusMd),
-            SizedBox(height: 10),
-            SkeletonBox(height: 56, radius: AppTheme.radiusMd),
-          ],
-        ),
-      ),
-      error: (error, _) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: ErrorView(
-          error: error,
-          compact: true,
-          onRetry: () => ref.invalidate(chapterDocumentsProvider(chapterId)),
-        ),
-      ),
-      data: (documents) {
-        final readable = documents.where((d) => d.isReadable).toList();
-        if (readable.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-            child: Text(
-              'No documents in this folder yet.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: context.palette.textMuted,
-                  ),
-            ),
-          );
-        }
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-          child: Column(
-            children: [
-              for (final document in readable)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 9),
-                  child: PdfAttachmentTile(
-                    title: document.title,
-                    subtitle: [
-                      if (document.readableSize.isNotEmpty) document.readableSize,
-                      if ((document.description ?? '').isNotEmpty)
-                        document.description!,
-                    ].join(' · '),
-                    onTap: () => openPdf(
-                      context,
-                      url: document.fileUrl!,
-                      title: document.title,
-                      minimal: true,
-                    ),
+                      if (folder.itemCount > 0) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          Fmt.count(folder.itemCount, 'document'),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: palette.textMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-            ],
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: palette.textMuted.withValues(alpha: 0.7),
+                  size: 22,
+                ),
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

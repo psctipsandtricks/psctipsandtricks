@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ShieldCheck,
+  ArrowLeft,
 } from 'lucide-react';
 import { useAuth } from '../auth-provider';
 import { ApiClient } from '@/lib/api-client';
@@ -111,9 +112,23 @@ function CheckoutFormContent() {
 
   if (!itemId) {
     return (
-      <div className="max-w-xl mx-auto py-16 text-center space-y-3">
+      <div className="max-w-xl mx-auto py-16 text-center space-y-4">
         <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
         <p className="text-slate-600 dark:text-slate-300 font-semibold">No item was specified for checkout.</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) {
+              router.back();
+            } else {
+              router.push('/quizzes');
+            }
+          }}
+          className="font-bold inline-flex items-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Go Back</span>
+        </Button>
       </div>
     );
   }
@@ -124,9 +139,23 @@ function CheckoutFormContent() {
 
   if (itemLoadError || !item) {
     return (
-      <div className="max-w-xl mx-auto py-16 text-center space-y-3">
+      <div className="max-w-xl mx-auto py-16 text-center space-y-4">
         <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
         <p className="text-slate-600 dark:text-slate-300 font-semibold">{itemLoadError || 'This item could not be found.'}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) {
+              router.back();
+            } else {
+              router.push('/quizzes');
+            }
+          }}
+          className="font-bold inline-flex items-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Go Back</span>
+        </Button>
       </div>
     );
   }
@@ -279,7 +308,30 @@ function CheckoutFormContent() {
   }
 
   return (
-    <div className="max-w-xl mx-auto space-y-6 py-4 relative">
+    <div className="max-w-xl mx-auto space-y-5 py-4 relative">
+      <div>
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) {
+              router.back();
+            } else {
+              router.push(
+                itemType === 'quiz'
+                  ? (mockTestId ? `/mock-tests/${mockTestId}` : '/quizzes')
+                  : (itemId ? `/books/${itemId}` : '/books')
+              );
+            }
+          }}
+          className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer group"
+        >
+          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center group-hover:border-slate-300 dark:group-hover:border-slate-600 transition-all shadow-sm">
+            <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300 group-hover:-translate-x-0.5 transition-transform" />
+          </div>
+          <span>Back</span>
+        </button>
+      </div>
+
       <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white flex items-center space-x-2">
         <ShoppingBag className="w-7 h-7 text-amber-500" />
         <span>Premium Checkout</span>

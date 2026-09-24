@@ -350,6 +350,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     { id: 'opt-2', text: '' },
   ]);
   const [correctOptionId, setCorrectOptionId] = useState<string | null>('opt-1');
+  const [pollError, setPollError] = useState<string | null>(null);
 
   /* Admin File Attachments State */
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -987,7 +988,19 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
     if (!selectedGroupId || !isUserMember || isLockedForUser) return;
     const question = pollQuestion.trim();
     const validOptions = pollOptions.filter((o) => o.text.trim().length > 0);
-    if (!question || validOptions.length < 2) return;
+    if (!question || validOptions.length < 2) {
+      setPollError('Please provide a question and at least 2 options.');
+      return;
+    }
+
+    const trimmedTexts = validOptions.map((o) => o.text.trim().toLowerCase());
+    const hasDuplicates = new Set(trimmedTexts).size !== trimmedTexts.length;
+    if (hasDuplicates) {
+      setPollError('Duplicate poll options are not allowed. Each option must be unique.');
+      return;
+    }
+
+    setPollError(null);
 
     const pollMetadata = {
       poll: {
@@ -1049,12 +1062,14 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
 
   const handleAddPollOption = () => {
     if (pollOptions.length >= 6) return;
+    setPollError(null);
     const nextId = `opt-${Date.now()}`;
     setPollOptions((prev) => [...prev, { id: nextId, text: '' }]);
   };
 
   const handleRemovePollOption = (id: string) => {
     if (pollOptions.length <= 2) return;
+    setPollError(null);
     setPollOptions((prev) => prev.filter((o) => o.id !== id));
     if (correctOptionId === id) {
       const remaining = pollOptions.filter((o) => o.id !== id);
@@ -1098,6 +1113,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   const beginEditingMessage = (msg: DiscussionMessage) => {
     if (msg.id.startsWith('optimistic-')) return;
     setEditingMessage(msg);
+    setPollError(null);
     if (msg.poll) {
       setPollQuestion(msg.poll.question);
       setPollOptions(msg.poll.options.map((o) => ({ id: o.id, text: o.text })));
@@ -1112,6 +1128,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
   const cancelEditingMessage = () => {
     setEditingMessage(null);
     setNewMessage('');
+    setPollError(null);
     setShowPollComposer(false);
   };
 
@@ -1481,11 +1498,15 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
               <span className="text-sm font-black uppercase tracking-wider text-cyan-600 dark:text-cyan-400 flex items-center gap-2">
                 <BarChart2 className="w-5 h-5" />
-                <span>Create Study Poll / Question</span>
+                <span>{editingMessage ? 'Edit Study Poll / Question' : 'Create Study Poll / Question'}</span>
               </span>
               <button
                 type="button"
-                onClick={() => setShowPollComposer(false)}
+                onClick={() => {
+                  setShowPollComposer(false);
+                  setPollError(null);
+                  if (editingMessage) setEditingMessage(null);
+                }}
                 className="p-1.5 rounded-full text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                 title="Cancel poll"
               >
@@ -1496,6 +1517,13 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
             <form onSubmit={handleSubmitPoll} className="flex-1 min-h-0 flex flex-col">
               {/* Scrollable fields — full question/options always visible, never clipped */}
               <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+                {pollError && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-500 dark:text-rose-400 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{pollError}</span>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                     Question
@@ -1504,6 +1532,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                     data-autogrow="poll"
                     value={pollQuestion}
                     onChange={(e) => {
+                      if (pollError) setPollError(null);
                       setPollQuestion(e.target.value);
                       autoGrowTextarea(e.target);
                     }}
@@ -1538,14 +1567,17 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                       <input
                         type="text"
                         value={opt.text}
-                        onChange={(e) => setPollOptions((prev) => prev.map((o) => (o.id === opt.id ? { ...o, text: e.target.value } : o)))}
+                        onChange={(e) => {
+                          if (pollError) setPollError(null);
+                          setPollOptions((prev) => prev.map((o) => (o.id === opt.id ? { ...o, text: e.target.value } : o)));
+                        }}
                         placeholder={`Option ${idx + 1}...`}
                         className="flex-1 min-w-0 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500/40 placeholder:text-slate-400"
                       />
                       {pollOptions.length > 2 && (
                         <button
                           type="button"
-                          onClick={() => setPollOptions((prev) => prev.filter((o) => o.id !== opt.id))}
+                          onClick={() => handleRemovePollOption(opt.id)}
                           className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0 mt-0.5"
                           title="Remove option"
                         >
@@ -1572,7 +1604,11 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setShowPollComposer(false)}
+                  onClick={() => {
+                    setShowPollComposer(false);
+                    setPollError(null);
+                    if (editingMessage) setEditingMessage(null);
+                  }}
                   className="text-xs font-extrabold cursor-pointer"
                 >
                   Cancel
@@ -1583,7 +1619,7 @@ export function CommunityView({ initialGroupId }: CommunityViewProps) {
                   disabled={!pollQuestion.trim() || pollOptions.filter((o) => o.text.trim()).length < 2}
                   className="text-xs font-black cursor-pointer shadow-md bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white border-none"
                 >
-                  Create & Send Poll
+                  {editingMessage ? 'Save Changes' : 'Create & Send Poll'}
                 </Button>
               </div>
             </form>

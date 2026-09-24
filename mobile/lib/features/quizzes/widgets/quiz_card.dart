@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/providers/app_providers.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/pdf_downloader.dart';
+import '../../../core/utils/quiz_pdf_generator.dart';
 import '../../../core/widgets/app_image.dart';
 import '../../../core/widgets/glass_card.dart';
 import '../../../data/models/quiz.dart';
+import '../../../data/repositories/quizzes_repository.dart';
 import '../../books/widgets/book_card.dart';
 
 /// Quiz card designed to match the Home Page Book Card (BookTile) style,
@@ -411,6 +418,24 @@ class QuizCard extends StatelessWidget {
                           ],
                         ],
                         const Spacer(),
+                        if (attempt != null &&
+                            attempt!.completedCount > 0 &&
+                            attempt!.latestAttemptId != null &&
+                            attempt!.latestAttemptId!.isNotEmpty) ...[
+                          _ReviewAnswerButton(
+                            attemptId: attempt!.latestAttemptId!,
+                            isDark: isDark,
+                          ),
+                          if (quiz.isPaid) ...[
+                            const SizedBox(width: 5),
+                            _DownloadSolutionPdfButton(
+                              attemptId: attempt!.latestAttemptId!,
+                              quizTitle: quiz.title,
+                              isDark: isDark,
+                            ),
+                          ],
+                          const SizedBox(width: 5),
+                        ],
                         if (quiz.isPaid && quiz.isLocked) ...[
                           if (quiz.access?.canRepurchase == true ||
                               quiz.access?.isSubscriptionExpired == true ||
@@ -678,6 +703,164 @@ class _AttemptAction extends StatelessWidget {
             color: accent,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Icon button to review answers of the latest completed quiz attempt.
+class _ReviewAnswerButton extends StatelessWidget {
+  const _ReviewAnswerButton({
+    required this.attemptId,
+    required this.isDark,
+  });
+
+  final String attemptId;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = isDark ? AppColors.cyan : const Color(0xFF0284C7);
+    return Tooltip(
+      message: 'Review Answer',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            context.push(AppRoutes.quizResult(attemptId));
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.all(5.5),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: accent.withValues(alpha: isDark ? 0.3 : 0.25),
+                width: 0.8,
+              ),
+            ),
+            child: Icon(
+              Icons.fact_check_rounded,
+              size: 14,
+              color: accent,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Icon button to download solution PDF of the latest completed quiz attempt for premium quizzes.
+class _DownloadSolutionPdfButton extends ConsumerStatefulWidget {
+  const _DownloadSolutionPdfButton({
+    required this.attemptId,
+    required this.quizTitle,
+    required this.isDark,
+  });
+
+  final String attemptId;
+  final String quizTitle;
+  final bool isDark;
+
+  @override
+  ConsumerState<_DownloadSolutionPdfButton> createState() =>
+      _DownloadSolutionPdfButtonState();
+}
+
+class _DownloadSolutionPdfButtonState
+    extends ConsumerState<_DownloadSolutionPdfButton> {
+  bool _downloading = false;
+
+  Future<void> _downloadPdf() async {
+    if (_downloading) return;
+    setState(() => _downloading = true);
+    try {
+      final review = await ref
+          .read(quizzesRepositoryProvider)
+          .fetchAttemptReview(widget.attemptId);
+      final bytes = await QuizPdfGenerator.generate(
+        quizTitle: review.quizTitle.isNotEmpty ? review.quizTitle : widget.quizTitle,
+        score: review.score,
+        totalMarks: review.totalMarks,
+        questions: [
+          for (final question in review.questions)
+            QuizPdfQuestion(
+              text: question.text,
+              options: [
+                for (final option in question.options)
+                  QuizPdfOption(
+                    text: option.text,
+                    explanation: option.explanation,
+                  ),
+              ],
+              correctIndex: question.correctOptionIndex ?? -1,
+              explanation: question.explanation,
+              marks: question.marks,
+              userSelection: question.selectedOptionIndex,
+            ),
+        ],
+      );
+      if (!mounted) return;
+      await PdfDownloader.saveBytes(
+        context,
+        bytes: bytes,
+        title:
+            '${review.quizTitle.isNotEmpty ? review.quizTitle : widget.quizTitle} - Solutions',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not generate the solutions PDF: $e'),
+          backgroundColor: AppColors.rose,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _downloading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = AppColors.amber;
+    return Tooltip(
+      message: 'Download Solution PDF',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _downloading ? null : _downloadPdf,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.all(5.5),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: widget.isDark ? 0.12 : 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: accent.withValues(alpha: widget.isDark ? 0.3 : 0.25),
+                width: 0.8,
+              ),
+            ),
+            child: _downloading
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.amber),
+                    ),
+                  )
+                : const Icon(
+                    Icons.download_rounded,
+                    size: 14,
+                    color: AppColors.amber,
+                  ),
+          ),
+        ),
       ),
     );
   }

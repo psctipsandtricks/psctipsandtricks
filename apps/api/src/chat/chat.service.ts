@@ -54,6 +54,27 @@ export class ChatService {
     private storageService: StorageService,
   ) {}
 
+  private validatePollMetadata(metadata?: Record<string, any>) {
+    if (!metadata?.poll) return;
+    const poll = metadata.poll;
+    const options = Array.isArray(poll.options) ? poll.options : [];
+    if (options.length < 2) {
+      throw new BadRequestException('A poll must have at least 2 options');
+    }
+    const texts = options
+      .map((o: any) => (typeof o?.text === 'string' ? o.text.trim().toLowerCase() : ''))
+      .filter((t: string) => t.length > 0);
+
+    if (texts.length < 2) {
+      throw new BadRequestException('A poll must have at least 2 non-empty options');
+    }
+
+    const uniqueTexts = new Set(texts);
+    if (uniqueTexts.size !== texts.length) {
+      throw new BadRequestException('Poll options must have unique values. Duplicate options are not allowed.');
+    }
+  }
+
   async saveMessage(data: {
     userId: string;
     userName: string;
@@ -64,6 +85,9 @@ export class ChatService {
     mediaUrl?: string;
     metadata?: Record<string, any>;
   }) {
+    if (data.metadata) {
+      this.validatePollMetadata(data.metadata);
+    }
     return this.prisma.chatMessage.create({
       data: {
         userId: data.userId,
@@ -152,6 +176,7 @@ export class ChatService {
     let metadata = existing;
 
     if (dto.metadata?.poll) {
+      this.validatePollMetadata(dto.metadata);
       const currentPoll = (existing.poll as Record<string, any> | undefined) ?? {};
       const currentOptions: any[] = Array.isArray(currentPoll.options)
         ? currentPoll.options

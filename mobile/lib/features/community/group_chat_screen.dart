@@ -14,11 +14,13 @@ import '../../core/widgets/app_image.dart';
 import '../../core/widgets/liquid_glass.dart';
 import '../../core/widgets/state_views.dart';
 import '../../data/models/chat.dart';
+import '../../data/models/user.dart';
 import '../pdfs/pdf_viewer_screen.dart';
 import 'chat_cache.dart';
 import 'chat_socket.dart';
 import 'group_agreement_sheet.dart';
 import 'community_providers.dart';
+import 'widgets/poll_composer_sheet.dart';
 
 /// One study group's conversation, live over Socket.IO with REST for history.
 /// Matches the web platform's "liquid glass" UI and layout verbatim.
@@ -50,23 +52,27 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   bool _joinedLocally = false;
   Object? _error;
 
-  /// Held rather than read on demand, so the cache is still reachable from
+  /// Held rather than read on demand, so the cache and socket are still reachable from
   /// `dispose`, after the widget can no longer touch its `ref`.
   ChatCache? _cache;
+  ChatSocket? _socket;
   Timer? _persistTimer;
 
   @override
   void initState() {
     super.initState();
     _cache = ref.read(chatCacheProvider);
+    _connectSocket();
     unawaited(_bootstrap());
   }
 
   @override
   void dispose() {
+    _socket?.leaveGroup(widget.groupId);
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }
+    _subscriptions.clear();
     // Leaving must not throw away messages the debounce was still holding.
     if (_persistTimer?.isActive ?? false) _flushPersist();
     _persistTimer?.cancel();
@@ -160,11 +166,16 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     unawaited(cache.writeMessages(widget.groupId, List.of(_messages)));
   }
 
+  bool _socketConnected = false;
+
   void _connectSocket() {
+    if (_socketConnected) return;
     final token = ref.read(tokenStoreProvider).accessToken;
     if (token == null || token.isEmpty) return;
 
+    _socketConnected = true;
     final socket = ref.read(chatSocketProvider(token));
+    _socket = socket;
     socket.connect();
     socket.joinGroup(widget.groupId);
 
@@ -449,19 +460,187 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     );
   }
 
-  /// Rewrites a message the student wrote.
-  ///
-  /// Text opens a dialog; a poll is deliberately not editable from the phone
-  /// yet — the app has no poll composer to reopen, and offering an edit that
-  /// silently drops the options would be worse than not offering one.
-  Future<void> _editMessage(ChatMessage message) async {
-    if (message.isPoll) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Polls can be edited from the website'),
-          behavior: SnackBarBehavior.floating,
-        ),
+  Future<void> _openPollComposer(ChatGroup group, {ChatMessage? editingPoll}) async {
+    final draft = await PollComposerSheet.show(
+      context,
+      groupId: group.id,
+      editingPoll: editingPoll,
+    );
+    if (draft == null || !mounted) return;
+
+    final me = ref.read(currentUserProvider);
+    if (me == null) return;
+
+    if (editingPoll != null) {
+      final index = _messages.indexWhere((m) => m.id == editingPoll.id);
+      if (index >= 0) {
+        final existing = _messages[index];
+        final updatedMetadata = Map<String, dynamic>.from(existing.metadata ?? {});
+        final pollMap = Map<String, dynamic>.from(
+          updatedMetadata['poll'] is Map ? updatedMetadata['poll'] as Map : {},
+        );
+        pollMap['question'] = draft.question;
+        pollMap['options'] = draft.options.asMap().entries.map((entry) {
+          final existingOpt =
+              existing.pollOptions.length > entry.key ? existing.pollOptions[entry.key] : null;
+          return {
+            'id': existingOpt?.id ?? 'opt-${entry.key + 1}',
+            'text': entry.value,
+            'votes': existingOpt?.voteCount ?? 0,
+            'votedUserIds': existingOpt?.votedUserIds ?? <String>[],
+          };
+        }).toList();
+        pollMap['correctOptionId'] = draft.correctOptionId;
+        updatedMetadata['poll'] = pollMap;
+
+        final optimisticEdited = ChatMessage(
+          id: existing.id,
+          userId: existing.userId,
+          userName: existing.userName,
+          userAvatar: existing.userAvatar,
+          content: draft.question,
+          type: ChatMessageType.poll,
+          groupId: widget.groupId,
+          createdAt: existing.createdAt,
+          editedAt: DateTime.now(),
+          metadata: updatedMetadata,
+        );
+
+        setState(() {
+          _messages[index] = optimisticEdited;
+        });
+        _persist();
+
+        try {
+          final saved = await ref.read(chatRepositoryProvider).editMessage(
+            editingPoll.id,
+            content: draft.question,
+            metadata: updatedMetadata,
+          );
+          if (mounted) {
+            final currentIdx = _messages.indexWhere((m) => m.id == saved.id);
+            if (currentIdx >= 0) {
+              setState(() {
+                _messages[currentIdx] = saved;
+              });
+              _persist();
+            }
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to update poll: $e'),
+                backgroundColor: AppColors.rose,
+              ),
+            );
+          }
+        }
+      }
+      return;
+    }
+
+    // Creating new poll - optimistic insert immediately
+    final tempId = 'optimistic-${DateTime.now().millisecondsSinceEpoch}';
+    final optionsList = draft.options.asMap().entries.map((entry) {
+      return {
+        'id': 'opt-${entry.key + 1}',
+        'text': entry.value,
+        'votes': 0,
+        'votedUserIds': <String>[],
+      };
+    }).toList();
+
+    final pollMetadata = {
+      'poll': {
+        'question': draft.question,
+        'options': optionsList,
+        'totalVotes': 0,
+        'correctOptionId': draft.correctOptionId,
+      },
+    };
+
+    final optimisticPoll = ChatMessage(
+      id: tempId,
+      userId: me.id,
+      userName: me.name,
+      userAvatar: me.avatarUrl,
+      content: draft.question,
+      type: ChatMessageType.poll,
+      groupId: widget.groupId,
+      createdAt: DateTime.now(),
+      metadata: pollMetadata,
+    );
+
+    setState(() {
+      _messages.insert(0, optimisticPoll);
+    });
+
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
       );
+    }
+    _persist();
+
+    try {
+      final savedMessage = await ref.read(chatRepositoryProvider).sendMessage(
+        widget.groupId,
+        content: draft.question,
+        messageType: 'POLL',
+        metadata: pollMetadata,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == tempId);
+        if (index != -1) {
+          _messages[index] = savedMessage;
+        } else if (!_messages.any((m) => m.id == savedMessage.id)) {
+          _messages.insert(0, savedMessage);
+        }
+      });
+      _persist();
+      unawaited(_markRead());
+      ref.invalidate(chatGroupsProvider);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.removeWhere((m) => m.id == tempId);
+        });
+        _persist();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: AppColors.rose,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.removeWhere((m) => m.id == tempId);
+        });
+        _persist();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send poll. Please check connection.'),
+            backgroundColor: AppColors.rose,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Rewrites a message the student wrote.
+  Future<void> _editMessage(ChatMessage message) async {
+    final rawGroup = ref.read(chatGroupProvider(widget.groupId));
+    if (message.isPoll) {
+      if (rawGroup != null) {
+        await _openPollComposer(rawGroup, editingPoll: message);
+      }
       return;
     }
 
@@ -664,6 +843,26 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         options[i]['votes'] = votes;
       }
       metadata['options'] = options;
+    }
+
+    final index = _messages.indexWhere((m) => m.id == message.id);
+    if (index >= 0) {
+      setState(() {
+        _messages[index] = ChatMessage(
+          id: message.id,
+          userId: message.userId,
+          userName: message.userName,
+          userAvatar: message.userAvatar,
+          content: message.content,
+          type: message.type,
+          mediaUrl: message.mediaUrl,
+          metadata: metadata,
+          groupId: message.groupId,
+          createdAt: message.createdAt,
+          editedAt: message.editedAt,
+        );
+      });
+      _persist();
     }
 
     try {
@@ -1073,70 +1272,110 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
 
     final hasText = _composer.text.trim().isNotEmpty;
+    final me = ref.watch(currentUserProvider);
+    final isModerator = me?.role == UserRole.admin || me?.role == UserRole.staff;
+    final canPostPolls = group.allowPolls || isModerator;
+
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final bottomPadding = mediaQuery.padding.bottom;
+    final effectiveBottomPad = bottomInset > 0 ? 8.0 : (bottomPadding > 0 ? bottomPadding + 6.0 : 12.0);
 
     return Container(
       decoration: BoxDecoration(
-        color: palette.card,
+        color: isDark ? const Color(0xFF0F172A) : Colors.white,
         border: Border(
           top: BorderSide(
             color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
             width: 1,
           ),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -3),
+          ),
+        ],
       ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
-                    ),
+      padding: EdgeInsets.fromLTRB(12, 10, 12, effectiveBottomPad),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 44),
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                ),
+              ),
+              alignment: Alignment.centerLeft,
+              child: TextField(
+                controller: _composer,
+                minLines: 1,
+                maxLines: 4,
+                textAlignVertical: TextAlignVertical.center,
+                textCapitalization: TextCapitalization.sentences,
+                onChanged: (_) => setState(() {}),
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  height: 1.3,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Write a message…',
+                  hintStyle: TextStyle(
+                    color: palette.textMuted,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w400,
                   ),
-                  child: TextField(
-                    controller: _composer,
-                    minLines: 1,
-                    maxLines: 4,
-                    textCapitalization: TextCapitalization.sentences,
-                    onChanged: (_) => setState(() {}),
-                    style: TextStyle(
-                      color: palette.textPrimary,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Write a message…',
-                      hintStyle: TextStyle(
-                        color: palette.textMuted,
-                        fontSize: 13,
-                      ),
-                      isDense: true,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                    ),
+                  isDense: true,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 11,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              _WebSendButton(
-                enabled: hasText,
-                onTap: _send,
-              ),
-            ],
+            ),
           ),
-        ),
+          if (canPostPolls) ...[
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: () => _openPollComposer(group),
+              borderRadius: BorderRadius.circular(22),
+              child: Container(
+                width: 44,
+                height: 44,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0x2606B6D4) : const Color(0x1506B6D4),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: const Color(0x4D06B6D4),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.bar_chart_rounded,
+                  size: 22,
+                  color: Color(0xFF06B6D4),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(width: 8),
+          _WebSendButton(
+            enabled: hasText,
+            onTap: _send,
+          ),
+        ],
       ),
     );
   }
@@ -1452,10 +1691,14 @@ class _WebMessageRow extends StatelessWidget {
                         ),
                         if (isMe) ...[
                           const SizedBox(width: 4),
-                          const Icon(
-                            Icons.check_rounded,
+                          Icon(
+                            message.id.startsWith('optimistic-')
+                                ? Icons.access_time_rounded
+                                : Icons.check_rounded,
                             size: 13,
-                            color: Color(0xFF10B981),
+                            color: message.id.startsWith('optimistic-')
+                                ? (isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8))
+                                : const Color(0xFF10B981),
                           ),
                         ],
                       ],
@@ -2126,10 +2369,11 @@ class _WebSendButton extends StatelessWidget {
 
     return InkWell(
       onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(22),
       child: Container(
-        width: 38,
-        height: 38,
+        width: 44,
+        height: 44,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           gradient: enabled
               ? const LinearGradient(
@@ -2138,13 +2382,18 @@ class _WebSendButton extends StatelessWidget {
               : null,
           color: enabled
               ? null
-              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
-          borderRadius: BorderRadius.circular(12),
+              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: enabled
+                ? Colors.transparent
+                : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+          ),
           boxShadow: enabled
               ? [
                   BoxShadow(
                     color: const Color(0xFF06B6D4).withValues(alpha: 0.35),
-                    blurRadius: 6,
+                    blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
                 ]
@@ -2152,8 +2401,8 @@ class _WebSendButton extends StatelessWidget {
         ),
         child: Icon(
           Icons.send_rounded,
-          size: 16,
-          color: enabled ? Colors.white : palette.textMuted,
+          size: 18,
+          color: enabled ? Colors.white : palette.textMuted.withValues(alpha: 0.6),
         ),
       ),
     );

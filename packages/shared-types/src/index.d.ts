@@ -598,6 +598,8 @@ export interface QuizAttemptSummary {
     lastSubmittedAt?: string | null;
     /** The unfinished attempt to resume, or null when there is nothing to resume. */
     inProgressAttemptId?: string | null;
+    /** The latest completed attempt ID for reviewing solutions. */
+    latestAttemptId?: string | null;
 }
 export type MockTestStatus = 'UPCOMING' | 'LIVE' | 'COMPLETED';
 export interface MockTest {
