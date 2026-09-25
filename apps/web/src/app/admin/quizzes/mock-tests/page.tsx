@@ -239,6 +239,15 @@ export default function AdminMockTestsPage() {
   };
 
   const handleEdit = (mockTest: any) => {
+    const isCompleted = mockTest.status === 'COMPLETED' || (mockTest.endsAt && new Date(mockTest.endsAt).getTime() <= Date.now());
+    const isLive = !isCompleted && (mockTest.status === 'LIVE' || new Date(mockTest.scheduledAt).getTime() <= Date.now());
+    const isUpcoming = !isCompleted && !isLive && mockTest.status === 'UPCOMING';
+
+    if (!isUpcoming) {
+      alert('Mock test details cannot be edited once it has started (LIVE) or completed.');
+      return;
+    }
+
     setEditingMockTest(mockTest);
     setIsReleaseScheduled(true);
     const { date: schDate, time: schTime } = splitIsoToDateAndTime(mockTest.scheduledAt);
@@ -440,6 +449,11 @@ export default function AdminMockTestsPage() {
                     hour: '2-digit',
                     minute: '2-digit',
                   });
+                  const isCompleted = mt.status === 'COMPLETED' || (mt.endsAt && new Date(mt.endsAt).getTime() <= nowTick);
+                  const isLive = !isCompleted && (mt.status === 'LIVE' || new Date(mt.scheduledAt).getTime() <= nowTick);
+                  const isUpcoming = !isCompleted && !isLive && mt.status === 'UPCOMING';
+                  const isEditable = isUpcoming;
+
                   return (
                     <TableRow key={mt.id} className="border-b border-slate-200/80 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                       <TableCell className="max-w-[200px] lg:max-w-[280px] py-3.5">
@@ -493,9 +507,9 @@ export default function AdminMockTestsPage() {
                           <Badge variant="outline" className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
                             No Questions
                           </Badge>
-                        ) : mt.status === 'LIVE' ? (
+                        ) : isLive ? (
                           <Badge variant="success" className="text-[10px] font-bold animate-pulse">🟢 LIVE</Badge>
-                        ) : mt.status === 'UPCOMING' ? (
+                        ) : isUpcoming ? (
                           <Badge variant="outline" className="text-[10px] text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10 font-bold">
                             UPCOMING
                           </Badge>
@@ -525,9 +539,15 @@ export default function AdminMockTestsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={mt.status !== 'UPCOMING'}
+                            disabled={!isEditable}
                             className="p-2 rounded-xl text-cyan-700 dark:text-cyan-300 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-cyan-700 dark:disabled:hover:text-cyan-300 disabled:hover:border-transparent disabled:hover:bg-transparent"
-                            title={mt.status === 'UPCOMING' ? 'Edit Mock Test' : `Cannot edit a ${mt.status.toLowerCase()} mock test`}
+                            title={
+                              isEditable
+                                ? 'Edit Mock Test'
+                                : isLive
+                                ? 'Cannot edit a live mock test'
+                                : 'Cannot edit a completed mock test'
+                            }
                             aria-label="Edit Mock Test"
                             onClick={() => handleEdit(mt)}
                           >

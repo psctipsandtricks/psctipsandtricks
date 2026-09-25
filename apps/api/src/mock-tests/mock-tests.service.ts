@@ -100,6 +100,18 @@ export class MockTestsService {
     const existing = await this.prisma.mockTest.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Mock test not found');
 
+    const now = new Date();
+    const isLiveOrCompleted =
+      existing.status === MockTestStatus.LIVE ||
+      existing.status === MockTestStatus.COMPLETED ||
+      new Date(existing.scheduledAt) <= now;
+
+    if (isLiveOrCompleted) {
+      throw new BadRequestException(
+        'Mock test details cannot be edited once it has started (LIVE) or completed.',
+      );
+    }
+
     const data: Prisma.MockTestUpdateInput = {};
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.quizId !== undefined) {
