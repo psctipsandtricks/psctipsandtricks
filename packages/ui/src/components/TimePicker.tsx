@@ -336,13 +336,8 @@ export function getMinMockTestTime(dateStr?: string): string | undefined {
   }
 
   if (dateStr === todayStr) {
-    const minTime = new Date(now.getTime() + 60_000);
-    const minDateStr = `${minTime.getFullYear()}-${String(minTime.getMonth() + 1).padStart(2, '0')}-${String(minTime.getDate()).padStart(2, '0')}`;
-    if (minDateStr > todayStr) {
-      return '23:59';
-    }
-    const hours = String(minTime.getHours()).padStart(2, '0');
-    const minutes = String(minTime.getMinutes()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
   }
 

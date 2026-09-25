@@ -74,15 +74,15 @@ const mockTestSchema = Yup.object({
       schema
         .required('Release time is required')
         .test(
-          'at-least-1-min-future',
-          'Release date and time must be at least 1 minute after the current time.',
+          'not-past-time',
+          'Release date and time cannot be in the past.',
           function (time) {
             const date = (this.parent as any).scheduledDate;
             if (!date || !time) return true;
             const iso = combineDateAndTime(date, time);
             if (!iso) return true;
-            const minAllowedTime = Date.now() + 60_000 - 5_000;
-            return new Date(iso).getTime() >= minAllowedTime;
+            // 60-second grace window so picking the current minute or any future minute remains valid
+            return new Date(iso).getTime() + 60_000 >= Date.now();
           },
         ),
     otherwise: (schema) => schema.notRequired(),
