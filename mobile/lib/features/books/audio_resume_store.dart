@@ -62,9 +62,6 @@ class AudioResumePoint {
   }
 }
 
-/// A clip barely started is not somewhere worth being sent back to.
-const _minimumResumePosition = Duration(seconds: 5);
-
 /// How close to the end counts as finished. Resuming into the last few seconds
 /// of a clip would play a moment of narration and stop.
 const _endOfClipMargin = Duration(seconds: 10);
@@ -85,16 +82,17 @@ AudioResumePoint? readAudioResume(SharedPreferences prefs, String bookId) {
 }
 
 /// Records where narration stands, or drops the record when there is nothing
-/// worth coming back to — a clip barely begun, or one played through to the end.
+/// worth coming back to — a clip played through to the end.
 Future<void> saveAudioResume(
   SharedPreferences prefs,
   String bookId,
   AudioResumePoint point,
 ) {
   final total = point.duration;
-  final tooEarly = point.position < _minimumResumePosition;
-  final finished = total != null && point.position >= total - _endOfClipMargin;
-  if (tooEarly || finished) return clearAudioResume(prefs, bookId);
+  final finished = total != null &&
+      total > _endOfClipMargin &&
+      point.position >= total - _endOfClipMargin;
+  if (finished) return clearAudioResume(prefs, bookId);
   return prefs.setString(_key(bookId), jsonEncode(point.toJson()));
 }
 

@@ -126,18 +126,17 @@ void main() {
       expect(stored.duration, const Duration(minutes: 40));
     });
 
-    test('a clip barely started is not — and clears an older point', () async {
+    test('a clip barely started is remembered from the beginning', () async {
       final prefs = await freshPrefs();
-      await saveAudioResume(prefs, bookId, point());
-
-      // Tapping play and immediately leaving is not a listening session.
       await saveAudioResume(
         prefs,
         bookId,
         point(position: const Duration(seconds: 2)),
       );
 
-      expect(readAudioResume(prefs, bookId), isNull);
+      final stored = readAudioResume(prefs, bookId);
+      expect(stored, isNotNull);
+      expect(stored!.position, const Duration(seconds: 2));
     });
 
     test('a clip played out is not: there is nothing left of it', () async {
@@ -465,6 +464,35 @@ void main() {
       expect(stored, isNotNull);
       expect(stored!.unitId, 't2');
       expect(stored.position, const Duration(minutes: 20));
+    });
+
+    testWidgets('playing audio for the first time enables audio resume immediately',
+        (tester) async {
+      final (audio, prefs) = await pumpReader(tester, resumeAudio: false);
+
+      await tester.tap(find.byTooltip('Chapters and topics'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Sree Narayana Guru').last);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(audio.loadedUrl, 'https://cdn.test/sree-narayana-guru.mp3');
+
+      // User starts audio playback for the first time
+      audio.duration.value = const Duration(minutes: 40);
+      audio.position.value = const Duration(seconds: 1);
+      audio.playing.value = true;
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Close the reader immediately
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final stored = readAudioResume(prefs, bookId);
+      expect(stored, isNotNull);
+      expect(stored!.unitId, 't2');
+      expect(stored.position, const Duration(seconds: 1));
     });
 
     testWidgets('a book opened but never listened to offers nothing back',

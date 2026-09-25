@@ -394,6 +394,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
       // session worth offering back.
       _listeningStarted = true;
       _startScrollTicker();
+      _recordAudioResume();
     } else {
       // Stopped, not disposed: resuming picks the chase up from wherever the
       // reader now is rather than snapping to where the audio has got to.
