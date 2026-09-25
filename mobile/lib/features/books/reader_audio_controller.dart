@@ -22,8 +22,11 @@ import '../../core/providers/app_providers.dart';
 class ReaderAudioController {
   ReaderAudioController() {
     _positionSub = _player.positionStream.listen((value) {
+      if (loading.value && position.value > Duration.zero && value == Duration.zero) {
+        return;
+      }
       position.value = value;
-      final total = _player.duration;
+      final total = _player.duration ?? duration.value;
       fraction.value = (total == null || total.inMilliseconds <= 0)
           ? 0
           : (value.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0);
@@ -152,6 +155,9 @@ class ReaderAudioController {
         ),
         initialPosition: initialPosition,
       );
+      if (initialPosition != null && initialPosition > Duration.zero) {
+        await _player.seek(initialPosition);
+      }
       loading.value = false;
       if (autoPlay) unawaited(_player.play());
     } catch (e) {

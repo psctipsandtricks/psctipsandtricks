@@ -156,6 +156,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   /// Non-null only while [BookReaderScreen.resumeAudio] is being honoured — it
   /// is consumed by the first [_loadUnitAudio] that matches its clip.
   AudioResumePoint? _pendingAudioResume;
+  Duration? _lastResumePosition;
 
   /// Whether narration has actually played this session, which is what makes a
   /// position worth writing down. Sticky once set: pausing, or folding the
@@ -424,6 +425,8 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     final prefs = _prefs;
     final audio = _audio;
     if (prefs == null || audio == null) return;
+    // Do not record while audio is still loading or initializing its source
+    if (audio.loading.value) return;
     // Nothing was ever played: there is no position to come back to.
     if (!_listeningStarted) return;
     if (_activeIndex >= _units.length) return;
@@ -693,7 +696,8 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
 
     // Consumed here rather than in `_hydrate`: the point is only honoured once
     // the clip it belongs to is the one being loaded.
-    final resume = _pendingAudioResume?.audioUrl == unit.audioUrl
+    final resume = (_pendingAudioResume?.audioUrl == unit.audioUrl ||
+            _pendingAudioResume?.unitId == unit.id)
         ? _pendingAudioResume
         : null;
 
@@ -710,7 +714,17 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
 
     _loadedAudioUrl = url;
     _loadedAudioUnitId = unit.id;
-    if (resume != null) _pendingAudioResume = null;
+    if (resume != null) {
+      _lastResumePosition = resume.position;
+      _pendingAudioResume = null;
+    }
+
+    final effectivePosition = resume?.position ??
+        (swappingFile
+            ? (audio.position.value > Duration.zero
+                ? audio.position.value
+                : _lastResumePosition)
+            : null);
 
     unawaited(audio.load(
       url,
@@ -721,8 +735,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
       autoPlay: resume != null ||
           (swappingFile && audio.playing.value) ||
           _autoPlayUnitId == unit.id,
-      initialPosition:
-          resume?.position ?? (swappingFile ? audio.position.value : null),
+      initialPosition: effectivePosition,
     ));
 
     // Carrying on listening means the player, not the page: the student asked
