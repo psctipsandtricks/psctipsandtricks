@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/network/api_exception.dart';
 import '../../core/providers/app_providers.dart';
@@ -251,12 +252,22 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
       audio.onClipFinished = _onClipFinished;
       _startScrollTicker();
       _startAudioResumeTicker();
+
+      // Keep the screen awake if auto scroll is enabled
+      if (ref.read(autoScrollProvider)) {
+        try {
+          WakelockPlus.enable();
+        } catch (_) {}
+      }
     });
   }
 
   @override
   void dispose() {
     restorePortraitOnly();
+    try {
+      WakelockPlus.disable();
+    } catch (_) {}
     if (_immersive) unawaited(exitImmersiveReading());
     unawaited(releaseSecureScreen());
     // Stopped first: disposing a ticker that is still scheduled asserts.

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
@@ -79,11 +80,21 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     // landscape phone fits a whole page at a readable size. Portrait-only is
     // restored on the way out, since the rest of the app is laid out for it.
     allowAllOrientations();
+
+    // Keep the screen awake if auto scroll is enabled
+    if (ref.read(autoScrollProvider)) {
+      try {
+        WakelockPlus.enable();
+      } catch (_) {}
+    }
   }
 
   @override
   void dispose() {
     restorePortraitOnly();
+    try {
+      WakelockPlus.disable();
+    } catch (_) {}
     super.dispose();
   }
 

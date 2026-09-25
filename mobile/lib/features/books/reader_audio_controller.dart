@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/providers/app_providers.dart';
 
@@ -254,9 +255,16 @@ class AutoScrollController extends StateNotifier<bool> {
   void set(bool enabled) {
     state = enabled;
     _ref.read(sharedPrefsProvider).setBool(_key, enabled);
+    _syncWakelock(enabled);
   }
 
   void toggle() => set(!state);
+
+  static Future<void> _syncWakelock(bool enabled) async {
+    try {
+      await WakelockPlus.toggle(enable: enabled);
+    } catch (_) {}
+  }
 }
 
 final autoScrollProvider =
