@@ -221,6 +221,8 @@ class _VideoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -237,21 +239,14 @@ class _VideoRow extends StatelessWidget {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           child: Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.red.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: AppColors.red,
-                  size: 20,
-                ),
+              VideoThumbnail(
+                thumbnailUrl: video.effectiveThumbnailUrl,
+                youtubeVideoId: video.youtubeVideoId,
+                youtubeUrl: video.youtubeUrl,
+                width: 112,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -262,14 +257,15 @@ class _VideoRow extends StatelessWidget {
                     Text(
                       video.title,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                             fontSize: 13.5,
+                            height: 1.3,
                           ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (video.hasNotes) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 6),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => openPdf(
@@ -303,10 +299,10 @@ class _VideoRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(
+              Icon(
                 Icons.chevron_right_rounded,
                 size: 20,
-                color: Colors.grey,
+                color: palette.textMuted,
               ),
             ],
           ),
