@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button, Card, Badge, Input } from '@psc/ui';
 import {
   Lock,
@@ -10,6 +11,7 @@ import {
   Sparkles,
   CheckCircle2,
   X,
+  ArrowLeft,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { loadRazorpayScript } from '@/lib/razorpay';
@@ -35,6 +37,8 @@ interface QuizPaywallProps {
   /** Called after the payment settles, so the caller can refetch and unlock. */
   onUnlocked: () => void | Promise<void>;
   subtitle?: string;
+  backHref?: string;
+  backLabel?: string;
 }
 
 /**
@@ -47,7 +51,10 @@ export function QuizPaywall({
   loginRedirect,
   onUnlocked,
   subtitle,
+  backHref,
+  backLabel,
 }: QuizPaywallProps) {
+  const router = useRouter();
   const { user } = useAuth();
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState('');
@@ -194,7 +201,39 @@ export function QuizPaywall({
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-10 sm:py-16 px-4 relative">
+    <div className="max-w-2xl mx-auto py-8 sm:py-12 px-4 relative space-y-4">
+      {/* Back Button */}
+      <div>
+        {backHref ? (
+          <Link
+            href={backHref}
+            className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors group cursor-pointer"
+          >
+            <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center group-hover:border-slate-300 dark:group-hover:border-slate-600 transition-all shadow-xs">
+              <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300 group-hover:-translate-x-0.5 transition-transform" />
+            </div>
+            <span>{backLabel || 'Back'}</span>
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.history.length > 1) {
+                router.back();
+              } else {
+                router.push('/quizzes');
+              }
+            }}
+            className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors group cursor-pointer"
+          >
+            <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center group-hover:border-slate-300 dark:group-hover:border-slate-600 transition-all shadow-xs">
+              <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300 group-hover:-translate-x-0.5 transition-transform" />
+            </div>
+            <span>{backLabel || 'Back'}</span>
+          </button>
+        )}
+      </div>
+
       {/* Payment Success & Start Quiz Modal */}
       {showStartModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">

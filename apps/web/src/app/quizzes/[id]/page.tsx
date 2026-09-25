@@ -482,6 +482,8 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
         loginRedirect={`/quizzes/${params.id}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}
         subtitle="This question bank is premium. Complete the payment to unlock the questions and attempt it."
         onUnlocked={() => setReloadKey((k) => k + 1)}
+        backHref={backHref}
+        backLabel="Back to Quiz Hub"
       />
     );
   }

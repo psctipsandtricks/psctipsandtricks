@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo } fr
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, Button, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@psc/ui';
-import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download, AlertCircle, Receipt, Shield, ShoppingBag } from 'lucide-react';
+import { CheckCircle2, Trophy, Award, ChevronLeft, ChevronRight, Send, Radio, Clock, XCircle, Download, AlertCircle, Receipt, Shield, ShoppingBag, ArrowLeft } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useAuth } from '@/app/auth-provider';
 import { QuizPaywall } from '@/app/quiz-paywall';
@@ -362,6 +362,8 @@ function MockTestContent({ propParams }: { propParams?: { id?: string } }) {
             ? 'This live mock test has ended. Purchase access to unlock the quiz for practice and review.'
             : undefined
         }
+        backHref="/quizzes?tab=mock"
+        backLabel="Back to Live Mock Tests"
       />
     );
   }
@@ -577,40 +579,54 @@ function CountdownGate({ mockTest }: { mockTest: any }) {
   const access = mockTest.access;
 
   return (
-    <div className="max-w-2xl mx-auto py-16 text-center space-y-6">
-      <div className="flex items-center justify-center gap-2 flex-wrap">
-        <Badge variant="outline" className="text-xs font-bold text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10">
-          Upcoming Live Mock Test
-        </Badge>
-        {access?.hasAccess && (
-          <Badge variant="success" className="text-xs font-bold flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" />
-            <span>Purchased</span>
-          </Badge>
-        )}
-      </div>
-      <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{mockTest.title}</h1>
-      <p className="text-sm text-slate-500 dark:text-slate-400">
-        {mockTest.quiz?.title} • {mockTest.quiz?.totalQuestions || mockTest.quiz?.questions?.length || 0} Questions • {mockTest.quiz?.durationMinutes || 15} mins
-      </p>
-
-      <div className="flex items-center justify-center gap-3 sm:gap-4">
-        {[
-          { label: 'Days', value: days },
-          { label: 'Hours', value: hours },
-          { label: 'Minutes', value: minutes },
-          { label: 'Seconds', value: seconds },
-        ].map((unit) => (
-          <div key={unit.label} className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 sm:px-6 sm:py-4 min-w-[70px] sm:min-w-[90px]">
-            <div className="text-2xl sm:text-4xl font-black text-amber-400 font-mono">{unit.value.toString().padStart(2, '0')}</div>
-            <div className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-wider mt-1">{unit.label}</div>
+    <div className="max-w-2xl mx-auto py-10 sm:py-16 px-4 space-y-6">
+      <div>
+        <Link
+          href="/quizzes?tab=mock"
+          className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors group cursor-pointer"
+        >
+          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center group-hover:border-slate-300 dark:group-hover:border-slate-600 transition-all shadow-xs">
+            <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300 group-hover:-translate-x-0.5 transition-transform" />
           </div>
-        ))}
+          <span>Back to Live Mock Tests</span>
+        </Link>
       </div>
 
-      <p className="text-xs text-slate-500 dark:text-slate-400">
-        This page automatically unlocks the moment the mock test goes live — no need to refresh.
-      </p>
+      <div className="text-center space-y-6">
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-xs font-bold text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10">
+            Upcoming Live Mock Test
+          </Badge>
+          {access?.hasAccess && (
+            <Badge variant="success" className="text-xs font-bold flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              <span>Purchased</span>
+            </Badge>
+          )}
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{mockTest.title}</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {mockTest.quiz?.title} • {mockTest.quiz?.totalQuestions || mockTest.quiz?.questions?.length || 0} Questions • {mockTest.quiz?.durationMinutes || 15} mins
+        </p>
+
+        <div className="flex items-center justify-center gap-3 sm:gap-4">
+          {[
+            { label: 'Days', value: days },
+            { label: 'Hours', value: hours },
+            { label: 'Minutes', value: minutes },
+            { label: 'Seconds', value: seconds },
+          ].map((unit) => (
+            <div key={unit.label} className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 sm:px-6 sm:py-4 min-w-[70px] sm:min-w-[90px]">
+              <div className="text-2xl sm:text-4xl font-black text-amber-400 font-mono">{unit.value.toString().padStart(2, '0')}</div>
+              <div className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-wider mt-1">{unit.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          This page automatically unlocks the moment the mock test goes live — no need to refresh.
+        </p>
+      </div>
     </div>
   );
 }
