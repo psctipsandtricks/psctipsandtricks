@@ -164,6 +164,34 @@ void main() {
     test('nothing listened to reads back as nothing', () async {
       expect(readAudioResume(await freshPrefs(), bookId), isNull);
     });
+
+    test('stores and retrieves playback positions per user', () async {
+      final prefs = await freshPrefs();
+      const userA = 'user-123';
+      const userB = 'user-456';
+
+      await saveAudioResume(
+        prefs,
+        bookId,
+        point(position: const Duration(seconds: 45)),
+        userId: userA,
+      );
+      await saveAudioResume(
+        prefs,
+        bookId,
+        point(position: const Duration(minutes: 5, seconds: 10)),
+        userId: userB,
+      );
+
+      final storedA = readAudioResume(prefs, bookId, userId: userA);
+      final storedB = readAudioResume(prefs, bookId, userId: userB);
+
+      expect(storedA, isNotNull);
+      expect(storedA!.position, const Duration(seconds: 45));
+
+      expect(storedB, isNotNull);
+      expect(storedB!.position, const Duration(minutes: 5, seconds: 10));
+    });
   });
 
   group('the detail page offers it back', () {

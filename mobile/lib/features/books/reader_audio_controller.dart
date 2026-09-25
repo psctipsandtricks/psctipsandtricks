@@ -22,6 +22,13 @@ import '../../core/providers/app_providers.dart';
 class ReaderAudioController {
   ReaderAudioController() {
     _positionSub = _player.positionStream.listen((value) {
+      final target = _initialSeekTarget;
+      if (target != null && target > Duration.zero) {
+        if (value < target - const Duration(seconds: 2)) {
+          return;
+        }
+        _initialSeekTarget = null;
+      }
       if (loading.value && position.value > Duration.zero && value == Duration.zero) {
         return;
       }
@@ -95,6 +102,7 @@ class ReaderAudioController {
   late final StreamSubscription<PlaybackEvent> _eventSub;
 
   String? _url;
+  Duration? _initialSeekTarget;
 
   /// The clip whose ending has already been announced, so it is announced once.
   String? _announcedComplete;
@@ -126,7 +134,11 @@ class ReaderAudioController {
     Duration? initialPosition,
   }) async {
     if (_url == url) {
-      if (initialPosition != null) seek(initialPosition);
+      if (initialPosition != null && initialPosition > Duration.zero) {
+        _initialSeekTarget = initialPosition;
+        position.value = initialPosition;
+        await _player.seek(initialPosition);
+      }
       if (autoPlay && !_player.playing) unawaited(_player.play());
       return;
     }
@@ -137,6 +149,9 @@ class ReaderAudioController {
     failed.value = false;
     loading.value = true;
     fraction.value = 0;
+    _initialSeekTarget = (initialPosition != null && initialPosition > Duration.zero)
+        ? initialPosition
+        : null;
     position.value = initialPosition ?? Duration.zero;
     duration.value = null;
 
@@ -157,6 +172,7 @@ class ReaderAudioController {
       );
       if (initialPosition != null && initialPosition > Duration.zero) {
         await _player.seek(initialPosition);
+        position.value = initialPosition;
       }
       loading.value = false;
       if (autoPlay) unawaited(_player.play());
@@ -164,6 +180,7 @@ class ReaderAudioController {
       if (kDebugMode) debugPrint('Could not load narration: $e');
       failed.value = true;
       loading.value = false;
+      _initialSeekTarget = null;
     }
   }
 
@@ -210,6 +227,7 @@ class ReaderAudioController {
   /// Releases the current clip. Called when the reader closes, so narration
   /// does not follow the student out of the book.
   Future<void> stop() async {
+    _initialSeekTarget = null;
     _url = null;
     _announcedComplete = null;
     source.value = null;

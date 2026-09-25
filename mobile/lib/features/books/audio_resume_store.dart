@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/providers/app_providers.dart';
+import '../../core/providers/auth_controller.dart';
 
 /// Where a book's narration was left when the student closed the reader.
 ///
@@ -66,10 +67,21 @@ class AudioResumePoint {
 /// of a clip would play a moment of narration and stop.
 const _endOfClipMargin = Duration(seconds: 10);
 
-String _key(String bookId) => 'book-audio-resume-$bookId';
+String _key(String bookId, {String? userId}) =>
+    (userId != null && userId.isNotEmpty)
+        ? 'book-audio-resume-$userId-$bookId'
+        : 'book-audio-resume-$bookId';
 
-AudioResumePoint? readAudioResume(SharedPreferences prefs, String bookId) {
-  final raw = prefs.getString(_key(bookId));
+AudioResumePoint? readAudioResume(
+  SharedPreferences prefs,
+  String bookId, {
+  String? userId,
+}) {
+  // Check user-scoped key first, then fallback to book-scoped key
+  var raw = userId != null && userId.isNotEmpty
+      ? prefs.getString(_key(bookId, userId: userId))
+      : null;
+  raw ??= prefs.getString(_key(bookId));
   if (raw == null) return null;
   try {
     final decoded = jsonDecode(raw);
@@ -86,22 +98,40 @@ AudioResumePoint? readAudioResume(SharedPreferences prefs, String bookId) {
 Future<void> saveAudioResume(
   SharedPreferences prefs,
   String bookId,
-  AudioResumePoint point,
-) {
+  AudioResumePoint point, {
+  String? userId,
+}) {
   final total = point.duration;
   final finished = total != null &&
       total > _endOfClipMargin &&
       point.position >= total - _endOfClipMargin;
-  if (finished) return clearAudioResume(prefs, bookId);
-  return prefs.setString(_key(bookId), jsonEncode(point.toJson()));
+  if (finished) return clearAudioResume(prefs, bookId, userId: userId);
+  final json = jsonEncode(point.toJson());
+  if (userId != null && userId.isNotEmpty) {
+    prefs.setString(_key(bookId, userId: userId), json);
+  }
+  return prefs.setString(_key(bookId), json);
 }
 
-Future<void> clearAudioResume(SharedPreferences prefs, String bookId) =>
-    prefs.remove(_key(bookId));
+Future<void> clearAudioResume(
+  SharedPreferences prefs,
+  String bookId, {
+  String? userId,
+}) {
+  if (userId != null && userId.isNotEmpty) {
+    prefs.remove(_key(bookId, userId: userId));
+  }
+  return prefs.remove(_key(bookId));
+}
 
 /// The resume point for one book, for the detail screen's "Continue with audio"
 /// card. Invalidate it after the reader closes to pick up the new position.
 final audioResumeProvider =
     Provider.family<AudioResumePoint?, String>((ref, bookId) {
-  return readAudioResume(ref.watch(sharedPrefsProvider), bookId);
+  final user = ref.watch(currentUserProvider);
+  return readAudioResume(
+    ref.watch(sharedPrefsProvider),
+    bookId,
+    userId: user?.id,
+  );
 });

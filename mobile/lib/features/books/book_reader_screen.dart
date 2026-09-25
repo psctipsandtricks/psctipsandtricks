@@ -157,6 +157,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
   /// is consumed by the first [_loadUnitAudio] that matches its clip.
   AudioResumePoint? _pendingAudioResume;
   Duration? _lastResumePosition;
+  String? _userId;
 
   /// Whether narration has actually played this session, which is what makes a
   /// position worth writing down. Sticky once set: pausing, or folding the
@@ -234,8 +235,17 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     // first build — which is where the resume point decides what page opens —
     // runs before that callback does.
     _prefs = ref.read(sharedPrefsProvider);
+    _userId = ref.read(currentUserProvider)?.id;
     if (widget.resumeAudio) {
-      _pendingAudioResume = readAudioResume(_prefs!, widget.bookId);
+      _pendingAudioResume = readAudioResume(
+        _prefs!,
+        widget.bookId,
+        userId: _userId,
+      );
+      if (_pendingAudioResume != null) {
+        _listeningStarted = true;
+        _lastResumePosition = _pendingAudioResume!.position;
+      }
     }
     // Drive the scroll off the shared player, so it keeps working no matter
     // which screen started playback.
@@ -438,6 +448,15 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     // has not been loaded must not record a position belonging to the last one.
     if (_loadedAudioUrl != url && _loadedAudioUrl != _localPaths[url]) return;
 
+    final currentPos = audio.position.value;
+    final recordPosition = currentPos > Duration.zero
+        ? currentPos
+        : (_lastResumePosition ?? Duration.zero);
+
+    if (recordPosition > Duration.zero) {
+      _lastResumePosition = recordPosition;
+    }
+
     unawaited(
       saveAudioResume(
         prefs,
@@ -448,9 +467,10 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
           unitId: unit.id,
           audioUrl: url,
           title: unit.title,
-          position: audio.position.value,
+          position: recordPosition,
           duration: audio.duration.value,
         ),
+        userId: _userId,
       ),
     );
   }
@@ -839,6 +859,7 @@ class _BookReaderScreenState extends ConsumerState<BookReaderScreen>
     }
     _scrollTicker?.stop();
     _audioResumeTimer?.cancel();
+    _audio?.playing.removeListener(_onPlayingChanged);
     if (_audio != null) {
       _recordAudioResume();
       unawaited(_audio!.stop());
