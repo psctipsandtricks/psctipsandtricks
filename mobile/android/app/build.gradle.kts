@@ -22,7 +22,7 @@ val keystoreProperties =
     }
 
 android {
-    namespace = "com.psctipsandtricks.student"
+    namespace = "com.psctipsandtricks"
 
     // Build against the newest platform Flutter ships support for (API 36 /
     // Android 16). compileSdk only affects what the code may call — it never
@@ -39,7 +39,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.psctipsandtricks.student"
+        applicationId = "com.psctipsandtricks"
 
         // Android 7.0. Pinned to a literal rather than `flutter.minSdkVersion`
         // so that a Flutter upgrade raising its floor shows up as a deliberate
@@ -58,6 +58,8 @@ android {
 
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.psctipsandtricks"
     }
 
     signingConfigs {

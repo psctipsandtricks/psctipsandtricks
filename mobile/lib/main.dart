@@ -51,7 +51,7 @@ Future<void> main() async {
 Future<void> _startBackgroundAudio() async {
   try {
     await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.psctipsandtricks.student.audio',
+      androidNotificationChannelId: 'com.psctipsandtricks.audio',
       androidNotificationChannelName: 'Audio lessons',
       // The notification stays while a lesson is paused, so picking it back up
       // does not mean finding the app again.

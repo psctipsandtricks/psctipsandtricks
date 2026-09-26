@@ -1,4 +1,4 @@
-package com.psctipsandtricks.student
+package com.psctipsandtricks
 
 import android.Manifest
 import android.content.ContentValues

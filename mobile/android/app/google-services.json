@@ -7,19 +7,15 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:313869157607:android:1f948ff39d3b2d33364e42",
+        "mobilesdk_app_id": "1:313869157607:android:a04e210fb897a493364e42",
         "android_client_info": {
-          "package_name": "com.psctipsandtricks.student"
+          "package_name": "com.psctipsandtricks"
         }
       },
       "oauth_client": [
         {
-          "client_id": "313869157607-27ao3m8jt0ihd4mpl8raqskfllrgcv5t.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.psctipsandtricks.student",
-            "certificate_hash": "f41e816af336e0f772059581a9392ddc4f274463"
-          }
+          "client_id": "313869157607-kc569avj43psp93cq9sjltaapfgjm1lt.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
       "api_key": [
@@ -29,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "313869157607-kc569avj43psp93cq9sjltaapfgjm1lt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
