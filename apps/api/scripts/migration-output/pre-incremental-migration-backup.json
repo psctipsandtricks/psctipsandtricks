@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-09-28T02:51:13.037Z",
+  "users": {
+    "total": 37431,
+    "legacy": 37399
+  },
+  "orders": {
+    "total": 42883,
+    "legacy": 42753
+  },
+  "settledRevenue": 4308357.259999998
+}

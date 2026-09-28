@@ -1,0 +1,64 @@
+{
+  "startedAt": "2026-09-28T02:57:48.625Z",
+  "mode": "verify-only",
+  "cutoffDate": "2026-08-14T00:00:00.000Z",
+  "books": {
+    "mapped": [
+      "101",
+      "113"
+    ],
+    "placeholders": []
+  },
+  "users": {
+    "legacyTotalInExport": 40058,
+    "newToCreate": 0,
+    "created": 0,
+    "toUpdate": 2866,
+    "updated": 0
+  },
+  "oauth": {
+    "created": 0,
+    "conflicts": 0
+  },
+  "orders": {
+    "legacyTotalInExport": 45739,
+    "newToCreate": 0,
+    "created": 0,
+    "toUpdate": 2440,
+    "updated": 0,
+    "skippedOrphans": 665
+  },
+  "verification": {
+    "users": {
+      "legacyInExport": 40058,
+      "migratedLegacyInDb": 40059,
+      "totalInDb": 40076
+    },
+    "orders": {
+      "legacyInExport": 45739,
+      "expectedInDb": 45074,
+      "migratedLegacyInDb": 45075,
+      "totalInDb": 45205
+    },
+    "access": {
+      "101": {
+        "newBookId": "83b937d2-7d71-4331-9a74-af0df8ab52f0",
+        "legacyUsersWithPaidOrder": 13125,
+        "usersWithAccessNow": 13135
+      },
+      "113": {
+        "newBookId": "5c505d30-e466-41c6-811f-faf5eb8ac598",
+        "legacyUsersWithPaidOrder": 3897,
+        "usersWithAccessNow": 3902
+      }
+    },
+    "paidRevenue": {
+      "legacy": 4614751.26,
+      "migrated": 4614751.259999998
+    },
+    "passed": 10,
+    "failed": 0,
+    "failures": []
+  },
+  "finishedAt": "2026-09-28T02:57:59.029Z"
+}

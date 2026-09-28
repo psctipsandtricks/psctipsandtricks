@@ -1,0 +1,107 @@
+{
+  "startedAt": "2026-09-28T02:51:07.651Z",
+  "mode": "live",
+  "cutoffDate": "2026-08-14T00:00:00.000Z",
+  "books": {
+    "mapped": [
+      "101",
+      "113"
+    ],
+    "placeholders": [
+      {
+        "legacyId": "112",
+        "title": "PSC HOT TOPICS"
+      },
+      {
+        "legacyId": "105",
+        "title": "Test"
+      },
+      {
+        "legacyId": "107",
+        "title": "TEST 2"
+      },
+      {
+        "legacyId": "108",
+        "title": "test"
+      },
+      {
+        "legacyId": "110",
+        "title": "Test Book"
+      },
+      {
+        "legacyId": "106",
+        "title": "Legacy book #106"
+      },
+      {
+        "legacyId": "111",
+        "title": "Dont buy"
+      },
+      {
+        "legacyId": "114",
+        "title": "test"
+      }
+    ]
+  },
+  "users": {
+    "legacyTotalInExport": 40058,
+    "newToCreate": 2645,
+    "created": 2645,
+    "toUpdate": 221,
+    "updated": 221
+  },
+  "oauth": {
+    "created": 2615,
+    "conflicts": 1
+  },
+  "orders": {
+    "legacyTotalInExport": 45739,
+    "newToCreate": 2320,
+    "created": 2320,
+    "toUpdate": 120,
+    "updated": 120,
+    "skippedOrphans": 667
+  },
+  "premiumMarked": 755,
+  "verification": {
+    "users": {
+      "legacyInExport": 40058,
+      "migratedLegacyInDb": 40058,
+      "totalInDb": 40076
+    },
+    "orders": {
+      "legacyInExport": 45739,
+      "expectedInDb": 45072,
+      "migratedLegacyInDb": 45073,
+      "totalInDb": 45203
+    },
+    "access": {
+      "101": {
+        "newBookId": "83b937d2-7d71-4331-9a74-af0df8ab52f0",
+        "legacyUsersWithPaidOrder": 13124,
+        "usersWithAccessNow": 13134
+      },
+      "113": {
+        "newBookId": "5c505d30-e466-41c6-811f-faf5eb8ac598",
+        "legacyUsersWithPaidOrder": 3897,
+        "usersWithAccessNow": 3902
+      }
+    },
+    "paidRevenue": {
+      "legacy": 4614552.26,
+      "migrated": 4614353.259999998
+    },
+    "passed": 8,
+    "failed": 2,
+    "failures": [
+      {
+        "name": "every non-orphan legacy order in export migrated",
+        "detail": "45073/45072 (667 orphans safely excluded)"
+      },
+      {
+        "name": "settled revenue preserved",
+        "detail": "legacy ₹4614552.26 vs migrated ₹4614353.26"
+      }
+    ]
+  },
+  "finishedAt": "2026-09-28T02:53:26.051Z"
+}

@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "313869157607-27ao3m8jt0ihd4mpl8raqskfllrgcv5t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.psctipsandtricks",
+            "certificate_hash": "f41e816af336e0f772059581a9392ddc4f274463"
+          }
+        },
+        {
           "client_id": "313869157607-kc569avj43psp93cq9sjltaapfgjm1lt.apps.googleusercontent.com",
           "client_type": 3
         }
