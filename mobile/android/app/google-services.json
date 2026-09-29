@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "313869157607-iv4i642oj23e8o3vgg78pec27blt03rq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.psctipsandtricks",
+            "certificate_hash": "e418639c47c5269ac985447521a42d661eb05441"
+          }
+        },
+        {
           "client_id": "313869157607-kc569avj43psp93cq9sjltaapfgjm1lt.apps.googleusercontent.com",
           "client_type": 3
         }
