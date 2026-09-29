@@ -1,4 +1,3 @@
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -24,7 +23,7 @@ void goAfterAuth(BuildContext context, String? redirect) {
 }
 
 /// Shared chrome for the sign-in and sign-up screens: the brand mark over an
-/// ambient glow and frosted glass container, matching the website's cyber-glass design.
+/// ambient glow, matching the website's auth pages.
 class AuthScaffold extends StatelessWidget {
   const AuthScaffold({
     super.key,
@@ -40,158 +39,58 @@ class AuthScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final isDark = palette.isDark;
-
-    // Adaptive theme colors
-    final bgGradient = isDark
-        ? const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF050A18),
-              Color(0xFF081026),
-              Color(0xFF040814),
-            ],
-          )
-        : const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFF8FAFC),
-              Color(0xFFEFF6FF),
-              Color(0xFFF1F5F9),
-            ],
-          );
-
-    final cardBg = isDark
-        ? const Color(0xFF0C1630).withValues(alpha: 0.72)
-        : Colors.white.withValues(alpha: 0.84);
-
-    final cardBorder = isDark
-        ? Border.all(
-            color: const Color(0xFF38BDF8).withValues(alpha: 0.22),
-            width: 1.2,
-          )
-        : Border.all(
-            color: Colors.white.withValues(alpha: 0.95),
-            width: 1.5,
-          );
-
-    final cardShadow = isDark
-        ? [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.45),
-              blurRadius: 36,
-              offset: const Offset(0, 16),
-            ),
-            BoxShadow(
-              color: AppColors.cyan.withValues(alpha: 0.08),
-              blurRadius: 28,
-              offset: const Offset(0, 4),
-            ),
-          ]
-        : [
-            BoxShadow(
-              color: const Color(0xFF0F172A).withValues(alpha: 0.07),
-              blurRadius: 32,
-              offset: const Offset(0, 12),
-            ),
-            BoxShadow(
-              color: const Color(0xFF38BDF8).withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ];
 
     return Scaffold(
-      backgroundColor: palette.background,
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: bgGradient),
-        child: Stack(
-          children: [
-            // ── Luminous Ambient Orbs (Adaptive for Light & Dark) ───────
-            Positioned(
-              top: -120,
-              left: -80,
-              child: _Glow(
-                color: isDark ? AppColors.cyan : const Color(0xFF38BDF8),
-                size: 340,
-                opacity: isDark ? 0.32 : 0.28,
-              ),
-            ),
-            Positioned(
-              top: 140,
-              right: -100,
-              child: _Glow(
-                color: isDark ? AppColors.indigo : const Color(0xFF818CF8),
-                size: 300,
-                opacity: isDark ? 0.26 : 0.22,
-              ),
-            ),
-            Positioned(
-              bottom: -60,
-              left: 40,
-              child: _Glow(
-                color: isDark ? AppColors.sky : const Color(0xFF06B6D4),
-                size: 260,
-                opacity: isDark ? 0.20 : 0.16,
-              ),
-            ),
-
-            // ── Main Centered Frosted Glass Content ─────────────────────
-            SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  child: Responsive.centered(
-                    maxWidth: Responsive.maxFormWidth,
-                    alignment: Alignment.center,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(26),
-                      child: BackdropFilter(
-                        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
-                          decoration: BoxDecoration(
-                            color: cardBg,
-                            borderRadius: BorderRadius.circular(26),
-                            border: cardBorder,
-                            boxShadow: cardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const _BrandMark(),
-                              const SizedBox(height: 24),
-                              Text(
-                                title,
-                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: -0.6,
-                                      color: palette.textPrimary,
-                                    ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                subtitle,
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: palette.textSecondary,
-                                      height: 1.45,
-                                    ),
-                              ),
-                              const SizedBox(height: 24),
-                              child,
-                            ],
-                          ),
-                        ),
+      body: Stack(
+        children: [
+          // Ambient mesh glow — the native stand-in for the site's layered
+          // radial gradients.
+          const Positioned(
+            top: -140,
+            left: -90,
+            child: _Glow(color: AppColors.cyan, size: 320),
+          ),
+          const Positioned(
+            top: 40,
+            right: -120,
+            child: _Glow(color: AppColors.indigo, size: 280),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 28, 22, 32),
+                child: Responsive.centered(
+                  maxWidth: Responsive.maxFormWidth,
+                  alignment: Alignment.center,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const _BrandMark(),
+                      const SizedBox(height: 30),
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.6,
+                            ),
                       ),
-                    ),
+                      const SizedBox(height: 7),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: palette.textSecondary,
+                              height: 1.5,
+                            ),
+                      ),
+                      const SizedBox(height: 26),
+                      child,
+                    ],
                   ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -202,48 +101,36 @@ class _BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
-    final isDark = palette.isDark;
-
     return Row(
       children: [
         Container(
-          width: 52,
-          height: 52,
-          padding: const EdgeInsets.all(2),
+          width: 50,
+          height: 50,
+          padding: const EdgeInsets.all(1.5),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF38BDF8), Color(0xFF6366F1)],
+            border: Border.all(
+              color: const Color(0xFF38BDF8).withValues(alpha: 0.40),
+              width: 1.2,
             ),
             boxShadow: [
               BoxShadow(
-                color: (isDark ? AppColors.cyan : const Color(0xFF38BDF8))
-                    .withValues(alpha: isDark ? 0.38 : 0.25),
+                color: AppColors.cyan.withValues(alpha: 0.32),
                 blurRadius: 16,
-                offset: const Offset(0, 4),
+                offset: const Offset(0, 5),
               ),
             ],
           ),
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isDark ? const Color(0xFF0B1428) : Colors.white,
-            ),
-            padding: const EdgeInsets.all(2),
-            child: ClipOval(
-              child: Image.asset(
-                'assets/icon/app_logo.png',
-                width: 44,
-                height: 44,
-                fit: BoxFit.contain,
-              ),
+          child: ClipOval(
+            child: Image.asset(
+              'assets/icon/app_logo.png',
+              width: 48,
+              height: 48,
+              fit: BoxFit.contain,
             ),
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,26 +140,14 @@ class _BrandMark extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                       letterSpacing: -0.4,
-                      color: palette.textPrimary,
                     ),
               ),
-              const SizedBox(height: 3),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: (isDark ? AppColors.cyan : AppColors.blue)
-                      .withValues(alpha: isDark ? 0.12 : 0.08),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'KERALA PSC · SSC · UPSC',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: isDark ? AppColors.cyan : const Color(0xFF0284C7),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 10,
-                        letterSpacing: 0.6,
-                      ),
-                ),
+              Text(
+                'Kerala PSC · SSC · UPSC',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: context.palette.textMuted,
+                      letterSpacing: 0.6,
+                    ),
               ),
             ],
           ),
@@ -283,15 +158,10 @@ class _BrandMark extends StatelessWidget {
 }
 
 class _Glow extends StatelessWidget {
-  const _Glow({
-    required this.color,
-    required this.size,
-    this.opacity = 0.24,
-  });
+  const _Glow({required this.color, required this.size});
 
   final Color color;
   final double size;
-  final double opacity;
 
   @override
   Widget build(BuildContext context) {
@@ -302,10 +172,7 @@ class _Glow extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: RadialGradient(
-            colors: [
-              color.withValues(alpha: opacity),
-              color.withValues(alpha: 0),
-            ],
+            colors: [color.withValues(alpha: 0.20), color.withValues(alpha: 0)],
           ),
         ),
       ),
@@ -409,28 +276,10 @@ class _SocialButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
-    final isDark = palette.isDark;
     final effectiveDisabled = busy || disabled || onTap == null;
-
     return OutlinedButton(
       onPressed: effectiveDisabled ? null : onTap,
       style: OutlinedButton.styleFrom(
-        backgroundColor: isDark
-            ? const Color(0xFF111D38).withValues(alpha: 0.65)
-            : Colors.white.withValues(alpha: 0.88),
-        foregroundColor: palette.textPrimary,
-        side: BorderSide(
-          color: isDark
-              ? const Color(0xFF38BDF8).withValues(alpha: 0.22)
-              : const Color(0xFFCBD5E1),
-          width: 1.1,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-        elevation: isDark ? 0 : 1,
-        shadowColor: Colors.black.withValues(alpha: 0.05),
         padding: const EdgeInsets.symmetric(vertical: 13),
       ),
       child: busy
