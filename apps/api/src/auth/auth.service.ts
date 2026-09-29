@@ -238,7 +238,9 @@ export class AuthService {
       await this.mailService.sendRegistrationOtp(normEmail, otp, dto.name.trim());
     } catch (err: any) {
       this.logger.error(`Registration email delivery failed for ${normEmail}:`, err);
-      throw new BadRequestException('Enter a valid email address.');
+      throw new BadRequestException(
+        'Unable to send verification code at this moment. Please try again later or sign up with Google.',
+      );
     }
 
     // 6. Record timestamp for cooldown
@@ -601,7 +603,9 @@ export class AuthService {
       await this.mailService.sendPasswordResetOtp(normEmail, otp, user.name);
     } catch (err: any) {
       this.logger.error(`Password reset email delivery failed for ${normEmail}:`, err);
-      throw new BadRequestException('Enter a valid email address.');
+      throw new BadRequestException(
+        'Unable to send recovery code at this moment (email service limit reached). Please sign in with Google or try again later.',
+      );
     }
 
     // Record timestamp for cooldown
