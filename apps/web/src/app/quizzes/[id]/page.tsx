@@ -828,8 +828,8 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
                   {statusIndicator && <div className="self-end sm:self-center shrink-0">{statusIndicator}</div>}
                 </button>
 
-                {/* Per-option rationale if revealed */}
-                {showCorrectAnswerAfterSelection && hasAnswered && optExplanation && (
+                {/* Per-option rationale if revealed (suppressed for premium quizzes during in-progress attempt) */}
+                {!isPremiumQuiz && showCorrectAnswerAfterSelection && hasAnswered && optExplanation && (
                   <div className="ml-10 text-xs italic text-slate-600 dark:text-slate-400 bg-slate-100/50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800/50">
                     💡 <strong>Option Rationale:</strong> {optExplanation}
                   </div>
@@ -839,8 +839,8 @@ function QuizTakingPageContent({ params }: { params: { id: string } }) {
           })}
         </div>
 
-        {/* Explanation */}
-        {showCorrectAnswerAfterSelection && selectedAnswers[currentQ.id] !== undefined && currentQ.explanation && (
+        {/* Explanation (suppressed for premium quizzes during in-progress attempt) */}
+        {!isPremiumQuiz && showCorrectAnswerAfterSelection && selectedAnswers[currentQ.id] !== undefined && currentQ.explanation && (
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 space-y-1 animate-in fade-in duration-200">
             <span className="text-xs font-bold text-amber-600 dark:text-amber-400 block">Explanation</span>
             <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">

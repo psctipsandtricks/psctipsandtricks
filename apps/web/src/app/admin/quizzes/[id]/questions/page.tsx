@@ -1058,15 +1058,15 @@ export default function QuizQuestionsStudioPage() {
                           )}
                         </div>
                         <textarea
-                          rows={1}
+                          rows={2}
                           placeholder={`Explanation for Option ${letter} (Why it is correct/incorrect)...`}
                           value={opt.explanation || ''}
                           onChange={(e) => {
                             handleUpdateOptionExplanation(optIdx, e.target.value);
                             e.target.style.height = 'auto';
-                            e.target.style.height = `${e.target.scrollHeight}px`;
+                            e.target.style.height = `${Math.max(44, e.target.scrollHeight)}px`;
                           }}
-                          className="w-full min-h-[38px] text-xs bg-white dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 italic placeholder:not-italic resize-none overflow-hidden transition-all"
+                          className="w-full min-h-[44px] text-xs bg-white dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-800 dark:text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 italic placeholder:not-italic resize-y overflow-y-auto transition-all"
                         />
                       </div>
                     </div>
@@ -1085,18 +1085,18 @@ export default function QuizQuestionsStudioPage() {
             {/* Overall Answer Key Explanation Auto-expanding Textarea */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
-                Answer Key Explanation (Optional)
+                Answer Key Explanation (Optional — Supports unlimited lines & detailed notes)
               </label>
               <textarea
-                rows={2}
-                placeholder="Provide rationale displayed to students during review..."
+                rows={5}
+                placeholder="Provide comprehensive explanation, notes, or rationale displayed to students during review..."
                 value={currentForm.explanation || ''}
                 onChange={(e) => {
                   handleUpdateFormExplanation(e.target.value);
                   e.target.style.height = 'auto';
-                  e.target.style.height = `${e.target.scrollHeight}px`;
+                  e.target.style.height = `${Math.max(100, e.target.scrollHeight)}px`;
                 }}
-                className="w-full min-h-[64px] p-3 text-xs bg-white dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-800 dark:text-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 italic placeholder:not-italic resize-none overflow-hidden transition-all"
+                className="w-full min-h-[120px] p-3 text-xs bg-white dark:bg-[#091124] border border-slate-300 dark:border-[#1e2e56] text-slate-800 dark:text-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 italic placeholder:not-italic resize-y overflow-y-auto leading-relaxed transition-all"
               />
             </div>
           </div>

@@ -60,3 +60,4 @@ mobile/android/.kotlin/
 mobile/android/local.properties
 mobile/scratch/
 mobile/current_screen.png
+*.pem

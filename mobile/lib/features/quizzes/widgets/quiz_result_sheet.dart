@@ -922,6 +922,7 @@ class _ReviewScreenState extends State<_ReviewScreen> {
                           child: _ReviewOption(
                             index: i,
                             text: question.options[i].text,
+                            explanation: widget.isPremium ? question.options[i].explanation : null,
                             isCorrect: i == question.correctOptionIndex,
                             isChosen: selected == i,
                           ),
@@ -991,12 +992,14 @@ class _ReviewOption extends StatelessWidget {
   const _ReviewOption({
     required this.index,
     required this.text,
+    this.explanation,
     required this.isCorrect,
     required this.isChosen,
   });
 
   final int index;
   final String text;
+  final String? explanation;
   final bool isCorrect;
   final bool isChosen;
 
@@ -1008,30 +1011,48 @@ class _ReviewOption extends StatelessWidget {
         : isChosen
             ? AppColors.rose
             : null;
+    final hasExpl = (explanation ?? '').isNotEmpty && (isChosen || isCorrect);
 
-    return Row(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          isCorrect
-              ? Icons.check_circle_rounded
-              : isChosen
-                  ? Icons.cancel_rounded
-                  : Icons.radio_button_unchecked_rounded,
-          size: 15,
-          color: color ?? palette.textMuted,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              isCorrect
+                  ? Icons.check_circle_rounded
+                  : isChosen
+                      ? Icons.cancel_rounded
+                      : Icons.radio_button_unchecked_rounded,
+              size: 15,
+              color: color ?? palette.textMuted,
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                '${String.fromCharCode(65 + index)}.  $text',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: color ?? palette.textSecondary,
+                      fontWeight: color != null ? FontWeight.w700 : FontWeight.w500,
+                      height: 1.45,
+                    ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            '${String.fromCharCode(65 + index)}.  $text',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: color ?? palette.textSecondary,
-                  fontWeight: color != null ? FontWeight.w700 : FontWeight.w500,
-                  height: 1.45,
-                ),
+        if (hasExpl)
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 3),
+            child: Text(
+              explanation!,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: palette.textMuted,
+                    fontStyle: FontStyle.italic,
+                    height: 1.35,
+                  ),
+            ),
           ),
-        ),
       ],
     );
   }

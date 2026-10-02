@@ -30,6 +30,22 @@
           }
         },
         {
+          "client_id": "313869157607-fq9l192sp0jvkvlu5bgqcbvn6q218rl4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.psctipsandtricks",
+            "certificate_hash": "216d3ff21858765987224407e41300427df63654"
+          }
+        },
+        {
+          "client_id": "313869157607-fq1u9dek79c4btaei846l2ocg98al9m9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.psctipsandtricks",
+            "certificate_hash": "877f9200959b582b7b2943cc8c6abb532ed43bdd"
+          }
+        },
+        {
           "client_id": "313869157607-kc569avj43psp93cq9sjltaapfgjm1lt.apps.googleusercontent.com",
           "client_type": 3
         }

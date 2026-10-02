@@ -764,6 +764,7 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
     final question = quiz.questions[_currentIndex];
     final selected = _answers[question.id];
     final reveal = quiz.showCorrectAnswerAfterSelection && selected != null;
+    final isPremium = quiz.isPremium || quiz.isPaid;
 
     return PopScope(
       canPop: false,
@@ -839,10 +840,11 @@ class _QuizAttemptScreenState extends ConsumerState<QuizAttemptScreen> {
                                 isSelected: selected == i,
                                 isCorrect: i == question.correctOptionIndex,
                                 reveal: reveal,
+                                showExplanation: !isPremium,
                                 onTap: () => _select(question, i),
                               ),
                             ),
-                          if (reveal && (question.explanation ?? '').isNotEmpty) ...[
+                          if (!isPremium && reveal && (question.explanation ?? '').isNotEmpty) ...[
                             const SizedBox(height: 8),
                             _Explanation(text: question.explanation!),
                           ],
@@ -1011,6 +1013,7 @@ class _OptionTile extends StatelessWidget {
     required this.isSelected,
     required this.isCorrect,
     required this.reveal,
+    this.showExplanation = true,
     required this.onTap,
   });
 
@@ -1019,6 +1022,7 @@ class _OptionTile extends StatelessWidget {
   final bool isSelected;
   final bool isCorrect;
   final bool reveal;
+  final bool showExplanation;
   final VoidCallback onTap;
 
   @override
@@ -1096,7 +1100,7 @@ class _OptionTile extends StatelessWidget {
                               isSelected ? FontWeight.w700 : FontWeight.w500,
                         ),
                   ),
-                  if (reveal && (option.explanation ?? '').isNotEmpty)
+                  if (reveal && showExplanation && (option.explanation ?? '').isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 5),
                       child: Text(
