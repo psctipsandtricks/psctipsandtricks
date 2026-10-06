@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Noto_Sans_Malayalam } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
@@ -19,11 +19,61 @@ import { AnnouncementPopupHost } from './announcement-popup';
 import { NavbarWrapper } from './navbar-wrapper';
 import { FooterWrapper } from './footer-wrapper';
 import { MainWrapper } from './main-wrapper';
+import { JsonLd } from '@/components/json-ld';
+import {
+  SITE_URL,
+  SITE_NAME,
+  DEFAULT_TITLE,
+  DEFAULT_DESCRIPTION,
+  DEFAULT_KEYWORDS,
+  organizationJsonLd,
+  websiteJsonLd,
+} from '@/lib/seo';
 
 export const metadata: Metadata = {
-  title: 'PSC Tips And Tricks — Ed-Tech Platform for Kerala PSC & SSC',
-  description:
-    'Crack Kerala PSC, SSC, and UPSC exams with interactive mock tests, question banks, e-books, and real-time rank tracking.',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: DEFAULT_TITLE,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: DEFAULT_DESCRIPTION,
+  keywords: DEFAULT_KEYWORDS,
+  applicationName: SITE_NAME,
+  authors: [{ name: SITE_NAME, url: SITE_URL }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  category: 'education',
+  formatDetection: { telephone: false, email: false, address: false },
+  openGraph: {
+    type: 'website',
+    siteName: SITE_NAME,
+    locale: 'en_IN',
+    url: '/',
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
+    other: process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION
+      ? { 'msvalidate.01': process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION }
+      : undefined,
+  },
   icons: {
     icon: [
       { url: '/icon.svg?v=3', type: 'image/svg+xml' },
@@ -36,6 +86,17 @@ export const metadata: Metadata = {
   },
 };
 
+const API_ORIGIN = new URL(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000').origin;
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#081328' },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -44,11 +105,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={notoSansMalayalam.variable}>
       <head>
-        <link rel="icon" type="image/svg+xml" href="/icon.svg?v=3" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=3" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=3" />
-        <link rel="shortcut icon" href="/favicon.ico?v=3" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3" />
+        {/* Book covers and catalog data come from the API on first paint — open the connection early. */}
+        <link rel="preconnect" href={API_ORIGIN} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={API_ORIGIN} />
+        <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
         <script
           dangerouslySetInnerHTML={{
             __html: `

@@ -23,12 +23,15 @@ import {
 } from 'lucide-react';
 import { Reveal } from '../reveal';
 import { HomeSocialLinks } from '../home-social-links';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'About Us — PSC Tips And Tricks | Kerala PSC Exam Preparation Platform',
+export const metadata: Metadata = pageMetadata({
+  title: 'About Us — Kerala PSC Exam Preparation Platform',
   description:
     'Learn about PSC Tips And Tricks, our mission, vision, and comprehensive multimedia learning ecosystem designed for Kerala PSC and competitive exam aspirants.',
-};
+  path: '/about',
+  keywords: ['about PSC Tips And Tricks', 'Kerala PSC coaching platform'],
+});
 
 const CONTACT_PHONE_DISPLAY = '+91 88919 30605';
 const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';

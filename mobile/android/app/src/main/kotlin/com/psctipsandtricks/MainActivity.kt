@@ -70,6 +70,14 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MAIL_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openInbox" -> result.success(openMailInbox())
+                    else -> result.notImplemented()
+                }
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DOWNLOADS_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -78,6 +86,25 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    // ── Mail bridge ───────────────────────────────────────────────────────
+
+    // Opens Gmail's inbox so the student can tap the sign-in link we just
+    // emailed, falling back to whichever mail app the phone treats as default.
+    private fun openMailInbox(): Boolean {
+        val gmail = packageManager.getLaunchIntentForPackage(GMAIL_PACKAGE)
+        val intent = gmail ?: Intent.makeMainSelectorActivity(
+            Intent.ACTION_MAIN,
+            Intent.CATEGORY_APP_EMAIL,
+        )
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // ── Downloads bridge ──────────────────────────────────────────────────
@@ -286,6 +313,10 @@ class MainActivity : AudioServiceActivity() {
 
         // Must match `_channel` in `lib/core/utils/file_saver.dart`.
         private const val DOWNLOADS_CHANNEL = "psc/downloads"
+
+        // Must match `_channel` in `lib/core/utils/mail_app.dart`.
+        private const val MAIL_CHANNEL = "psc/mail"
+        private const val GMAIL_PACKAGE = "com.google.android.gm"
         private const val REQ_WRITE_STORAGE = 4711
     }
 }

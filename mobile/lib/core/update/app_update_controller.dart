@@ -84,7 +84,6 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
   static const _checkTimeout = Duration(seconds: 6);
 
   bool _checking = false;
-  StreamSubscription<InstallStatus>? _installSub;
 
   bool get _isAndroid => !kIsWeb && Platform.isAndroid;
 
@@ -110,14 +109,14 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
       updateLog('Installed version: $installed');
 
       if (config == null) {
-        await _handleUnreachableBackend(installed);
+        await _actOnUnreachableBackend(installed);
         return;
       }
 
       updateLog(
         'Backend update configuration received — enabled=${config.enabled}, '
-        'mode=${config.updateMode.name}, minimum=${config.minimumVersion}, '
-        'latest=${config.latestVersion}, force=${config.forceUpdate}',
+        'minimum=${config.minimumVersion}, latest=${config.latestVersion}, '
+        'force=${config.forceUpdate}',
       );
       unawaited(_cacheFloor(config));
 
@@ -132,15 +131,22 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
     }
   }
 
-  /// The backend could not be reached (offline, timed out, 5xx). Per the
-  /// offline-behaviour requirement: the app stays fully usable *unless* this
-  /// device is already known — from the last time it *did* hear from the
-  /// server — to be below a minimum that was being enforced. That check needs
-  /// no Play Store call: there is nothing to launch without a live
-  /// [AppUpdateConfig] to read a message and mode from, only the fallback
-  /// screen with whatever we last knew.
-  Future<void> _handleUnreachableBackend(String installed) async {
-    updateLog('Backend unreachable — falling back to the last known floor, if any');
+  /// The backend could not be reached (offline, timed out, 5xx). Google Play
+  /// is still asked first — a newer build there is mandatory whatever the
+  /// backend would have said. Failing that, the app stays usable *unless*
+  /// this device is already known — from the last time it *did* hear from the
+  /// server — to be below a minimum that was being enforced.
+  Future<void> _actOnUnreachableBackend(String installed) async {
+    updateLog('Backend unreachable — asking Google Play directly');
+    final info = await _playUpdateInfo();
+    if (info == null) {
+      // A finished background download was already surfaced; nothing to add.
+      if (state.status == UpdateGateStatus.flexibleReady) return;
+    } else if (info.updateAvailability == UpdateAvailability.updateAvailable) {
+      await _launchImmediate(config: null, mandatory: true);
+      return;
+    }
+
     final cached = await _readCachedFloor();
     if (cached == null || !cached.forceUpdate || !SemVer.isBelow(installed, cached.minimumVersion)) {
       state = state.copyWith(status: UpdateGateStatus.upToDate);
@@ -155,10 +161,12 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
     );
   }
 
-  Future<void> _actOn({required AppUpdateConfig config, required String installed}) async {
-    AppUpdateInfo? info;
+  /// Google Play's answer for this device, or null when Play can't be asked
+  /// (no Play Store, no Play Services, a sideloaded build, a transient
+  /// failure). Also surfaces a background download that already finished.
+  Future<AppUpdateInfo?> _playUpdateInfo({AppUpdateConfig? config}) async {
     try {
-      info = await InAppUpdate.checkForUpdate();
+      final info = await InAppUpdate.checkForUpdate();
       updateLog('Google Play update available: ${info.updateAvailability == UpdateAvailability.updateAvailable}');
 
       // A flexible download that finished while the app was closed/backgrounded
@@ -167,14 +175,19 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
       if (info.updateAvailability == UpdateAvailability.developerTriggeredUpdateInProgress &&
           info.installStatus == InstallStatus.downloaded) {
         state = state.copyWith(status: UpdateGateStatus.flexibleReady, config: config);
-        return;
+        return null;
       }
+      return info;
     } catch (e) {
-      // No Play Store on this device/build, no Play Services, or a transient
-      // Play failure — never let this crash or hang the app.
+      // Never let this crash or hang the app.
       updateLog('Google Play unavailable: $e');
-      info = null;
+      return null;
     }
+  }
+
+  Future<void> _actOn({required AppUpdateConfig config, required String installed}) async {
+    final info = await _playUpdateInfo(config: config);
+    if (info == null && state.status == UpdateGateStatus.flexibleReady) return;
 
     final playAvailable = info?.updateAvailability == UpdateAvailability.updateAvailable;
     final decision = computeUpdateDecision(
@@ -183,7 +196,7 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
       config: config,
       playStoreUpdateAvailable: playAvailable,
     );
-    updateLog('Update mode: ${config.updateMode.name} — decision: ${decision.action.name}');
+    updateLog('Update decision: ${decision.action.name}');
 
     switch (decision.action) {
       case UpdateAction.none:
@@ -192,18 +205,13 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
       case UpdateAction.mandatoryFallback:
         state = state.copyWith(status: UpdateGateStatus.mandatoryBlocked, config: config);
         return;
-      case UpdateAction.flexibleOffer:
-        state = state.copyWith(status: UpdateGateStatus.upToDate, config: config);
-        await _startFlexible(config);
-        return;
       case UpdateAction.immediateMandatory:
-      case UpdateAction.immediateOptional:
-        await _launchImmediate(config: config, mandatory: decision.mandatory);
+        await _launchImmediate(config: config, mandatory: true);
         return;
     }
   }
 
-  Future<void> _launchImmediate({required AppUpdateConfig config, required bool mandatory}) async {
+  Future<void> _launchImmediate({required AppUpdateConfig? config, required bool mandatory}) async {
     state = state.copyWith(status: UpdateGateStatus.launchingImmediate, config: config);
     updateLog('Update started (immediate, mandatory=$mandatory)');
     try {
@@ -225,28 +233,6 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
       state = state.copyWith(
         status: mandatory ? UpdateGateStatus.mandatoryBlocked : UpdateGateStatus.upToDate,
       );
-    }
-  }
-
-  Future<void> _startFlexible(AppUpdateConfig config) async {
-    updateLog('Update started (flexible)');
-    try {
-      final result = await InAppUpdate.startFlexibleUpdate();
-      if (result != AppUpdateResult.success) {
-        updateLog('Update cancelled');
-        return;
-      }
-      _installSub?.cancel();
-      _installSub = InAppUpdate.installUpdateListener.listen((status) {
-        updateLog('Flexible install status: ${status.name}');
-        if (status == InstallStatus.downloaded) {
-          state = state.copyWith(status: UpdateGateStatus.flexibleReady, config: config);
-        } else if (status == InstallStatus.installed) {
-          updateLog('Update completed');
-        }
-      });
-    } catch (e) {
-      updateLog('Update failed: $e');
     }
   }
 
@@ -316,12 +302,6 @@ class AppUpdateController extends StateNotifier<AppUpdateState> {
     } catch (_) {
       return null;
     }
-  }
-
-  @override
-  void dispose() {
-    _installSub?.cancel();
-    super.dispose();
   }
 }
 

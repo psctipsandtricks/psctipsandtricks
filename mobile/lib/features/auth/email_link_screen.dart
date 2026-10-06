@@ -13,6 +13,7 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/email_validator.dart';
+import '../../core/utils/mail_app.dart';
 import '../../core/widgets/glass_card.dart';
 import 'auth_scaffold.dart';
 
@@ -57,7 +58,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
     final initialEmail = widget.email?.trim();
     if (initialEmail != null && initialEmail.isNotEmpty) {
       _email.text = initialEmail;
-    } else {
+    } else if (widget.link != null && widget.link!.isNotEmpty) {
       _email.text = EmailLinkSignIn.pendingEmail(prefs) ?? '';
     }
     final link = widget.link;
@@ -105,7 +106,8 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
   /// [validate] is off for a resend: the address was already checked, and the
   /// form is not on screen to validate.
   Future<void> _send({bool validate = true}) async {
-    if (_sending || _resendCooldown > 0) return;
+    if (_sending) return;
+    if (!validate && _resendCooldown > 0) return;
     if (validate && !(_emailFormKey.currentState?.validate() ?? false)) return;
     FocusScope.of(context).unfocus();
     setState(() {
@@ -118,6 +120,8 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       if (!mounted) return;
       setState(() => _step = _Step.sent);
       _startCooldown();
+      // Straight to the inbox, where the sign-in link is waiting.
+      unawaited(MailApp.openInbox());
     } on EmailLinkFailure catch (e) {
       if (kDebugMode) debugPrint('$e');
       if (mounted) setState(() => _error = e.reason);
@@ -229,7 +233,29 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
     await _complete(_email.text, link);
   }
 
+  void _changeEmail() {
+    _cooldownTimer?.cancel();
+    unawaited(
+        EmailLinkSignIn.clearPendingEmail(ref.read(sharedPrefsProvider)));
+    setState(() {
+      _error = null;
+      _resendCooldown = 0;
+      _step = _Step.email;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _email.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _email.text.length,
+      );
+    });
+  }
+
   void _back() {
+    if (_step == _Step.sent || _step == _Step.confirmEmail) {
+      _changeEmail();
+      return;
+    }
     if (context.canPop()) {
       context.pop();
       return;
@@ -245,7 +271,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
   Widget build(BuildContext context) {
     final (title, subtitle) = switch (_step) {
       _Step.email => (
-          'Sign in with Email',
+          'Sign in with Email Link',
           'No password needed. We\'ll email you a secure link that signs you straight in.',
         ),
       _Step.sent => (
@@ -272,7 +298,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
           ],
           switch (_step) {
             _Step.email => _buildEmailForm(
-                buttonLabel: 'Email me a sign-in link',
+                buttonLabel: 'Submit',
                 icon: Icons.mark_email_read_outlined,
                 onSubmit: _send,
                 isLoading: _sending,
@@ -311,11 +337,24 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.email],
+            onChanged: (_) => setState(() {}),
             onFieldSubmitted: (_) => onSubmit(),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Email',
               hintText: 'you@example.com',
-              prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
+              prefixIcon: const Icon(Icons.alternate_email_rounded, size: 20),
+              suffixIcon: _email.text.isNotEmpty && !isLoading
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      tooltip: 'Clear email',
+                      onPressed: () {
+                        _email.clear();
+                        unawaited(EmailLinkSignIn.clearPendingEmail(
+                            ref.read(sharedPrefsProvider)));
+                        setState(() {});
+                      },
+                    )
+                  : null,
             ),
             validator: (value) => EmailValidator.validate(value,
                 emptyMessage: 'Enter your email'),
@@ -344,14 +383,17 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
               ?.copyWith(color: palette.textSecondary, height: 1.45),
         ),
         const SizedBox(height: 14),
+        OutlinedButton.icon(
+          onPressed: MailApp.openInbox,
+          icon: const Icon(Icons.mail_outline_rounded, size: 18),
+          label: const Text('Open Gmail'),
+        ),
+        const SizedBox(height: 6),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             TextButton.icon(
-              onPressed: () => setState(() {
-                _error = null;
-                _step = _Step.email;
-              }),
+              onPressed: _changeEmail,
               icon: const Icon(Icons.arrow_back_rounded, size: 16),
               label: const Text('Change email'),
             ),

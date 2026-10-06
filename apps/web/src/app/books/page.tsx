@@ -51,14 +51,15 @@ function BooksContent() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [books, setBooks] = useState<Book[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const searchParams = useSearchParams();
+  // Seeded from `?search=` so the sitelinks search box (WebSite SearchAction) lands on filtered results.
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') ?? '');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(9);
 
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   // Tab state: 'all' or 'purchased'
   const filterParam = searchParams.get('filter');

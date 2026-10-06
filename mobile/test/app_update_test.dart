@@ -69,68 +69,44 @@ void main() {
       expect(d.action, UpdateAction.none);
     });
 
-    test('does nothing when already on the latest version', () {
-      final d = decide(installed: '2.6.0', cfg: config());
+    test('does nothing when Play has no update and the build is above the minimum', () {
+      final d = decide(installed: '2.5.5', cfg: config(), playAvailable: false);
       expect(d.action, UpdateAction.none);
     });
 
-    test('below the minimum is always mandatory, regardless of mode', () {
-      final immediate = decide(installed: '2.4.0', cfg: config(mode: UpdateMode.immediate));
-      final flexible = decide(installed: '2.4.0', cfg: config(mode: UpdateMode.flexible));
-      expect(immediate.action, UpdateAction.immediateMandatory);
-      expect(immediate.mandatory, isTrue);
-      expect(flexible.action, UpdateAction.immediateMandatory);
-      expect(flexible.mandatory, isTrue);
+    test('any update Google Play offers is mandatory, whatever the backend says', () {
+      for (final cfg in [
+        config(),
+        config(force: false),
+        config(mode: UpdateMode.flexible, force: false),
+        // Backend not bumped yet: it still lists the installed build as latest.
+        config(minimum: '1.0.0', latest: '2.6.0'),
+      ]) {
+        final d = decide(installed: '2.6.0', cfg: cfg);
+        expect(d.action, UpdateAction.immediateMandatory);
+        expect(d.mandatory, isTrue);
+      }
     });
 
-    test('exactly on the minimum is not mandatory by itself', () {
-      final d = decide(installed: '2.5.0', cfg: config(mode: UpdateMode.flexible));
-      expect(d.action, UpdateAction.flexibleOffer);
-    });
-
-    test('immediate mode + force update behind latest is mandatory', () {
-      final d = decide(installed: '2.5.5', cfg: config(mode: UpdateMode.immediate, force: true));
+    test('Play is still obeyed when the backend could not be reached', () {
+      final d = computeUpdateDecision(
+        checkEnabled: true,
+        installedVersion: '2.6.0',
+        config: null,
+        playStoreUpdateAvailable: true,
+      );
       expect(d.action, UpdateAction.immediateMandatory);
+    });
+
+    test('below an enforced minimum with nothing on Play shows the fallback screen', () {
+      final d = decide(installed: '2.4.0', cfg: config(), playAvailable: false);
+      expect(d.action, UpdateAction.mandatoryFallback);
       expect(d.mandatory, isTrue);
     });
 
-    test('immediate mode without force update is offered, not forced', () {
-      final d = decide(installed: '2.5.5', cfg: config(mode: UpdateMode.immediate, force: false));
-      expect(d.action, UpdateAction.immediateOptional);
-      expect(d.mandatory, isFalse);
-    });
-
-    test('flexible mode offers a background download', () {
-      final d = decide(installed: '2.5.5', cfg: config(mode: UpdateMode.flexible, force: false));
-      expect(d.action, UpdateAction.flexibleOffer);
-    });
-
-    test('never assumes Play has the update just because the backend does', () {
-      final mandatory = decide(installed: '2.4.0', cfg: config(), playAvailable: false);
-      expect(mandatory.action, UpdateAction.mandatoryFallback);
-      expect(mandatory.mandatory, isTrue);
-
-      final optionalFlexible = decide(
-        installed: '2.5.5',
-        cfg: config(mode: UpdateMode.flexible, force: false),
-        playAvailable: false,
-      );
-      expect(optionalFlexible.action, UpdateAction.none);
-
-      final optionalImmediate = decide(
-        installed: '2.5.5',
-        cfg: config(mode: UpdateMode.immediate, force: false),
-        playAvailable: false,
-      );
-      expect(optionalImmediate.action, UpdateAction.none);
-    });
-
-    test('below minimum with force off is left to the app to decide, not forced', () {
-      final d = decide(installed: '2.4.0', cfg: config(force: false));
-      // Still behind latest, mode is immediate, but force is off — offered,
-      // not forced.
-      expect(d.action, UpdateAction.immediateOptional);
-      expect(d.mandatory, isFalse);
+    test('below the minimum with force off and nothing on Play is not blocked', () {
+      final d = decide(installed: '2.4.0', cfg: config(force: false), playAvailable: false);
+      expect(d.action, UpdateAction.none);
     });
   });
 }

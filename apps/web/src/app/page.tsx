@@ -1,4 +1,5 @@
 import React from 'react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button, Card, Badge } from '@psc/ui';
 import { MessageCircle, HelpCircle, ArrowRight } from 'lucide-react';
@@ -10,6 +11,10 @@ import { HomeQuizCarousel } from './home-quiz-carousel';
 import { HomeReviewsCarousel } from './home-reviews-carousel';
 import { HomeSocialLinks } from './home-social-links';
 import { Reveal } from './reveal';
+import { JsonLd } from '@/components/json-ld';
+import { DEFAULT_DESCRIPTION, DEFAULT_TITLE, pageMetadata } from '@/lib/seo';
+
+export const metadata: Metadata = pageMetadata({ title: DEFAULT_TITLE, description: DEFAULT_DESCRIPTION, path: '/' });
 
 const CONTACT_PHONE_DISPLAY = '+91 88919 30605';
 const CONTACT_PHONE_WHATSAPP = 'https://wa.me/918891930605';
@@ -46,6 +51,16 @@ const FAQS = [
       'Each subject module includes timed quizzes, rank calculations, and instant answer explanations to assess your retention.',
   },
 ] as const;
+
+const FAQ_JSON_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQS.map((faq) => ({
+    '@type': 'Question',
+    name: faq.question,
+    acceptedAnswer: { '@type': 'Answer', text: faq.answer },
+  })),
+};
 
 function SectionHeading({
   eyebrow,
@@ -87,6 +102,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-20 sm:space-y-28 py-4">
+      <JsonLd data={FAQ_JSON_LD} />
       {/* ── 1. Book Cover Carousel (Live Book Showcase) ──────────────── */}
       <HomeBookCarousel initialBooks={initialBooks} />
 

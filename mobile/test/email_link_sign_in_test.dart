@@ -83,9 +83,9 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Sign in with Email'), findsOneWidget);
+      expect(find.text('Sign in with Email Link'), findsOneWidget);
       expect(find.text('student@example.com'), findsOneWidget);
-      expect(find.text('Email me a sign-in link'), findsOneWidget);
+      expect(find.text('Submit'), findsOneWidget);
       expect(find.byTooltip('Back'), findsOneWidget);
     });
 
@@ -106,11 +106,38 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      final button = find.text('Email me a sign-in link');
+      final button = find.text('Submit');
       await tester.tap(button);
       await tester.pumpAndSettle();
 
       expect(find.text('Enter your email'), findsOneWidget);
+    });
+
+    testWidgets('clears email with clear button', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sharedPrefsProvider.overrideWithValue(prefs),
+          ],
+          child: const MaterialApp(
+            home: EmailLinkScreen(email: 'student@example.com'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('student@example.com'), findsOneWidget);
+      final clearBtn = find.byTooltip('Clear email');
+      expect(clearBtn, findsOneWidget);
+
+      await tester.tap(clearBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.text('student@example.com'), findsNothing);
     });
   });
 }

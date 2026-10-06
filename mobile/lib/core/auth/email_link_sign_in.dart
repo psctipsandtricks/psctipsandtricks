@@ -73,6 +73,9 @@ class EmailLinkSignIn {
   static String? pendingEmail(SharedPreferences prefs) =>
       prefs.getString(_pendingEmailKey);
 
+  static Future<void> clearPendingEmail(SharedPreferences prefs) =>
+      prefs.remove(_pendingEmailKey);
+
   /// Pulls the Firebase action link out of whatever reached the app: the
   /// hosting wrapper (`/__/auth/links?link=…`) the mail app opens, or the
   /// inner action URL itself when a student pastes it by hand.
