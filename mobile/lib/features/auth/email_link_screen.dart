@@ -118,6 +118,10 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       await EmailLinkSignIn.sendLink(
           _email.text, ref.read(sharedPrefsProvider));
       if (!mounted) return;
+      // 3-second buffer with active loader so the email arrives in the user's inbox
+      // before opening the mail app.
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) return;
       setState(() => _step = _Step.sent);
       _startCooldown();
       // Straight to the inbox, where the sign-in link is waiting.
@@ -235,8 +239,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
 
   void _changeEmail() {
     _cooldownTimer?.cancel();
-    unawaited(
-        EmailLinkSignIn.clearPendingEmail(ref.read(sharedPrefsProvider)));
+    unawaited(EmailLinkSignIn.clearPendingEmail(ref.read(sharedPrefsProvider)));
     setState(() {
       _error = null;
       _resendCooldown = 0;
@@ -271,7 +274,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
   Widget build(BuildContext context) {
     final (title, subtitle) = switch (_step) {
       _Step.email => (
-          'Sign in with Email Link',
+          'Sign in with Email',
           'No password needed. We\'ll email you a secure link that signs you straight in.',
         ),
       _Step.sent => (
@@ -361,11 +364,21 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
           ),
           const SizedBox(height: 22),
           GradientButton(
-            label: buttonLabel,
+            label: isLoading ? 'Opening Gmail…' : buttonLabel,
             icon: icon,
             isLoading: isLoading,
             onPressed: isLoading ? null : onSubmit,
           ),
+          if (isLoading) ...[
+            const SizedBox(height: 14),
+            Text(
+              'Opening Gmail in 3 seconds…',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.palette.textSecondary,
+                  ),
+            ),
+          ],
         ],
       ),
     );
@@ -403,7 +416,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
                   : () => _send(validate: false),
               child: Text(_resendCooldown > 0
                   ? 'Resend in ${_resendCooldown}s'
-                  : 'Resend link'),
+                  : (_sending ? 'Sending…' : 'Resend link')),
             ),
           ],
         ),

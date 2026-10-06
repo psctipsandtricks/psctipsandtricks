@@ -458,7 +458,7 @@ class _EmailLinkAuthButtonState extends State<EmailLinkAuthButton> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            'Sign in with Email Link',
+                            'Sign in with Email',
                             style: Theme.of(context)
                                 .textTheme
                                 .titleSmall

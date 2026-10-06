@@ -49,6 +49,14 @@ export class StorageService {
       .join('/');
   }
 
+  /**
+   * Every upload key carries a timestamp, so a file at a given URL never
+   * changes — browsers and the CDN may keep it for a year instead of
+   * Supabase's one-hour default, which re-downloaded every PDF and audio
+   * clip each time a student came back.
+   */
+  private static readonly CACHE_CONTROL_SECONDS = '31536000';
+
   async upload(bucket: string, rawPath: string, buffer: Buffer, contentType: string): Promise<string> {
     const path = StorageService.sanitizeObjectKey(rawPath);
     if (!this.client) {
@@ -59,6 +67,7 @@ export class StorageService {
 
     let { error } = await this.client.storage.from(bucket).upload(path, buffer, {
       contentType,
+      cacheControl: StorageService.CACHE_CONTROL_SECONDS,
       upsert: true,
     });
 
@@ -73,6 +82,7 @@ export class StorageService {
       }
       ({ error } = await this.client.storage.from(bucket).upload(path, buffer, {
         contentType,
+        cacheControl: StorageService.CACHE_CONTROL_SECONDS,
         upsert: true,
       }));
     }

@@ -83,7 +83,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Sign in with Email Link'), findsOneWidget);
+      expect(find.text('Sign in with Email'), findsOneWidget);
       expect(find.text('student@example.com'), findsOneWidget);
       expect(find.text('Submit'), findsOneWidget);
       expect(find.byTooltip('Back'), findsOneWidget);

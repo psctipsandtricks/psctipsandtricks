@@ -104,6 +104,9 @@ class ReaderAudioController {
   String? _url;
   Duration? _initialSeekTarget;
 
+  /// Set while [_url] is chosen but not yet handed to the player — see [load].
+  ({String? label, String? album})? _pending;
+
   /// The clip whose ending has already been announced, so it is announced once.
   String? _announcedComplete;
 
@@ -137,9 +140,15 @@ class ReaderAudioController {
       if (initialPosition != null && initialPosition > Duration.zero) {
         _initialSeekTarget = initialPosition;
         position.value = initialPosition;
-        await _player.seek(initialPosition);
+        if (_pending == null) await _player.seek(initialPosition);
       }
-      if (autoPlay && !_player.playing) unawaited(_player.play());
+      if (autoPlay) {
+        if (_pending != null) {
+          await _preparePending(play: true);
+        } else if (!_player.playing) {
+          unawaited(_player.play());
+        }
+      }
       return;
     }
     _url = url;
@@ -147,35 +156,57 @@ class ReaderAudioController {
     _announcedComplete = null;
     title.value = label;
     failed.value = false;
-    loading.value = true;
     fraction.value = 0;
     _initialSeekTarget = (initialPosition != null && initialPosition > Duration.zero)
         ? initialPosition
         : null;
     position.value = initialPosition ?? Duration.zero;
     duration.value = null;
+    _pending = (label: label, album: album);
+
+    // Opening a topic does not fetch its audio — only pressing play does.
+    // Preparing a clip downloads it, and most topics are opened to read.
+    if (autoPlay) {
+      await _preparePending(play: true);
+    } else {
+      loading.value = false;
+      // Release whatever the previous topic had loaded, so play on this one
+      // can never resume the old clip.
+      await _player.stop();
+    }
+  }
+
+  /// Hands the deferred clip to the player, then plays it if asked.
+  Future<void> _preparePending({required bool play}) async {
+    final url = _url;
+    final pending = _pending;
+    if (url == null || pending == null) return;
+    _pending = null;
+    loading.value = true;
+    final start = position.value > Duration.zero ? position.value : null;
 
     try {
       // Every source carries a `MediaItem`: it is what the lock screen and the
       // notification read, and `just_audio_background` refuses a source without
       // one. The url doubles as the id — it is already unique per topic.
-      await _player.setAudioSource(
-        AudioSource.uri(
-          url.startsWith('http') ? Uri.parse(url) : Uri.file(url),
-          tag: MediaItem(
-            id: url,
-            title: label ?? 'Audio lesson',
-            album: album ?? 'PSC Tips And Tricks',
-          ),
-        ),
-        initialPosition: initialPosition,
+      final tag = MediaItem(
+        id: url,
+        title: pending.label ?? 'Audio lesson',
+        album: pending.album ?? 'PSC Tips And Tricks',
       );
-      if (initialPosition != null && initialPosition > Duration.zero) {
-        await _player.seek(initialPosition);
-        position.value = initialPosition;
+      // Remote clips are kept on the device after the first listen, so a
+      // replay — or the next time the topic is opened — costs no download.
+      final AudioSource audioSource = url.startsWith('http')
+          // ignore: experimental_member_use
+          ? LockCachingAudioSource(Uri.parse(url), tag: tag)
+          : AudioSource.uri(Uri.file(url), tag: tag);
+      await _player.setAudioSource(audioSource, initialPosition: start);
+      if (start != null) {
+        await _player.seek(start);
+        position.value = start;
       }
       loading.value = false;
-      if (autoPlay) unawaited(_player.play());
+      if (play) unawaited(_player.play());
     } catch (e) {
       if (kDebugMode) debugPrint('Could not load narration: $e');
       failed.value = true;
@@ -189,10 +220,15 @@ class ReaderAudioController {
     final url = _url;
     if (url == null) return;
     _url = null;
+    _pending = null;
     await load(url, label: title.value, autoPlay: autoPlay);
   }
 
   void togglePlay() {
+    if (_pending != null) {
+      unawaited(_preparePending(play: true));
+      return;
+    }
     if (_player.playing) {
       _player.pause();
       return;
@@ -208,6 +244,11 @@ class ReaderAudioController {
     var target = to;
     if (target < Duration.zero) target = Duration.zero;
     if (total != null && target > total) target = total;
+    if (_pending != null) {
+      // Nothing loaded yet: remember where to start once play is pressed.
+      position.value = target;
+      return;
+    }
     _player.seek(target);
   }
 
@@ -229,6 +270,7 @@ class ReaderAudioController {
   Future<void> stop() async {
     _initialSeekTarget = null;
     _url = null;
+    _pending = null;
     _announcedComplete = null;
     source.value = null;
     title.value = null;
