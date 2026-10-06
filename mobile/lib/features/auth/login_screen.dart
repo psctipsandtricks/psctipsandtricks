@@ -100,34 +100,49 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           );
       _goOnwards();
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Sign in failed. Please try again.');
+      _showError(e.message);
+    } catch (e) {
+      _showError('Sign in failed: $e');
     } finally {
       if (mounted) setState(() => _busyProvider = null);
     }
   }
 
+  void _showError(String message) {
+    if (!mounted) return;
+    setState(() => _error = message);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.rose,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
+      ),
+    );
+  }
+
   /// Runs the native Google account picker flow.
-  /// Returns `true` if native flow handled the request (success or user dismissal).
-  /// Returns `false` if native Google Sign-In is unavailable on this device/emulator,
-  /// signaling that the caller should fall back to the in-app Web OAuth flow.
+  /// Returns `true` if native flow handled the request (success, cancellation or error shown).
+  /// Returns `false` if caller should fall back to web OAuth.
   Future<bool> _googleNative() async {
     final GoogleNativeTokens? tokens;
     try {
       tokens = await GoogleNativeSignIn.tokens();
     } on GoogleNativeUnavailable catch (e) {
       if (kDebugMode) debugPrint('Native Google sign-in unavailable: $e');
-      // Return false to allow seamless degradation to OAuth WebView
-      return false;
+      final message = (e.debugDetail != null && e.debugDetail!.isNotEmpty)
+          ? '${e.reason}\n${e.debugDetail}'
+          : e.reason;
+      _showError(message);
+      return true;
     } catch (e) {
       if (kDebugMode) debugPrint('Native Google sign-in exception: $e');
-      if (mounted) setState(() => _error = 'Google sign-in failed. Please try again.');
+      _showError('Google sign-in failed: $e');
       return true;
     }
 
     if (tokens == null || !tokens.isValid) {
-      // Student dismissed the picker dialog
+      // User cancelled account picker
       return true;
     }
 
@@ -138,10 +153,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _goOnwards();
       return true;
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      _showError(e.message);
       return true;
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Google sign-in failed. Please try again.');
+    } catch (e) {
+      _showError('Google sign-in failed: $e');
       return true;
     }
   }

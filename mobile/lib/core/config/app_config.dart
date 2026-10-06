@@ -38,7 +38,7 @@ class AppConfig {
   static String get googleServerClientId {
     const defined = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
     if (defined.isNotEmpty) return defined;
-    return '313869157607-kc569avj43psp93cq9sjltaapfgjm1lt.apps.googleusercontent.com';
+    return '313869157607-dg7s5u66lmiu9c5um0e5ae2s8778oire.apps.googleusercontent.com';
   }
 
   /// Socket.IO endpoint for community chat. Defaults to the API host.

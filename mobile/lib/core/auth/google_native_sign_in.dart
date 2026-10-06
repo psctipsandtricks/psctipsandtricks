@@ -72,13 +72,17 @@ class GoogleNativeSignIn {
       if (result.isValid) return result;
     } catch (e) {
       if (kDebugMode) debugPrint('Failed to get account.authentication: $e');
+      throw GoogleNativeUnavailable(
+        'Failed to authenticate Google account. Please try again.',
+        debugDetail: e.toString(),
+      );
     }
 
     if (kDebugMode) {
       debugPrint('GoogleSignIn: account picked but no ID token was returned.');
     }
     throw const GoogleNativeUnavailable(
-      'Google Sign-In returned no ID token. Please try again or sign in with email.',
+      'Google Sign-In returned no ID token. Please check Google Play Services or sign in with email.',
     );
   }
 
