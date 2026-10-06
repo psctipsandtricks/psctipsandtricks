@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in to PSC Tips & Tricks</title>
+    <style>
+      :root {
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --bg: #0f172a;
+        --card-bg: #1e293b;
+        --text-main: #f8fafc;
+        --text-sub: #94a3b8;
+        --border: #334155;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--bg);
+        color: var(--text-main);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .card {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        max-width: 440px;
+        width: 100%;
+        padding: 36px 28px;
+        text-align: center;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+      }
+      .icon-badge {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 20px auto;
+        color: white;
+        font-size: 28px;
+      }
+      h1 {
+        font-size: 22px;
+        font-weight: 700;
+        margin-bottom: 10px;
+        color: var(--text-main);
+      }
+      p {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--text-sub);
+        margin-bottom: 24px;
+      }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .btn {
+        display: block;
+        width: 100%;
+        padding: 14px 18px;
+        border-radius: 12px;
+        font-size: 15px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        color: #ffffff;
+      }
+      .btn-primary:hover {
+        background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+        transform: translateY(-1px);
+      }
+      .btn-secondary {
+        background-color: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-main);
+      }
+      .btn-secondary:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+      }
+      .hint {
+        margin-top: 24px;
+        font-size: 12px;
+        color: #64748b;
+        line-height: 1.4;
+      }
+      .toast {
+        display: none;
+        margin-top: 14px;
+        padding: 10px;
+        border-radius: 8px;
+        background-color: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        font-size: 13px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="icon-badge">📱</div>
+      <h1>PSC Tips & Tricks</h1>
+      <p>Tap below to finish signing in on the PSC Tips & Tricks Android app.</p>
+
+      <div class="actions">
+        <a id="openAppBtn" class="btn btn-primary" href="#">Open in App</a>
+        <button id="copyBtn" class="btn btn-secondary">Copy Sign-in Link</button>
+      </div>
+
+      <div id="toast" class="toast">Link copied! Paste it in the app.</div>
+
+      <div class="hint">
+        Link opened on another device? Copy this link and paste it into the <strong>"Paste sign-in link"</strong> box in the PSC Tips & Tricks app on your phone.
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        const fullUrl = window.location.href;
+        const search = window.location.search;
+        const openAppBtn = document.getElementById('openAppBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const toast = document.getElementById('toast');
+
+        // Build target URL: if search has link, pass search; otherwise wrap fullUrl as link parameter
+        const targetQuery = (search && search.includes('link=')) 
+          ? search 
+          : ('?link=' + encodeURIComponent(fullUrl));
+        const intentUri = 'intent://email-signin' + targetQuery + '#Intent;scheme=com.psctipsandtricks;package=com.psctipsandtricks;end;';
+        const customSchemeUrl = 'com.psctipsandtricks://email-signin' + targetQuery;
+
+        openAppBtn.href = intentUri;
+
+        // Auto-redirect if on mobile Android
+        if (/Android/i.test(navigator.userAgent)) {
+          window.location.href = intentUri;
+        }
+
+        openAppBtn.addEventListener('click', function(e) {
+          // If the intent URI does not trigger automatically, fallback to custom scheme
+          setTimeout(function() {
+            window.location.href = customSchemeUrl;
+          }, 500);
+        });
+
+        copyBtn.addEventListener('click', function() {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(fullUrl).then(showToast);
+          } else {
+            const temp = document.createElement('textarea');
+            temp.value = fullUrl;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+            showToast();
+          }
+        });
+
+        function showToast() {
+          toast.style.display = 'block';
+          copyBtn.textContent = 'Copied to Clipboard!';
+          setTimeout(function() {
+            toast.style.display = 'none';
+            copyBtn.textContent = 'Copy Sign-in Link';
+          }, 3000);
+        }
+      })();
+    </script>
+  </body>
+</html>

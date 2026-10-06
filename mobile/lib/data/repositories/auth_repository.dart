@@ -98,6 +98,16 @@ class AuthRepository {
     return _persist(AuthResponse.fromJson(res));
   }
 
+  /// Exchanges the Firebase ID token from an email link sign-in for a session
+  /// on the account registered under that email.
+  Future<User> loginWithFirebaseEmailLink(String idToken) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/firebase/email-link',
+      body: {'idToken': idToken},
+    );
+    return _persist(AuthResponse.fromJson(res));
+  }
+
   Future<User> loginWithGoogleIdToken(String idToken) =>
       loginWithGoogleNativeTokens(idToken: idToken);
 

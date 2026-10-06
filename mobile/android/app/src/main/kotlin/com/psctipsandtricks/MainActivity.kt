@@ -230,6 +230,12 @@ class MainActivity : AudioServiceActivity() {
 
     // ── Secure screen ────────────────────────────────────────────────────
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        android.util.Log.d("MainActivity", "onNewIntent received: " + intent.dataString)
+    }
+
     override fun onResume() {
         super.onResume()
         // Re-assert after a recreation: the flag lives on the window, not the

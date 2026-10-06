@@ -1,326 +1,55 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/auth/google_native_sign_in.dart';
-import '../../core/network/api_exception.dart';
-import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/utils/email_validator.dart';
-import '../../core/widgets/glass_card.dart';
 import 'auth_scaffold.dart';
-import 'oauth_webview_screen.dart';
 
-class LoginScreen extends ConsumerStatefulWidget {
+/// Whether a signed-out student chose to browse as a guest. Held in memory
+/// only, so every fresh launch without a session opens on the sign-in screen.
+final guestModeProvider = StateProvider<bool>((ref) => false);
+
+class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key, this.redirect});
 
   /// Where to land after a successful sign-in, set by the router when a
   /// protected route bounced the student here.
   final String? redirect;
 
-  @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController();
-  final _password = TextEditingController();
-
-  bool _obscure = true;
-  bool _submitting = false;
-  String? _busyProvider;
-  String? _error;
-  bool get _isProcessing => _submitting || _busyProvider != null;
-
-  @override
-  void dispose() {
-    _email.dispose();
-    _password.dispose();
-    super.dispose();
-  }
-
-  void _goOnwards() {
-    if (!mounted) return;
-    goAfterAuth(context, widget.redirect);
-  }
-
-  Future<void> _submit() async {
-    if (_isProcessing) return;
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-    try {
-      await ref
-          .read(authControllerProvider.notifier)
-          .login(_email.text, _password.text);
-      _goOnwards();
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Could not sign in. Please try again.');
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  Future<void> _social(String provider) async {
-    if (_isProcessing) return;
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _busyProvider = provider;
-      _error = null;
-    });
-    try {
-      if (provider == 'google') {
-        final handled = await _googleNative();
-        if (handled) return;
-        if (kDebugMode) {
-          debugPrint('Native Google sign-in unavailable; falling back to in-app WebView OAuth');
-        }
-      }
-      if (!mounted) return;
-
-      final tokens = await Navigator.of(context).push<OAuthTokens>(
-        MaterialPageRoute(
-          builder: (_) => OAuthWebViewScreen(provider: provider),
-          fullscreenDialog: true,
-        ),
-      );
-      if (tokens == null) return;
-      await ref.read(authControllerProvider.notifier).completeOAuth(
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          );
-      _goOnwards();
-    } on ApiException catch (e) {
-      _showError(e.message);
-    } catch (e) {
-      _showError('Sign in failed: $e');
-    } finally {
-      if (mounted) setState(() => _busyProvider = null);
-    }
-  }
-
-  void _showError(String message) {
-    if (!mounted) return;
-    setState(() => _error = message);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.rose,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 6),
-      ),
+  void _openEmailLink(BuildContext context) {
+    final uri = Uri(
+      path: AppRoutes.emailLink,
+      queryParameters: redirect == null || redirect!.isEmpty
+          ? null
+          : {'redirect': redirect!},
     );
+    context.push(uri.toString());
   }
 
-  /// Runs the native Google account picker flow.
-  /// Returns `true` if native flow handled the request (success, cancellation or error shown).
-  /// Returns `false` if caller should fall back to web OAuth.
-  Future<bool> _googleNative() async {
-    final GoogleNativeTokens? tokens;
-    try {
-      tokens = await GoogleNativeSignIn.tokens();
-    } on GoogleNativeUnavailable catch (e) {
-      if (kDebugMode) debugPrint('Native Google sign-in unavailable: $e');
-      final message = (e.debugDetail != null && e.debugDetail!.isNotEmpty)
-          ? '${e.reason}\n${e.debugDetail}'
-          : e.reason;
-      _showError(message);
-      return true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Native Google sign-in exception: $e');
-      _showError('Google sign-in failed: $e');
-      return true;
-    }
-
-    if (tokens == null || !tokens.isValid) {
-      // User cancelled account picker
-      return true;
-    }
-
-    try {
-      await ref.read(authControllerProvider.notifier).completeGoogleNative(
-            idToken: tokens.idToken,
-          );
-      _goOnwards();
-      return true;
-    } on ApiException catch (e) {
-      _showError(e.message);
-      return true;
-    } catch (e) {
-      _showError('Google sign-in failed: $e');
-      return true;
-    }
+  void _continueAsGuest(BuildContext context, WidgetRef ref) {
+    ref.read(guestModeProvider.notifier).state = true;
+    context.go(AppRoutes.home);
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final palette = context.palette;
-    final isProcessing = _isProcessing;
 
     return AuthScaffold(
-      title: 'Welcome back',
+      title: 'Welcome',
       subtitle:
           'Sign in to pick up your books, quizzes and rank tracking where you left off.',
-      child: AbsorbPointer(
-        absorbing: isProcessing,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (_error != null) ...[
-                _ErrorBanner(message: _error!),
-                const SizedBox(height: 16),
-              ],
-              TextFormField(
-                controller: _email,
-                enabled: !isProcessing,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next,
-                autofillHints: const [AutofillHints.email],
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  hintText: 'you@example.com',
-                  prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
-                ),
-                validator: (value) => EmailValidator.validate(value, emptyMessage: 'Enter your email'),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _password,
-                enabled: !isProcessing,
-                obscureText: _obscure,
-                textInputAction: TextInputAction.done,
-                autofillHints: const [AutofillHints.password],
-                onFieldSubmitted: (_) => _submit(),
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
-                  suffixIcon: IconButton(
-                    tooltip: _obscure ? 'Show password' : 'Hide password',
-                    icon: Icon(
-                      _obscure
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                      size: 20,
-                      color: palette.textSecondary,
-                    ),
-                    onPressed: isProcessing ? null : () => setState(() => _obscure = !_obscure),
-                  ),
-                ),
-                validator: (value) =>
-                    (value ?? '').isEmpty ? 'Enter your password' : null,
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: isProcessing
-                      ? null
-                      : () => context.push(AppRoutes.forgotPassword),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    'Forgot password?',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: isProcessing ? palette.textMuted : AppColors.cyan,
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              GradientButton(
-                label: 'Sign in',
-                icon: Icons.login_rounded,
-                isLoading: _submitting,
-                onPressed: isProcessing ? null : _submit,
-              ),
-              const SizedBox(height: 22),
-              const AuthDivider(),
-              const SizedBox(height: 16),
-              SocialSignInRow(
-                busyProvider: _busyProvider,
-                disabled: isProcessing,
-                onGoogle: isProcessing ? null : () => _social('google'),
-                onApple: isProcessing ? null : () => _social('apple'),
-              ),
-              const SizedBox(height: 26),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'New here?',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: palette.textSecondary,
-                        ),
-                  ),
-                  TextButton(
-                    onPressed: isProcessing
-                        ? null
-                        : () => context.push(
-                              widget.redirect == null
-                                  ? AppRoutes.signup
-                                  : '${AppRoutes.signup}?redirect=${Uri.encodeComponent(widget.redirect!)}',
-                            ),
-                    child: const Text('Create an account'),
-                  ),
-                ],
-              ),
-              TextButton(
-                onPressed: isProcessing ? null : () => context.go(AppRoutes.home),
-                child: Text(
-                  'Browse as a guest',
-                  style: TextStyle(color: palette.textMuted),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: AppColors.rose.withValues(alpha: 0.10),
-        border: Border.all(color: AppColors.rose.withValues(alpha: 0.35)),
-        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.error_outline_rounded,
-              color: AppColors.rose, size: 19),
-          const SizedBox(width: 10),
-          Expanded(
+          EmailLinkAuthButton(onPressed: () => _openEmailLink(context)),
+          const SizedBox(height: 26),
+          TextButton(
+            onPressed: () => _continueAsGuest(context, ref),
             child: Text(
-              message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.rose,
-                    height: 1.4,
-                    fontWeight: FontWeight.w600,
-                  ),
+              'Browse as a guest',
+              style: TextStyle(color: palette.textMuted),
             ),
           ),
         ],

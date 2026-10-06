@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart' hide User;
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/user.dart';
+import '../auth/email_link_sign_in.dart';
 import '../auth/google_native_sign_in.dart';
 import '../network/api_exception.dart';
 import 'app_providers.dart';
@@ -47,6 +50,23 @@ class AuthController extends StateNotifier<AuthState> {
     final repo = _ref.read(authRepositoryProvider);
     final cached = await repo.restoreSession();
     if (cached == null) {
+      // If local token storage was empty or reset, check if Firebase Auth has an active persisted session
+      try {
+        if (Firebase.apps.isNotEmpty) {
+          final fbUser = FirebaseAuth.instance.currentUser;
+          if (fbUser != null) {
+            final idToken = await fbUser.getIdToken(true);
+            if (idToken != null && idToken.isNotEmpty) {
+              final user = await repo.loginWithFirebaseEmailLink(idToken);
+              await _applySignIn(user);
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Firebase restore fallback error: $e');
+      }
+
       state = AuthState.signedOut;
       return;
     }
@@ -105,6 +125,15 @@ class AuthController extends StateNotifier<AuthState> {
     await _applySignIn(user);
   }
 
+  Future<void> completeEmailLink(String firebaseIdToken) async {
+    final user = await _ref
+        .read(authRepositoryProvider)
+        .loginWithFirebaseEmailLink(firebaseIdToken);
+    await _applySignIn(user);
+    // Keep Firebase Auth user signed in so it persists in the native SDK on iOS & Android!
+    // It will only be signed out when user explicitly calls logout().
+  }
+
   /// Moves the app into the signed-in state for [user], first scrubbing any
   /// state left by a different account. Logging out normally clears this
   /// already; the guard also covers a direct account switch and a session that
@@ -126,10 +155,9 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
-    // Drop the platform's cached Google account too, or the next tap on
-    // "Continue with Google" signs straight back in without ever showing the
-    // picker — which is not what signing out means to anyone.
+    // Drop the platform's cached Google account and Firebase user too
     await GoogleNativeSignIn.signOut();
+    await EmailLinkSignIn.signOutFirebase();
     await _ref.read(authRepositoryProvider).logout();
     state = AuthState.signedOut;
     // Tokens are gone; now take out everything that would otherwise outlive

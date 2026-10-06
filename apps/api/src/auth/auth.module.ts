@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
 import { AppleStrategy } from './apple.strategy';
+import { FirebaseIdTokenVerifier } from './firebase-id-token.verifier';
 import { GoogleConfiguredGuard, AppleConfiguredGuard } from './oauth-configured.guard';
 import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
 
@@ -23,6 +24,7 @@ import { MailService } from './mail.service';
     JwtStrategy,
     GoogleStrategy,
     AppleStrategy,
+    FirebaseIdTokenVerifier,
     GoogleConfiguredGuard,
     AppleConfiguredGuard,
     GoogleAuthGuard,

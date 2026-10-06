@@ -1,7 +1,7 @@
 name: psc_tips_tricks_mobile
 description: "PSC Tips & Tricks — Student app for Kerala PSC exam preparation."
 publish_to: 'none'
-version: 2.0.0+57
+version: 2.0.0+59
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -58,6 +58,9 @@ dependencies:
   pointycastle: ^3.9.1
   firebase_core: ^4.14.0
   firebase_messaging: ^16.6.0
+  # Passwordless email link sign-in. Firebase only proves the address — the
+  # API issues the session (see email_link_sign_in.dart).
+  firebase_auth: ^6.7.0
   flutter_local_notifications: ^22.3.0
   google_sign_in: ^6.2.2
   just_audio_background: ^0.0.1-beta.17

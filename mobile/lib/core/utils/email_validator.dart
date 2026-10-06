@@ -99,4 +99,7 @@ class EmailValidator {
 
     return null;
   }
+
+  /// Returns true if [value] is a valid, well-formed email address.
+  static bool isValid(String? value) => validate(value) == null;
 }

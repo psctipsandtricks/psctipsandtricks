@@ -61,8 +61,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
+            android:launchMode="singleTask"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -82,6 +81,38 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="com.psctipsandtricks" />
+            </intent-filter>
+
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="true" />
+
+            <!-- Firebase email link sign-in. The emailed link opens on the
+                 project's Firebase Hosting domain, and autoVerify (backed by
+                 the assetlinks.json in firebase_hosting/) makes Android open
+                 it here instead of in a browser. Handles both domains and both paths. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https"
+                    android:host="psc-tips-and-tricks-a5209.firebaseapp.com"
+                    android:pathPrefix="/__/auth/links" />
+                <data android:scheme="https"
+                    android:host="psc-tips-and-tricks-a5209.firebaseapp.com"
+                    android:pathPrefix="/email-signin" />
+                <data android:scheme="https"
+                    android:host="psc-tips-and-tricks-a5209.firebaseapp.com"
+                    android:pathPrefix="/email-link" />
+                <data android:scheme="https"
+                    android:host="psc-tips-and-tricks-a5209.web.app"
+                    android:pathPrefix="/__/auth/links" />
+                <data android:scheme="https"
+                    android:host="psc-tips-and-tricks-a5209.web.app"
+                    android:pathPrefix="/email-signin" />
+                <data android:scheme="https"
+                    android:host="psc-tips-and-tricks-a5209.web.app"
+                    android:pathPrefix="/email-link" />
             </intent-filter>
 
             <!-- Allow https://psctipsandtricks.com deep links -->

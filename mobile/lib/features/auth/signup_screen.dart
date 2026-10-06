@@ -9,6 +9,7 @@ import '../../core/auth/google_native_sign_in.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/auth_controller.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/email_validator.dart';
@@ -363,11 +364,22 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
             const SizedBox(height: 22),
             const AuthDivider(),
             const SizedBox(height: 16),
-            SocialSignInRow(
-              busyProvider: _busyProvider,
+            EmailLinkAuthButton(
               disabled: isProcessing,
-              onGoogle: isProcessing ? null : () => _social('google'),
-              onApple: isProcessing ? null : () => _social('apple'),
+              onPressed: () {
+                final emailVal = _email.text.trim();
+                final queryParams = <String, String>{
+                  if (widget.redirect != null && widget.redirect!.isNotEmpty)
+                    'redirect': widget.redirect!,
+                  if (emailVal.isNotEmpty && EmailValidator.isValid(emailVal))
+                    'email': emailVal,
+                };
+                final uri = Uri(
+                  path: AppRoutes.emailLink,
+                  queryParameters: queryParams.isEmpty ? null : queryParams,
+                );
+                context.push(uri.toString());
+              },
             ),
             const SizedBox(height: 24),
             Row(

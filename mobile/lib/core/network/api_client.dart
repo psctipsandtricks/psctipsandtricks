@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../config/app_config.dart';
@@ -79,10 +81,24 @@ class ApiClient {
     final path = error.requestOptions.path;
     final hadToken = (_tokenStore.accessToken ?? '').isNotEmpty;
 
-    // A 401 from /auth/* is a bad credential, not an expired session — there is
-    // nothing to refresh, so let it surface as-is.
-    final refreshable =
-        status == 401 && hadToken && !path.startsWith('/auth/');
+    // Credentials endpoints produce 401 when username/password/OTP is wrong,
+    // and /auth/refresh must not recurse.
+    // Authenticated endpoints like /auth/me DO expire and MUST be refreshed.
+    const nonRefreshableAuthPaths = {
+      '/auth/login',
+      '/auth/register',
+      '/auth/send-register-otp',
+      '/auth/verify-register-otp',
+      '/auth/forgot-password',
+      '/auth/verify-otp',
+      '/auth/reset-password',
+      '/auth/refresh',
+      '/auth/firebase/email-link',
+      '/auth/google/native',
+    };
+
+    final isNonRefreshableAuth = nonRefreshableAuthPaths.contains(path);
+    final refreshable = status == 401 && hadToken && !isNonRefreshableAuth;
 
     if (!refreshable) {
       handler.next(error);
@@ -119,34 +135,78 @@ class ApiClient {
 
   Future<String?> _performRefresh() async {
     final refreshToken = _tokenStore.refreshToken;
-    if (refreshToken == null || refreshToken.isEmpty) return null;
-
-    try {
-      // A bare Dio instance: the interceptor chain would attach the dead access
-      // token and recurse into another refresh on failure.
-      final bare = Dio(
-        BaseOptions(
-          baseUrl: AppConfig.apiBaseUrl,
-          connectTimeout: AppConfig.connectTimeout,
-          receiveTimeout: AppConfig.receiveTimeout,
-          contentType: Headers.jsonContentType,
-        ),
-      );
-      final res = await bare.post<Map<String, dynamic>>(
-        '/auth/refresh',
-        data: {'refreshToken': refreshToken},
-      );
-      final access = res.data?['accessToken'] as String?;
-      if (access == null || access.isEmpty) return null;
-      await _tokenStore.saveTokens(
-        accessToken: access,
-        refreshToken: res.data?['refreshToken'] as String?,
-      );
-      return access;
-    } catch (e) {
-      if (kDebugMode) debugPrint('Token refresh failed: $e');
-      return null;
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      try {
+        // A bare Dio instance: the interceptor chain would attach the dead access
+        // token and recurse into another refresh on failure.
+        final bare = Dio(
+          BaseOptions(
+            baseUrl: AppConfig.apiBaseUrl,
+            connectTimeout: AppConfig.connectTimeout,
+            receiveTimeout: AppConfig.receiveTimeout,
+            contentType: Headers.jsonContentType,
+          ),
+        );
+        final res = await bare.post<Map<String, dynamic>>(
+          '/auth/refresh',
+          data: {'refreshToken': refreshToken},
+        );
+        final access = res.data?['accessToken'] as String?;
+        if (access != null && access.isNotEmpty) {
+          await _tokenStore.saveTokens(
+            accessToken: access,
+            refreshToken: res.data?['refreshToken'] as String?,
+          );
+          return access;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Token refresh failed: $e');
+      }
     }
+
+    // Secondary fallback: if the backend refresh token is expired or absent,
+    // check if Firebase Auth has an active persisted session (e.g. Email Link login).
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        final fbUser = FirebaseAuth.instance.currentUser;
+        if (fbUser != null) {
+          final idToken = await fbUser.getIdToken(true);
+          if (idToken != null && idToken.isNotEmpty) {
+            final bare = Dio(
+              BaseOptions(
+                baseUrl: AppConfig.apiBaseUrl,
+                connectTimeout: AppConfig.connectTimeout,
+                receiveTimeout: AppConfig.receiveTimeout,
+                contentType: Headers.jsonContentType,
+              ),
+            );
+            final res = await bare.post<Map<String, dynamic>>(
+              '/auth/firebase/email-link',
+              data: {'idToken': idToken},
+            );
+            final access = res.data?['accessToken'] as String?;
+            if (access != null && access.isNotEmpty) {
+              await _tokenStore.saveTokens(
+                accessToken: access,
+                refreshToken: res.data?['refreshToken'] as String?,
+              );
+              final user = res.data?['user'];
+              if (user is Map<String, dynamic>) {
+                await _tokenStore.saveUser(user);
+              }
+              if (kDebugMode) {
+                debugPrint('Session refreshed seamlessly via Firebase Auth fallback');
+              }
+              return access;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Firebase Auth fallback refresh failed: $e');
+    }
+
+    return null;
   }
 
   // ── Verbs ──────────────────────────────────────────────────────────────

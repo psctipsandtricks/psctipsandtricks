@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/auth_controller.dart';
 import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
+import '../../features/auth/email_link_screen.dart';
 import '../../features/auth/oauth_callback_screen.dart';
 import '../../features/auth/signup_screen.dart';
 import '../../features/books/book_detail_screen.dart';
@@ -39,6 +40,12 @@ class AppRoutes {
   static const register = '/register';
   static const forgotPassword = '/forgot-password';
   static const oauthCallback = '/auth/callback';
+  static const emailLink = '/email-link';
+
+  /// The emailed sign-in link, opened as a verified App Link on the Firebase
+  /// Hosting domain (see EmailLinkSignIn.callbackPath).
+  static const emailLinkCallback = '/__/auth/links';
+  static const emailSignInCallback = '/email-signin';
   static const books = '/books';
   static const quizzes = '/quizzes';
   static const quizHistory = '/quizzes/history';
@@ -118,12 +125,51 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (auth.isResolving) return null;
 
       final location = state.matchedLocation;
+      final uri = state.uri;
+
+      // Handle custom scheme or deep link with action parameters
+      final hasEmailLinkData = uri.queryParameters.containsKey('link') ||
+          uri.queryParameters.containsKey('oobCode') ||
+          uri.host == 'email-signin' ||
+          uri.host == 'email-link';
+
+      if (hasEmailLinkData &&
+          location != AppRoutes.emailLinkCallback &&
+          location != AppRoutes.emailSignInCallback) {
+        final linkParam = uri.queryParameters['link'] ?? uri.toString();
+        final emailParam = uri.queryParameters['email'];
+        final redirectParam = uri.queryParameters['redirect'];
+        final q = <String, String>{
+          'link': linkParam,
+          if (emailParam != null && emailParam.isNotEmpty) 'email': emailParam,
+          if (redirectParam != null && redirectParam.isNotEmpty)
+            'redirect': redirectParam,
+        };
+        return Uri(path: AppRoutes.emailSignInCallback, queryParameters: q)
+            .toString();
+      }
+
       final onAuthScreen = location == AppRoutes.login ||
           location == AppRoutes.signup ||
           location == AppRoutes.register ||
           location == AppRoutes.forgotPassword ||
-          location == AppRoutes.oauthCallback;
+          location == AppRoutes.oauthCallback ||
+          location == AppRoutes.emailLink ||
+          location == AppRoutes.emailLinkCallback ||
+          location == AppRoutes.emailSignInCallback;
 
+      final isEmailLinkAction = location == AppRoutes.emailLinkCallback ||
+          location == AppRoutes.emailSignInCallback ||
+          hasEmailLinkData;
+
+      // Every launch without a session starts on the sign-in screen, until
+      // the student picks guest mode for this run of the app.
+      if (!auth.isAuthenticated &&
+          location == AppRoutes.home &&
+          !hasEmailLinkData &&
+          !ref.read(guestModeProvider)) {
+        return AppRoutes.login;
+      }
       if (!auth.isAuthenticated && _isProtected(location)) {
         return '${AppRoutes.login}?redirect=${Uri.encodeComponent(state.uri.toString())}';
       }
@@ -151,6 +197,32 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.forgotPassword,
         builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.emailLink,
+        builder: (context, state) => EmailLinkScreen(
+          link: state.uri.queryParameters['link'],
+          email: state.uri.queryParameters['email'],
+          redirect: state.uri.queryParameters['redirect'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.emailLinkCallback,
+        // The router only sees path and query; the screen pulls the Firebase
+        // action link out of the `link` parameter or full uri.
+        builder: (context, state) => EmailLinkScreen(
+          link: state.uri.queryParameters['link'] ?? state.uri.toString(),
+          email: state.uri.queryParameters['email'],
+          redirect: state.uri.queryParameters['redirect'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.emailSignInCallback,
+        builder: (context, state) => EmailLinkScreen(
+          link: state.uri.queryParameters['link'] ?? state.uri.toString(),
+          email: state.uri.queryParameters['email'],
+          redirect: state.uri.queryParameters['redirect'],
+        ),
       ),
       GoRoute(
         path: AppRoutes.oauthCallback,

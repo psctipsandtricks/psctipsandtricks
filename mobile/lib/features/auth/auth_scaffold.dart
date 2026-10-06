@@ -30,11 +30,15 @@ class AuthScaffold extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.child,
+    this.onBack,
   });
 
   final String title;
   final String subtitle;
   final Widget child;
+
+  /// Shows a back arrow in the top-left corner when set.
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -69,10 +73,11 @@ class AuthScaffold extends StatelessWidget {
                       const SizedBox(height: 30),
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.6,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.6,
+                                ),
                       ),
                       const SizedBox(height: 7),
                       Text(
@@ -90,6 +95,17 @@ class AuthScaffold extends StatelessWidget {
               ),
             ),
           ),
+          if (onBack != null)
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: IconButton(
+                  tooltip: 'Back',
+                  onPressed: onBack,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -324,6 +340,184 @@ class AuthDivider extends StatelessWidget {
         ),
         Expanded(child: Divider(color: palette.border)),
       ],
+    );
+  }
+}
+
+/// Modern, cyber-glass styled button for passwordless email link sign-in.
+class EmailLinkAuthButton extends StatefulWidget {
+  const EmailLinkAuthButton({
+    super.key,
+    required this.onPressed,
+    this.disabled = false,
+  });
+
+  final VoidCallback? onPressed;
+  final bool disabled;
+
+  @override
+  State<EmailLinkAuthButton> createState() => _EmailLinkAuthButtonState();
+}
+
+class _EmailLinkAuthButtonState extends State<EmailLinkAuthButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final enabled = !widget.disabled && widget.onPressed != null;
+
+    final bgGradient = isDark
+        ? const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0F1B36),
+              Color(0xFF081022),
+            ],
+          )
+        : LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              palette.card,
+            ],
+          );
+
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 110),
+      scale: _pressed && enabled ? 0.98 : 1.0,
+      curve: Curves.easeOutCubic,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.55,
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: bgGradient,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            border: Border.all(
+              color: AppColors.cyan.withValues(alpha: isDark ? 0.35 : 0.30),
+              width: 1.2,
+            ),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: AppColors.cyan
+                          .withValues(alpha: isDark ? 0.14 : 0.08),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              onTap: enabled ? widget.onPressed : null,
+              onHighlightChanged: (down) {
+                if (mounted) setState(() => _pressed = down);
+              },
+              splashColor: AppColors.cyan.withValues(alpha: 0.16),
+              highlightColor: AppColors.cyan.withValues(alpha: 0.08),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            AppColors.cyan.withValues(alpha: 0.22),
+                            AppColors.indigo.withValues(alpha: 0.22),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                        border: Border.all(
+                          color: AppColors.cyan.withValues(alpha: 0.40),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.mark_email_read_rounded,
+                        color: AppColors.cyan,
+                        size: 21,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Sign in with Email Link',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14.5,
+                                  letterSpacing: -0.2,
+                                  color: palette.textPrimary,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: AppColors.emerald,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Passwordless • Instant access',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: palette.textSecondary,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.cyan
+                            .withValues(alpha: isDark ? 0.12 : 0.08),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 16,
+                        color: AppColors.cyan,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

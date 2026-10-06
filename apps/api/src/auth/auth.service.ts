@@ -4,13 +4,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import * as dns from 'dns';
 import { ConfigService } from '@nestjs/config';
-import { OAuthProvider, UserRole, UserStatus } from '@prisma/client';
+import { OAuthProvider, Prisma, UserRole, UserStatus } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MailService } from './mail.service';
+import { FirebaseIdTokenVerifier } from './firebase-id-token.verifier';
 
 @Injectable()
 export class AuthService {
@@ -113,6 +114,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private mailService: MailService,
+    private firebaseIdTokens: FirebaseIdTokenVerifier,
   ) {}
 
   private async validateEmailAddress(email: string): Promise<void> {
@@ -549,6 +551,47 @@ export class AuthService {
       });
     }
 
+    return this.completeSignIn(user, normEmail);
+  }
+
+  /**
+   * Signs in with a Firebase ID token from an email link sign-in on the app.
+   *
+   * Opening the link proves the student controls the address, so the account
+   * is resolved by email alone: whoever registered with a password, Google or
+   * Apple under this address gets that same account — orders, purchased books
+   * and subscriptions included — rather than a second one. Only an address we
+   * have never seen creates a new account.
+   */
+  async loginWithFirebaseEmailLink(idToken: string) {
+    const claims = await this.firebaseIdTokens.verify(idToken);
+    const normEmail = claims.email.trim().toLowerCase();
+
+    let user = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+      include: { staffPermission: true },
+    });
+    if (!user) {
+      const isAdmin = normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com';
+      user = await this.prisma.user.create({
+        data: {
+          email: normEmail,
+          name: claims.name || normEmail.split('@')[0],
+          role: isAdmin ? UserRole.ADMIN : UserRole.STUDENT,
+        },
+        include: { staffPermission: true },
+      });
+    }
+
+    return this.completeSignIn(user, normEmail);
+  }
+
+  // The checks every passwordless sign-in shares once the account is known,
+  // ending in our own JWT pair exactly like email/password login.
+  private async completeSignIn(
+    user: Prisma.UserGetPayload<{ include: { staffPermission: true } }>,
+    normEmail: string,
+  ) {
     // Auto-promote admin emails to ADMIN role if needed
     if (
       (normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com') &&
@@ -749,11 +792,11 @@ export class AuthService {
     const payload = { sub: userId, email, role };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('JWT_SECRET') || 'super-secret-psc-jwt-key-2026',
-      expiresIn: '1d',
+      expiresIn: '30d',
     });
     const refreshToken = this.jwtService.sign(payload, {
       secret: this.configService.get('JWT_REFRESH_SECRET') || 'super-secret-psc-refresh-jwt-key-2026',
-      expiresIn: '7d',
+      expiresIn: '180d',
     });
     return { accessToken, refreshToken };
   }

@@ -10,6 +10,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleIdTokenDto } from './dto/google-id-token.dto';
+import { FirebaseIdTokenDto } from './dto/firebase-id-token.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GoogleConfiguredGuard, AppleConfiguredGuard } from './oauth-configured.guard';
 import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
@@ -131,6 +132,16 @@ export class AuthController {
   @Post('google/native')
   async googleNative(@Body() dto: GoogleIdTokenDto) {
     return this.authService.loginWithGoogleIdToken(dto.idToken, dto.accessToken);
+  }
+
+  @ApiOperation({
+    summary: 'Sign in with a Firebase ID token from an email link sign-in (mobile apps)',
+  })
+  @ApiResponse({ status: 200, description: 'Session issued for the account with that email' })
+  @HttpCode(HttpStatus.OK)
+  @Post('firebase/email-link')
+  async firebaseEmailLink(@Body() dto: FirebaseIdTokenDto) {
+    return this.authService.loginWithFirebaseEmailLink(dto.idToken);
   }
 
   @ApiOperation({ summary: 'Start Apple Sign-In (redirects to Apple)' })

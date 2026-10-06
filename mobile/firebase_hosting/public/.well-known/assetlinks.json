@@ -1,0 +1,19 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.psctipsandtricks",
+      "sha256_cert_fingerprints": [
+        "CC:95:8D:31:F5:0A:27:17:FC:91:80:A3:92:A5:4F:46:BF:E7:37:4F:19:3C:A6:F8:22:32:B2:33:7C:80:EF:68",
+        "27:53:05:48:BD:92:C2:A9:A2:CA:4E:99:58:EB:C1:81:B8:DF:48:66:AE:26:7A:47:C9:C1:85:AC:0E:E8:C0:6B",
+        "AA:92:D3:AB:79:FD:CB:9F:FC:65:45:63:D5:1C:DA:E3:A4:4B:22:1A:C3:3F:92:18:BC:E6:49:48:B7:04:B2:E5",
+        "23:1F:18:AE:AC:C4:D0:1F:3B:F5:8B:E6:EC:70:24:F1:7F:FC:E1:9E:A5:4B:B6:28:C0:6B:A5:7F:4F:D0:C9:3E",
+        "8A:7F:90:DC:67:0E:AC:73:FE:7A:DF:13:D4:06:58:9A:AD:F0:71:4C:54:8C:65:1B:C4:3B:77:AD:FC:77:4F:64",
+        "F4:5A:82:E1:86:80:79:FA:66:B6:02:7B:EF:5C:6B:AC:CF:4B:5C:28:A3:8C:1E:B2:FA:B8:30:49:24:A2:8C:D7"
+      ]
+    }
+  }
+]
