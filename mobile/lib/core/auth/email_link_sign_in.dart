@@ -173,15 +173,23 @@ class EmailLinkSignIn {
   }
 
   static String _messageFor(FirebaseAuthException e) {
+    final msg = e.message ?? '';
+    final msgLower = msg.toLowerCase();
+
+    if (e.code == 'quota-exceeded' ||
+        e.code == 'too-many-requests' ||
+        msgLower.contains('quota exceeded') ||
+        msgLower.contains('get oob code') ||
+        msgLower.contains('rate limit')) {
+      return 'Daily email sign-in limit exceeded (200/day). Please sign in with Google or request a quota increase in Google Cloud.';
+    }
+
     switch (e.code) {
       case 'invalid-email':
         return 'That email address doesn\'t look right.';
       case 'invalid-action-code':
       case 'expired-action-code':
         return 'This sign-in link has expired or was already used. Please request a new one.';
-      case 'too-many-requests':
-      case 'quota-exceeded':
-        return 'Too many sign-in emails were requested. Please try again later.';
       case 'user-disabled':
         return 'This account has been disabled. Please contact support.';
       case 'operation-not-allowed':
@@ -189,6 +197,13 @@ class EmailLinkSignIn {
       case 'network-request-failed':
         return 'No internet connection. Please check your network and try again.';
       default:
+        if (msg.isNotEmpty) {
+          final cleaned = msg
+              .replaceAll(RegExp(r'^An internal error has occurred\.\s*\[\s*'), '')
+              .replaceAll(RegExp(r'\s*\]\s*$'), '')
+              .trim();
+          if (cleaned.isNotEmpty) return cleaned;
+        }
         return 'Email sign-in failed. Please try again.';
     }
   }
