@@ -101,39 +101,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             const SizedBox(height: 16),
           ],
           EmailLinkAuthButton(onPressed: _openEmailLink),
-          const SizedBox(height: 18),
-          const AuthDivider(label: 'OR'),
-          const SizedBox(height: 18),
-          OutlinedButton(
-            onPressed: _googleLoading ? null : _signInWithGoogle,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          // Continue with Google is hidden as requested
+          if (false) ...[
+            const SizedBox(height: 18),
+            const AuthDivider(label: 'OR'),
+            const SizedBox(height: 18),
+            OutlinedButton(
+              onPressed: _googleLoading ? null : _signInWithGoogle,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-            ),
-            child: _googleLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const GoogleLogo(size: 20),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Continue with Google',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: palette.textPrimary,
+              child: _googleLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const GoogleLogo(size: 20),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Continue with Google',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: palette.textPrimary,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-          ),
+                      ],
+                    ),
+            ),
+          ],
           const SizedBox(height: 24),
           TextButton(
             onPressed: _continueAsGuest,
