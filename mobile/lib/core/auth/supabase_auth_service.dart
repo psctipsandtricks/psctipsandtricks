@@ -98,8 +98,31 @@ class SupabaseAuthService {
     }
   }
 
+  /// Extracts Supabase access token directly from a callback URI (fragment or query parameters).
+  static String? extractAccessTokenFromUri(Uri uri) {
+    if (uri.queryParameters.containsKey('access_token')) {
+      return uri.queryParameters['access_token'];
+    }
+    if (uri.hasFragment && uri.fragment.isNotEmpty) {
+      final fragmentParams = Uri.splitQueryString(uri.fragment);
+      if (fragmentParams.containsKey('access_token')) {
+        return fragmentParams['access_token'];
+      }
+    }
+    final raw = uri.toString();
+    final match = RegExp(r'[#&?]access_token=([^&]+)').firstMatch(raw);
+    if (match != null) {
+      return Uri.decodeComponent(match.group(1)!);
+    }
+    return null;
+  }
+
   /// Completes sign-in when an email magic link / OAuth redirect URL arrives.
   static Future<String> getSessionFromUrl(Uri uri) async {
+    final direct = extractAccessTokenFromUri(uri);
+    if (direct != null && direct.isNotEmpty) {
+      return direct;
+    }
     try {
       final res = await _auth.getSessionFromUrl(uri);
       final accessToken = res.session.accessToken;

@@ -132,11 +132,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Handle Supabase auth callback redirect
       final isSupabaseCallback = uri.host == 'login-callback' ||
           uri.path == '/login-callback' ||
-          location == AppRoutes.supabaseCallback;
+          uri.path == 'login-callback' ||
+          location == AppRoutes.supabaseCallback ||
+          (uri.hasFragment && uri.fragment.contains('access_token='));
 
       if (isSupabaseCallback && location != AppRoutes.supabaseCallback) {
-        return Uri(path: AppRoutes.supabaseCallback, queryParameters: uri.queryParameters)
-            .toString();
+        return Uri(
+          path: AppRoutes.supabaseCallback,
+          queryParameters: uri.queryParameters.isNotEmpty ? uri.queryParameters : null,
+          fragment: uri.hasFragment ? uri.fragment : null,
+        ).toString();
       }
 
       // Handle custom scheme or deep link with action parameters
@@ -181,6 +186,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (!auth.isAuthenticated &&
           location == AppRoutes.home &&
           !hasEmailLinkData &&
+          !isSupabaseCallback &&
           !ref.read(guestModeProvider)) {
         return AppRoutes.login;
       }

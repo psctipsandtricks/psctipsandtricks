@@ -84,6 +84,16 @@
                 <data android:scheme="com.psctipsandtricks" />
             </intent-filter>
 
+            <!-- Supabase Web Fallback Deep Link -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https"
+                    android:host="psctipsandtricks-web.vercel.app"
+                    android:pathPrefix="/login-callback" />
+            </intent-filter>
+
             <meta-data
                 android:name="flutter_deeplinking_enabled"
                 android:value="true" />

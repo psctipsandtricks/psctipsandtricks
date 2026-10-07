@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/email_link_sign_in.dart';
+import '../../core/auth/supabase_auth_service.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/auth_controller.dart';
@@ -59,7 +60,9 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
     if (initialEmail != null && initialEmail.isNotEmpty) {
       _email.text = initialEmail;
     } else if (widget.link != null && widget.link!.isNotEmpty) {
-      _email.text = EmailLinkSignIn.pendingEmail(prefs) ?? '';
+      _email.text = SupabaseAuthService.pendingEmail(prefs) ??
+          EmailLinkSignIn.pendingEmail(prefs) ??
+          '';
     }
     final link = widget.link;
     if (link != null && link.isNotEmpty) {
@@ -115,7 +118,7 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       _error = null;
     });
     try {
-      await EmailLinkSignIn.sendLink(
+      await SupabaseAuthService.sendOtp(
           _email.text, ref.read(sharedPrefsProvider));
       if (!mounted) return;
       // 3-second buffer with active loader so the email arrives in the user's inbox
@@ -126,13 +129,13 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       _startCooldown();
       // Straight to the inbox, where the sign-in link is waiting.
       unawaited(MailApp.openInbox());
-    } on EmailLinkFailure catch (e) {
-      debugPrint('EmailLinkFailure during send: $e');
+    } on SupabaseAuthFailure catch (e) {
+      debugPrint('SupabaseAuthFailure during sendOtp: $e');
       if (mounted) setState(() => _error = e.reason);
     } catch (e, stackTrace) {
-      debugPrint('Email link send failed: $e\n$stackTrace');
+      debugPrint('Supabase sendOtp failed: $e\n$stackTrace');
       if (mounted) {
-        setState(() => _error = 'Error: $e');
+        setState(() => _error = 'Could not send verification email. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -140,23 +143,15 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
   }
 
   Future<void> _handleLink(String raw) async {
-    if (kDebugMode) debugPrint('EmailLinkScreen: handling link: $raw');
-    final link = EmailLinkSignIn.extractActionLink(raw);
-    if (link == null) {
-      if (kDebugMode) {
-        debugPrint(
-            'EmailLinkScreen: extractActionLink returned null for: $raw');
-      }
-      setState(() => _error =
-          'That isn\'t a valid sign-in link. Please use the latest link we emailed you.');
-      return;
-    }
-    if (kDebugMode) debugPrint('EmailLinkScreen: extracted action link: $link');
+    final input = raw.trim();
+    if (input.isEmpty) return;
+    if (kDebugMode) debugPrint('EmailLinkScreen: handling input: $input');
 
+    final prefs = ref.read(sharedPrefsProvider);
     var email = widget.email?.trim();
     if (email == null || email.isEmpty || !EmailValidator.isValid(email)) {
-      email =
-          EmailLinkSignIn.pendingEmail(ref.read(sharedPrefsProvider))?.trim();
+      email = SupabaseAuthService.pendingEmail(prefs)?.trim() ??
+          EmailLinkSignIn.pendingEmail(prefs)?.trim();
     }
     if (email == null || email.isEmpty) {
       final current = _email.text.trim();
@@ -164,24 +159,58 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
         email = current;
       }
     }
-    if (email == null || email.isEmpty) {
-      // Opened on a different phone, or after the app's data was cleared:
-      // Firebase needs the address again before it will accept the link.
-      if (kDebugMode) {
-        debugPrint(
-            'EmailLinkScreen: pending email not found, requesting email confirmation');
+
+    // Check if it's a 6-digit OTP code
+    if (RegExp(r'^\d{6}$').hasMatch(input)) {
+      if (email == null || email.isEmpty) {
+        setState(() {
+          _pendingLink = input;
+          _step = _Step.confirmEmail;
+          _error = null;
+        });
+        return;
       }
+      await _verifyCode(email, input);
+      return;
+    }
+
+    // Otherwise treat as a link / callback URL
+    if (email == null || email.isEmpty) {
       setState(() {
-        _pendingLink = link;
+        _pendingLink = input;
         _step = _Step.confirmEmail;
         _error = null;
       });
       return;
     }
-    await _complete(email, link);
+    await _complete(email, input);
   }
 
-  Future<void> _complete(String email, String link) async {
+  Future<void> _verifyCode(String email, String code) async {
+    setState(() {
+      _step = _Step.completing;
+      _error = null;
+    });
+    try {
+      final token = await SupabaseAuthService.verifyOtpCode(
+        email: email,
+        token: code,
+        prefs: ref.read(sharedPrefsProvider),
+      );
+      await ref
+          .read(authControllerProvider.notifier)
+          .completeSupabaseLogin(token);
+      if (mounted) goAfterAuth(context, widget.redirect);
+    } on SupabaseAuthFailure catch (e) {
+      _fail(e.reason, code);
+    } on ApiException catch (e) {
+      _fail(e.message, code);
+    } catch (e) {
+      _fail('Verification failed. Please check the code and try again.', code);
+    }
+  }
+
+  Future<void> _complete(String email, String rawLink) async {
     if (kDebugMode) {
       debugPrint('EmailLinkScreen: completing sign-in for $email');
     }
@@ -190,33 +219,52 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       _error = null;
     });
     try {
-      final idToken = await EmailLinkSignIn.complete(
-        email: email,
-        link: link,
-        prefs: ref.read(sharedPrefsProvider),
-      );
-      if (kDebugMode) {
-        debugPrint(
-            'EmailLinkScreen: Firebase ID token retrieved, exchanging with backend API');
+      // 1. Try Supabase token extraction / URL parsing
+      final uri = Uri.tryParse(rawLink);
+      String? supaToken;
+      if (uri != null) {
+        supaToken = SupabaseAuthService.extractAccessTokenFromUri(uri);
+        if (supaToken == null || supaToken.isEmpty) {
+          try {
+            supaToken = await SupabaseAuthService.getSessionFromUrl(uri);
+          } catch (_) {
+            supaToken = SupabaseAuthService.currentAccessToken;
+          }
+        }
       }
-      await ref
-          .read(authControllerProvider.notifier)
-          .completeEmailLink(idToken);
-      if (kDebugMode) {
-        debugPrint(
-            'EmailLinkScreen: backend authentication successful, redirecting');
+      if (supaToken != null && supaToken.isNotEmpty) {
+        await ref
+            .read(authControllerProvider.notifier)
+            .completeSupabaseLogin(supaToken);
+        if (mounted) goAfterAuth(context, widget.redirect);
+        return;
       }
-      if (mounted) goAfterAuth(context, widget.redirect);
-      return;
+
+      // 2. Legacy Firebase action link fallback
+      final fbLink = EmailLinkSignIn.extractActionLink(rawLink);
+      if (fbLink != null) {
+        final idToken = await EmailLinkSignIn.complete(
+          email: email,
+          link: fbLink,
+          prefs: ref.read(sharedPrefsProvider),
+        );
+        await ref
+            .read(authControllerProvider.notifier)
+            .completeEmailLink(idToken);
+        if (mounted) goAfterAuth(context, widget.redirect);
+        return;
+      }
+
+      _fail('Invalid sign-in link. Please use the latest link emailed to you.', rawLink);
+    } on SupabaseAuthFailure catch (e) {
+      _fail(e.reason, rawLink);
     } on EmailLinkFailure catch (e) {
-      debugPrint('EmailLinkFailure during complete: $e');
-      _fail(e.reason, link);
+      _fail(e.reason, rawLink);
     } on ApiException catch (e) {
-      debugPrint('ApiException during email link exchange: $e');
-      _fail(e.message, link);
+      _fail(e.message, rawLink);
     } catch (e, stackTrace) {
       debugPrint('Email link sign-in unexpected error: $e\n$stackTrace');
-      _fail('Error: $e', link);
+      _fail('Error: $e', rawLink);
     }
   }
 
@@ -234,12 +282,14 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
     final link = _pendingLink;
     if (link == null) return;
     FocusScope.of(context).unfocus();
-    await _complete(_email.text, link);
+    await _handleLink(link);
   }
 
   void _changeEmail() {
     _cooldownTimer?.cancel();
-    unawaited(EmailLinkSignIn.clearPendingEmail(ref.read(sharedPrefsProvider)));
+    final prefs = ref.read(sharedPrefsProvider);
+    unawaited(SupabaseAuthService.clearPendingEmail(prefs));
+    unawaited(EmailLinkSignIn.clearPendingEmail(prefs));
     setState(() {
       _error = null;
       _resendCooldown = 0;
@@ -421,22 +471,21 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
           ],
         ),
         const SizedBox(height: 18),
-        // A mail app that opens links in its own browser never hands the link
-        // to us; copying it from the email and pasting it here still works.
         Text(
-          'Link opened in a browser instead? Copy it from the email and paste it here.',
+          'Tapping the link in your email will sign you straight in. Alternatively, enter the 6-digit code or paste the link below:',
           style: textTheme.bodySmall
               ?.copyWith(color: palette.textMuted, height: 1.45),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _pastedLink,
-          keyboardType: TextInputType.url,
+          keyboardType: TextInputType.text,
           textInputAction: TextInputAction.done,
           onSubmitted: (value) => _handleLink(value),
           decoration: InputDecoration(
-            labelText: 'Paste sign-in link',
-            prefixIcon: const Icon(Icons.link_rounded, size: 20),
+            labelText: 'Enter 6-digit code or paste link',
+            hintText: 'e.g. 123456',
+            prefixIcon: const Icon(Icons.password_rounded, size: 20),
             suffixIcon: IconButton(
               tooltip: 'Sign in',
               icon: const Icon(Icons.arrow_forward_rounded, size: 20),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/supabase_auth_service.dart';
+import '../../core/config/app_config.dart';
 import '../../core/providers/auth_controller.dart';
 import '../../core/router/app_router.dart';
 import 'auth_scaffold.dart';
@@ -37,9 +38,31 @@ class _SupabaseCallbackScreenState
   Future<void> _complete() async {
     try {
       String? token;
-      try {
-        token = await SupabaseAuthService.getSessionFromUrl(widget.uri);
-      } catch (_) {
+
+      // 1. Direct extraction from URI (fastest and handles fragments without network call)
+      token = SupabaseAuthService.extractAccessTokenFromUri(widget.uri);
+
+      // 2. Check current session if Supabase SDK background listener already parsed it
+      if (token == null || token.isEmpty) {
+        token = SupabaseAuthService.currentAccessToken;
+      }
+
+      // 3. Try getSessionFromUrl
+      if (token == null || token.isEmpty) {
+        try {
+          final targetUri = widget.uri.hasScheme
+              ? widget.uri
+              : Uri.parse(
+                  '${AppConfig.supabaseAuthCallbackUrl}${widget.uri.toString().startsWith('/') ? widget.uri.toString() : '/${widget.uri.toString()}'}',
+                );
+          token = await SupabaseAuthService.getSessionFromUrl(targetUri);
+        } catch (e) {
+          debugPrint('SupabaseCallbackScreen getSessionFromUrl attempt: $e');
+        }
+      }
+
+      // 4. Wait for Supabase SDK's background deep link listener if still resolving
+      if (token == null || token.isEmpty) {
         token = SupabaseAuthService.currentAccessToken;
       }
 
