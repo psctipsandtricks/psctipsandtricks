@@ -41,6 +41,21 @@ class AppConfig {
     return '313869157607-dg7s5u66lmiu9c5um0e5ae2s8778oire.apps.googleusercontent.com';
   }
 
+  /// Supabase project URL and anon public key for authentication.
+  static String get supabaseUrl {
+    const defined = String.fromEnvironment('SUPABASE_URL');
+    if (defined.isNotEmpty) return defined;
+    return 'https://lgxulhrppihkzwudvmpu.supabase.co';
+  }
+
+  static String get supabaseAnonKey {
+    const defined = String.fromEnvironment('SUPABASE_ANON_KEY');
+    if (defined.isNotEmpty) return defined;
+    return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxneHVsaHJwcGloa3p3dWR2bXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2NzIwODAsImV4cCI6MjEwMTI0ODA4MH0.KSNAGNa-sUW9aMoESMpEVTKBJGV0oItEuf6uHt17GyE';
+  }
+
+  static const String supabaseAuthCallbackUrl = 'com.psctipsandtricks://login-callback';
+
   /// Socket.IO endpoint for community chat. Defaults to the API host.
   static String get socketUrl {
     const defined = String.fromEnvironment('SOCKET_URL');

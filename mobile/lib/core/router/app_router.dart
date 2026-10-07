@@ -7,6 +7,7 @@ import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/email_link_screen.dart';
 import '../../features/auth/oauth_callback_screen.dart';
+import '../../features/auth/supabase_callback_screen.dart';
 import '../../features/auth/signup_screen.dart';
 import '../../features/books/book_detail_screen.dart';
 import '../../features/books/book_reader_screen.dart';
@@ -46,6 +47,7 @@ class AppRoutes {
   /// Hosting domain (see EmailLinkSignIn.callbackPath).
   static const emailLinkCallback = '/__/auth/links';
   static const emailSignInCallback = '/email-signin';
+  static const supabaseCallback = '/login-callback';
   static const books = '/books';
   static const quizzes = '/quizzes';
   static const quizHistory = '/quizzes/history';
@@ -127,6 +129,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final location = state.matchedLocation;
       final uri = state.uri;
 
+      // Handle Supabase auth callback redirect
+      final isSupabaseCallback = uri.host == 'login-callback' ||
+          uri.path == '/login-callback' ||
+          location == AppRoutes.supabaseCallback;
+
+      if (isSupabaseCallback && location != AppRoutes.supabaseCallback) {
+        return Uri(path: AppRoutes.supabaseCallback, queryParameters: uri.queryParameters)
+            .toString();
+      }
+
       // Handle custom scheme or deep link with action parameters
       final hasEmailLinkData = uri.queryParameters.containsKey('link') ||
           uri.queryParameters.containsKey('oobCode') ||
@@ -154,12 +166,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           location == AppRoutes.register ||
           location == AppRoutes.forgotPassword ||
           location == AppRoutes.oauthCallback ||
+          location == AppRoutes.supabaseCallback ||
           location == AppRoutes.emailLink ||
           location == AppRoutes.emailLinkCallback ||
           location == AppRoutes.emailSignInCallback;
 
       final isEmailLinkAction = location == AppRoutes.emailLinkCallback ||
           location == AppRoutes.emailSignInCallback ||
+          isSupabaseCallback ||
           hasEmailLinkData;
 
       // Every launch without a session starts on the sign-in screen, until
@@ -229,6 +243,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => OAuthCallbackScreen(
           accessToken: state.uri.queryParameters['accessToken'],
           refreshToken: state.uri.queryParameters['refreshToken'],
+          redirect: state.uri.queryParameters['redirect'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.supabaseCallback,
+        builder: (context, state) => SupabaseCallbackScreen(
+          uri: state.uri,
           redirect: state.uri.queryParameters['redirect'],
         ),
       ),

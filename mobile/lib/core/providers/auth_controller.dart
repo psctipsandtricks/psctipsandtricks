@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/user.dart';
 import '../auth/email_link_sign_in.dart';
 import '../auth/google_native_sign_in.dart';
+import '../auth/supabase_auth_service.dart';
 import '../network/api_exception.dart';
 import 'app_providers.dart';
 import 'session.dart';
@@ -50,7 +51,18 @@ class AuthController extends StateNotifier<AuthState> {
     final repo = _ref.read(authRepositoryProvider);
     final cached = await repo.restoreSession();
     if (cached == null) {
-      // If local token storage was empty or reset, check if Firebase Auth has an active persisted session
+      // If local token storage was empty or reset, check if Supabase or Firebase Auth has an active persisted session
+      try {
+        final supaToken = SupabaseAuthService.currentAccessToken;
+        if (supaToken != null && supaToken.isNotEmpty) {
+          final user = await repo.loginWithSupabaseToken(supaToken);
+          await _applySignIn(user);
+          return;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Supabase restore fallback error: $e');
+      }
+
       try {
         if (Firebase.apps.isNotEmpty) {
           final fbUser = FirebaseAuth.instance.currentUser;
@@ -134,6 +146,13 @@ class AuthController extends StateNotifier<AuthState> {
     // It will only be signed out when user explicitly calls logout().
   }
 
+  Future<void> completeSupabaseLogin(String accessToken) async {
+    final user = await _ref
+        .read(authRepositoryProvider)
+        .loginWithSupabaseToken(accessToken);
+    await _applySignIn(user);
+  }
+
   /// Moves the app into the signed-in state for [user], first scrubbing any
   /// state left by a different account. Logging out normally clears this
   /// already; the guard also covers a direct account switch and a session that
@@ -155,8 +174,9 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
-    // Drop the platform's cached Google account and Firebase user too
+    // Drop the platform's cached Google account, Supabase session, and Firebase user too
     await GoogleNativeSignIn.signOut();
+    await SupabaseAuthService.signOut();
     await EmailLinkSignIn.signOutFirebase();
     await _ref.read(authRepositoryProvider).logout();
     state = AuthState.signedOut;

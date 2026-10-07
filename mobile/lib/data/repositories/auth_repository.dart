@@ -108,6 +108,15 @@ class AuthRepository {
     return _persist(AuthResponse.fromJson(res));
   }
 
+  /// Exchanges a Supabase Auth access token for a session on the PSC backend.
+  Future<User> loginWithSupabaseToken(String accessToken) async {
+    final res = await _api.post<Map<String, dynamic>>(
+      '/auth/supabase/exchange',
+      body: {'accessToken': accessToken},
+    );
+    return _persist(AuthResponse.fromJson(res));
+  }
+
   Future<User> loginWithGoogleIdToken(String idToken) =>
       loginWithGoogleNativeTokens(idToken: idToken);
 

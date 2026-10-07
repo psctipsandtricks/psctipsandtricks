@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
+import '../auth/supabase_auth_service.dart';
 import '../config/app_config.dart';
 import '../storage/token_store.dart';
 import 'api_exception.dart';
@@ -94,6 +95,7 @@ class ApiClient {
       '/auth/reset-password',
       '/auth/refresh',
       '/auth/firebase/email-link',
+      '/auth/supabase/exchange',
       '/auth/google/native',
     };
 
@@ -165,7 +167,42 @@ class ApiClient {
     }
 
     // Secondary fallback: if the backend refresh token is expired or absent,
-    // check if Firebase Auth has an active persisted session (e.g. Email Link login).
+    // check if Supabase or Firebase Auth has an active persisted session.
+    try {
+      final supaToken = SupabaseAuthService.currentAccessToken;
+      if (supaToken != null && supaToken.isNotEmpty) {
+        final bare = Dio(
+          BaseOptions(
+            baseUrl: AppConfig.apiBaseUrl,
+            connectTimeout: AppConfig.connectTimeout,
+            receiveTimeout: AppConfig.receiveTimeout,
+            contentType: Headers.jsonContentType,
+          ),
+        );
+        final res = await bare.post<Map<String, dynamic>>(
+          '/auth/supabase/exchange',
+          data: {'accessToken': supaToken},
+        );
+        final access = res.data?['accessToken'] as String?;
+        if (access != null && access.isNotEmpty) {
+          await _tokenStore.saveTokens(
+            accessToken: access,
+            refreshToken: res.data?['refreshToken'] as String?,
+          );
+          final user = res.data?['user'];
+          if (user is Map<String, dynamic>) {
+            await _tokenStore.saveUser(user);
+          }
+          if (kDebugMode) {
+            debugPrint('Session refreshed seamlessly via Supabase Auth fallback');
+          }
+          return access;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('Supabase Auth fallback refresh failed: $e');
+    }
+
     try {
       if (Firebase.apps.isNotEmpty) {
         final fbUser = FirebaseAuth.instance.currentUser;

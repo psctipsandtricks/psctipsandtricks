@@ -11,6 +11,7 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleIdTokenDto } from './dto/google-id-token.dto';
 import { FirebaseIdTokenDto } from './dto/firebase-id-token.dto';
+import { SupabaseTokenDto } from './dto/supabase-token.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GoogleConfiguredGuard, AppleConfiguredGuard } from './oauth-configured.guard';
 import { GoogleAuthGuard, AppleAuthGuard } from './provider-auth.guard';
@@ -142,6 +143,16 @@ export class AuthController {
   @Post('firebase/email-link')
   async firebaseEmailLink(@Body() dto: FirebaseIdTokenDto) {
     return this.authService.loginWithFirebaseEmailLink(dto.idToken);
+  }
+
+  @ApiOperation({
+    summary: 'Sign in with a Supabase access token from Supabase Email Link/OTP or Google OAuth',
+  })
+  @ApiResponse({ status: 200, description: 'Session issued for the account authenticated via Supabase' })
+  @HttpCode(HttpStatus.OK)
+  @Post('supabase/exchange')
+  async supabaseExchange(@Body() dto: SupabaseTokenDto) {
+    return this.authService.loginWithSupabaseToken(dto.accessToken);
   }
 
   @ApiOperation({ summary: 'Start Apple Sign-In (redirects to Apple)' })

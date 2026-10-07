@@ -61,6 +61,7 @@ dependencies:
   # Passwordless email link sign-in. Firebase only proves the address — the
   # API issues the session (see email_link_sign_in.dart).
   firebase_auth: ^6.7.0
+  supabase_flutter: ^2.8.3
   flutter_local_notifications: ^22.3.0
   google_sign_in: ^6.2.2
   just_audio_background: ^0.0.1-beta.17

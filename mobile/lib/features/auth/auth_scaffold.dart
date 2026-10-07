@@ -45,6 +45,7 @@ class AuthScaffold extends StatelessWidget {
     final palette = context.palette;
 
     return Scaffold(
+      backgroundColor: palette.background,
       body: Stack(
         children: [
           // Ambient mesh glow — the native stand-in for the site's layered
@@ -321,7 +322,9 @@ class _SocialButton extends StatelessWidget {
 
 /// "or" rule between the credential form and the social buttons.
 class AuthDivider extends StatelessWidget {
-  const AuthDivider({super.key});
+  const AuthDivider({super.key, this.label});
+
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +335,7 @@ class AuthDivider extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
-            'or continue with',
+            label ?? 'or continue with',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: palette.textMuted,
                 ),

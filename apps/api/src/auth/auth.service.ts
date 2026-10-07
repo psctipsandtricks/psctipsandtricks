@@ -12,6 +12,7 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MailService } from './mail.service';
 import { FirebaseIdTokenVerifier } from './firebase-id-token.verifier';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class AuthService {
@@ -109,13 +110,23 @@ export class AuthService {
     'nada.ltd',
   ]);
 
+  private supabaseClient: SupabaseClient | null = null;
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
     private mailService: MailService,
     private firebaseIdTokens: FirebaseIdTokenVerifier,
-  ) {}
+  ) {
+    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+    const supabaseServiceKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+    if (supabaseUrl && supabaseServiceKey) {
+      this.supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { persistSession: false },
+      });
+    }
+  }
 
   private async validateEmailAddress(email: string): Promise<void> {
     const normEmail = (email || '').trim().toLowerCase();
@@ -577,6 +588,79 @@ export class AuthService {
         data: {
           email: normEmail,
           name: claims.name || normEmail.split('@')[0],
+          role: isAdmin ? UserRole.ADMIN : UserRole.STUDENT,
+        },
+        include: { staffPermission: true },
+      });
+    }
+
+    return this.completeSignIn(user, normEmail);
+  }
+
+  /**
+   * Signs in with a Supabase Auth access token from either:
+   * 1. Supabase Email Magic Link / OTP
+   * 2. Supabase Google OAuth
+   */
+  async loginWithSupabaseToken(accessToken: string) {
+    if (!this.supabaseClient) {
+      const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
+      const supabaseServiceKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY');
+      if (supabaseUrl && supabaseServiceKey) {
+        this.supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+          auth: { persistSession: false },
+        });
+      }
+    }
+
+    if (!this.supabaseClient) {
+      throw new BadRequestException('Supabase auth is not configured on the server.');
+    }
+
+    const { data, error } = await this.supabaseClient.auth.getUser(accessToken);
+    if (error || !data.user) {
+      this.logger.error(`Supabase token verification failed: ${error?.message}`);
+      throw new UnauthorizedException(error?.message || 'Invalid or expired Supabase token');
+    }
+
+    const supaUser = data.user;
+    const email = supaUser.email;
+    if (!email) {
+      throw new BadRequestException('No email address associated with this Supabase account.');
+    }
+    const normEmail = email.trim().toLowerCase();
+
+    // Check provider (Google OAuth vs Email link/OTP)
+    const provider = supaUser.app_metadata?.provider;
+    const meta = supaUser.user_metadata || {};
+    const name = (meta.full_name || meta.name || normEmail.split('@')[0]) as string;
+    const avatarUrl = (meta.avatar_url || meta.picture || undefined) as string | undefined;
+
+    if (provider === 'google') {
+      const googleIdentity = supaUser.identities?.find((id) => id.provider === 'google');
+      const providerAccountId = googleIdentity?.id || supaUser.id;
+      return this.findOrCreateOAuthUser(
+        OAuthProvider.GOOGLE,
+        providerAccountId,
+        normEmail,
+        name,
+        avatarUrl,
+      );
+    }
+
+    // Passwordless email link / OTP: resolve by verified email
+    let user = await this.prisma.user.findUnique({
+      where: { email: normEmail },
+      include: { staffPermission: true },
+    });
+
+    if (!user) {
+      const isAdmin = normEmail === 'psctipsandtricksapp@gmail.com' || normEmail === 'admin@psctips.com';
+      user = await this.prisma.user.create({
+        data: {
+          email: normEmail,
+          name,
+          avatarUrl,
           role: isAdmin ? UserRole.ADMIN : UserRole.STUDENT,
         },
         include: { staffPermission: true },

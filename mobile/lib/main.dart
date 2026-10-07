@@ -5,8 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
+import 'core/config/app_config.dart';
 import 'core/providers/app_providers.dart';
 import 'core/push/push_service.dart';
 
@@ -31,6 +33,12 @@ Future<void> main() async {
   // frame misses a cold start opened from the notification tray. No-ops until
   // `flutterfire configure` has been run.
   await initialiseFirebase();
+
+    // Supabase client initialization for Google OAuth and token exchange
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      anonKey: AppConfig.supabaseAnonKey,
+    );
 
   final prefs = await SharedPreferences.getInstance();
 
