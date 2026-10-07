@@ -127,13 +127,13 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       // Straight to the inbox, where the sign-in link is waiting.
       unawaited(MailApp.openInbox());
     } on EmailLinkFailure catch (e) {
-      if (kDebugMode) debugPrint('$e');
+      debugPrint('EmailLinkFailure during send: $e');
       if (mounted) setState(() => _error = e.reason);
-    } catch (e) {
-      if (kDebugMode) debugPrint('Email link send failed: $e');
-      if (mounted)
-        setState(() =>
-            _error = 'Could not send the sign-in link. Please try again.');
+    } catch (e, stackTrace) {
+      debugPrint('Email link send failed: $e\n$stackTrace');
+      if (mounted) {
+        setState(() => _error = 'Error: $e');
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -209,14 +209,14 @@ class _EmailLinkScreenState extends ConsumerState<EmailLinkScreen> {
       if (mounted) goAfterAuth(context, widget.redirect);
       return;
     } on EmailLinkFailure catch (e) {
-      if (kDebugMode) debugPrint('EmailLinkFailure: $e');
+      debugPrint('EmailLinkFailure during complete: $e');
       _fail(e.reason, link);
     } on ApiException catch (e) {
-      if (kDebugMode) debugPrint('ApiException during email link exchange: $e');
+      debugPrint('ApiException during email link exchange: $e');
       _fail(e.message, link);
-    } catch (e) {
-      if (kDebugMode) debugPrint('Email link sign-in unexpected error: $e');
-      _fail('Could not sign you in. Please request a new link.', link);
+    } catch (e, stackTrace) {
+      debugPrint('Email link sign-in unexpected error: $e\n$stackTrace');
+      _fail('Error: $e', link);
     }
   }
 

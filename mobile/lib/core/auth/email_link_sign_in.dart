@@ -8,13 +8,14 @@ import '../../firebase_options.dart';
 /// Raised when an email link sign-in cannot go ahead. [reason] is written for
 /// the student; [debugDetail] is the raw Firebase error for the console only.
 class EmailLinkFailure implements Exception {
-  const EmailLinkFailure(this.reason, {this.debugDetail});
+  const EmailLinkFailure(this.reason, {this.debugDetail, this.code});
   final String reason;
   final String? debugDetail;
+  final String? code;
 
   @override
   String toString() =>
-      'EmailLinkFailure: $reason${debugDetail != null ? ' ($debugDetail)' : ''}';
+      'EmailLinkFailure: $reason${code != null ? ' [code: $code]' : ''}${debugDetail != null ? ' ($debugDetail)' : ''}';
 }
 
 /// Passwordless sign-in through Firebase Auth email links.
@@ -65,7 +66,20 @@ class EmailLinkSignIn {
         ),
       );
     } on FirebaseAuthException catch (e) {
-      throw EmailLinkFailure(_messageFor(e), debugDetail: '${e.code}: ${e.message}');
+      debugPrint(
+        'FirebaseAuthException in sendSignInLinkToEmail:\n'
+        '  code: ${e.code}\n'
+        '  message: ${e.message}\n'
+        '  plugin: ${e.plugin}\n'
+        '  email: ${e.email}\n'
+        '  credential: ${e.credential}\n'
+        '  stackTrace: ${e.stackTrace}',
+      );
+      throw EmailLinkFailure(
+        formatFirebaseError(e),
+        code: e.code,
+        debugDetail: '${e.code}: ${e.message}',
+      );
     }
     await prefs.setString(_pendingEmailKey, address);
   }
@@ -162,49 +176,29 @@ class EmailLinkSignIn {
       await prefs.remove(_pendingEmailKey);
       return idToken;
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'invalid-email') {
-        throw EmailLinkFailure(
-          'Enter the same email address the sign-in link was sent to.',
-          debugDetail: '${e.code}: ${e.message}',
-        );
-      }
-      throw EmailLinkFailure(_messageFor(e), debugDetail: '${e.code}: ${e.message}');
+      debugPrint(
+        'FirebaseAuthException in signInWithEmailLink:\n'
+        '  code: ${e.code}\n'
+        '  message: ${e.message}\n'
+        '  plugin: ${e.plugin}\n'
+        '  email: ${e.email}\n'
+        '  credential: ${e.credential}\n'
+        '  stackTrace: ${e.stackTrace}',
+      );
+      throw EmailLinkFailure(
+        formatFirebaseError(e),
+        code: e.code,
+        debugDetail: '${e.code}: ${e.message}',
+      );
     }
   }
 
-  static String _messageFor(FirebaseAuthException e) {
-    final msg = e.message ?? '';
-    final msgLower = msg.toLowerCase();
-
-    if (e.code == 'quota-exceeded' ||
-        e.code == 'too-many-requests' ||
-        msgLower.contains('quota exceeded') ||
-        msgLower.contains('get oob code') ||
-        msgLower.contains('rate limit')) {
-      return 'Daily email sign-in limit exceeded (200/day). Please sign in with Google or request a quota increase in Google Cloud.';
-    }
-
-    switch (e.code) {
-      case 'invalid-email':
-        return 'That email address doesn\'t look right.';
-      case 'invalid-action-code':
-      case 'expired-action-code':
-        return 'This sign-in link has expired or was already used. Please request a new one.';
-      case 'user-disabled':
-        return 'This account has been disabled. Please contact support.';
-      case 'operation-not-allowed':
-        return 'Email link sign-in is not enabled in Firebase. Please enable "Email link (passwordless sign-in)" in Firebase Console under Authentication > Sign-in method.';
-      case 'network-request-failed':
-        return 'No internet connection. Please check your network and try again.';
-      default:
-        if (msg.isNotEmpty) {
-          final cleaned = msg
-              .replaceAll(RegExp(r'^An internal error has occurred\.\s*\[\s*'), '')
-              .replaceAll(RegExp(r'\s*\]\s*$'), '')
-              .trim();
-          if (cleaned.isNotEmpty) return cleaned;
-        }
-        return 'Email sign-in failed. Please try again.';
-    }
+  /// Formats the [FirebaseAuthException] to expose the exact error code and message.
+  static String formatFirebaseError(FirebaseAuthException e) {
+    final code = e.code.isNotEmpty ? e.code : 'unknown';
+    final message = (e.message != null && e.message!.trim().isNotEmpty)
+        ? e.message!.trim()
+        : 'An unknown Firebase error occurred.';
+    return 'Error code: $code\nMessage: $message';
   }
 }
