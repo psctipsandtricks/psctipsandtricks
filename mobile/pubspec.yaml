@@ -1,7 +1,7 @@
 name: psc_tips_tricks_mobile
 description: "PSC Tips & Tricks — Student app for Kerala PSC exam preparation."
 publish_to: 'none'
-version: 2.0.0+63
+version: 2.0.0+66
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

@@ -132,32 +132,35 @@ class SupabaseAuthService {
   static Future<String?> signInWithGoogle() async {
     try {
       // 1. Try native Google Sign-in to get ID token
-      final tokens = await GoogleNativeSignIn.tokens();
+      GoogleNativeTokens? tokens;
+      try {
+        tokens = await GoogleNativeSignIn.tokens();
+      } on GoogleNativeUnavailable catch (e) {
+        debugPrint('GoogleNativeSignIn unavailable: $e');
+        throw SupabaseAuthFailure(
+          e.reason,
+          debugDetail: e.debugDetail,
+        );
+      } catch (e) {
+        debugPrint('GoogleNativeSignIn error: $e');
+        throw SupabaseAuthFailure(
+          'Google Sign-In failed.',
+          debugDetail: e.toString(),
+        );
+      }
+
       if (tokens != null && tokens.isValid) {
-        try {
-          final res = await _auth.signInWithIdToken(
-            provider: OAuthProvider.google,
-            idToken: tokens.idToken!,
-          );
-          final accessToken = res.session?.accessToken;
-          if (accessToken != null && accessToken.isNotEmpty) {
-            return accessToken;
-          }
-        } catch (e) {
-          debugPrint('Supabase signInWithIdToken failed: $e, falling back to OAuth redirect');
+        final res = await _auth.signInWithIdToken(
+          provider: OAuthProvider.google,
+          idToken: tokens.idToken!,
+        );
+        final accessToken = res.session?.accessToken;
+        if (accessToken != null && accessToken.isNotEmpty) {
+          return accessToken;
         }
       }
 
-      // 2. Fallback to Supabase OAuth browser flow
-      final success = await _auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: AppConfig.supabaseAuthCallbackUrl,
-      );
-      if (!success) {
-        throw const SupabaseAuthFailure(
-          'Could not start Google Sign-In. Please try again.',
-        );
-      }
+      // User cancelled account picker or no tokens
       return null;
     } on AuthException catch (e) {
       debugPrint('Supabase AuthException in signInWithGoogle: ${e.statusCode} ${e.message}');

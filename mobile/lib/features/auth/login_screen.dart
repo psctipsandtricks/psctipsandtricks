@@ -54,7 +54,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         if (mounted) goAfterAuth(context, widget.redirect);
       }
     } on SupabaseAuthFailure catch (e) {
-      if (mounted) setState(() => _error = e.reason);
+      if (mounted) {
+        final detail = e.debugDetail?.trim();
+        setState(() {
+          _error = (detail != null && detail.isNotEmpty)
+              ? '${e.reason}\n$detail'
+              : e.reason;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = 'Google sign-in failed: $e');
     } finally {
